@@ -303,6 +303,58 @@ pub fn streaming_session_lateness_fixture(
         )
 }
 
+/// Emit a full late-count pane and flush a partial pane at session expiry.
+pub fn streaming_session_late_count_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    accumulating: bool,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    let late = pipeline
+        .test_stream_source(
+            "session-count-events",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 0)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+                TestStreamEvent::Elements(vec![((1, 20), 0), ((1, 30), 0)]),
+                TestStreamEvent::Elements(vec![((1, 40), 0)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )?
+        .session_windows_named("session-count-window", 5_000_000)?
+        .allowed_lateness_named("session-count-lateness", 10_000_000)?;
+    let triggered = if accumulating {
+        late.accumulating_late_count_trigger_named("session-count-policy", 2)?
+    } else {
+        late.late_count_trigger_named("session-count-policy", 2)?
+    };
+    triggered
+        .group_by_key_named("session-count-group")?
+        .reify_panes_named("session-count-pane")?
+        .with_window_named("session-count-bounds")?
+        .map_named("session-count-row", |(window, (pane, (key, mut values)))| {
+            values.sort_unstable();
+            format!(
+                "{key}|{values:?}|{}|{}|{:?}|{}|{}|{}",
+                window.start_ns,
+                window.end_ns,
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+            )
+        })?
+        .sink_named_with_config(
+            "session-count-capture",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("session-count-capture:{accumulating}:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink {
+                directory: sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )
+}
+
 /// Co-group two independently watermarked sessions with one late input.
 pub fn streaming_dual_session_lateness_fixture(
     pipeline: &Pipeline,

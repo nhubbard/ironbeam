@@ -515,6 +515,37 @@ fn late_count_requires_lateness_and_changes_graph_identity() {
 }
 
 #[test]
+fn session_late_count_has_a_valid_graph_in_both_accumulation_modes() {
+    for accumulating in [false, true] {
+        let pipeline = Pipeline::default();
+        let late = pipeline
+            .from_vec("values", vec![(1_i32, 2_i32)])
+            .unwrap()
+            .session_windows_named("sessions", 5_000_000)
+            .unwrap()
+            .allowed_lateness_named("lateness", 10_000_000)
+            .unwrap();
+        let triggered = if accumulating {
+            late.accumulating_late_count_trigger_named("late-count", 2)
+        } else {
+            late.late_count_trigger_named("late-count", 2)
+        }
+        .unwrap();
+        triggered.group_by_key_named("groups").unwrap();
+        let (graph, _) = pipeline.snapshot().unwrap();
+        graph.validate().unwrap();
+        assert_eq!(
+            graph.node("groups").unwrap().time.trigger,
+            if accumulating {
+                WindowTrigger::LateElementCountAccumulating { count: 2 }
+            } else {
+                WindowTrigger::LateElementCount { count: 2 }
+            }
+        );
+    }
+}
+
+#[test]
 fn accumulating_late_count_has_distinct_graph_identity() {
     let pipeline = Pipeline::default();
     pipeline

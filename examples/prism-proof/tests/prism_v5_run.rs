@@ -119,19 +119,20 @@ use ironbeam_prism_proof::{
     streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
     streaming_partition_fixture, streaming_representative_distinct_fixture,
     streaming_session_expiry_fixture, streaming_session_group_fixture,
-    streaming_session_late_bridge_fixture, streaming_session_lateness_fixture,
-    streaming_session_output_time_fixture, streaming_sliding_group_fixture,
-    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
-    timed_keyed_batches_fixture, timed_late_keyed_batches_fixture,
-    triple_stream_windowed_wait_collection, triple_stream_windowed_wait_fixture,
-    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
-    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
-    triple_unbounded_session_output_time_fixture, unbounded_main_bounded_wait_fixture,
-    unbounded_main_grouped_wait_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    streaming_session_late_bridge_fixture, streaming_session_late_count_fixture,
+    streaming_session_lateness_fixture, streaming_session_output_time_fixture,
+    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
+    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
+    timed_late_keyed_batches_fixture, triple_stream_windowed_wait_collection,
+    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_collection,
+    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
+    triple_unbounded_session_homogeneous_fixture, triple_unbounded_session_output_time_fixture,
+    unbounded_main_bounded_wait_fixture, unbounded_main_grouped_wait_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
+    PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -10153,6 +10154,64 @@ async fn prism_matches_direct_session_allowed_lateness() {
     .await;
     assert_eq!(terminal.0, 3, "Prism session lateness state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+#[ignore = "pinned Prism rejects stateful triggers on merging windows (Beam issue 31438)"]
+async fn prism_matches_direct_session_late_count_in_both_modes() {
+    let directory = tempfile::tempdir().unwrap();
+    let endpoint = std::env::var("IRONBEAM_PRISM_ENDPOINT").ok();
+    let _prism_job = prism_job_lock().lock().await;
+    for accumulating in [false, true] {
+        let suffix = if accumulating {
+            "accumulating"
+        } else {
+            "discarding"
+        };
+        let direct_path = directory.path().join(format!("direct-{suffix}"));
+        let portable_path = directory.path().join(format!("portable-{suffix}"));
+        let direct = Pipeline::default();
+        let sink = streaming_session_late_count_fixture(&direct, direct_path.clone(), accumulating)
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let read_rows = |path: &Path| {
+            let mut rows = std::fs::read_dir(path)
+                .unwrap()
+                .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+                .collect::<Vec<_>>();
+            rows.sort();
+            rows
+        };
+        let direct_rows = read_rows(&direct_path);
+        assert_eq!(direct_rows.len(), 3);
+        let Some(endpoint) = endpoint.as_ref() else {
+            continue;
+        };
+        let portable = Pipeline::default();
+        streaming_session_late_count_fixture(&portable, portable_path.clone(), accumulating)
+            .unwrap();
+        let variable = if accumulating {
+            "IRONBEAM_V5_PRISM_SESSION_LATE_COUNT_ACCUMULATING"
+        } else {
+            "IRONBEAM_V5_PRISM_SESSION_LATE_COUNT"
+        };
+        let terminal = run_shared_fixture(
+            endpoint,
+            &portable,
+            &format!("session-late-count-{suffix}"),
+            HashMap::from([(
+                variable.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "Prism session count state: {terminal:?}");
+        assert_eq!(read_rows(&portable_path), direct_rows);
+    }
 }
 
 #[tokio::test]

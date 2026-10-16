@@ -417,14 +417,13 @@ fn closed_session_lineage_survives_checkpoint_for_late_bridge() {
     pipeline
         .from_vec("source", vec![(1_i32, 2_i32)])
         .unwrap()
-        .fixed_windows("window", 10_000_000)
+        .session_windows_named("window", 5_000_000)
         .unwrap()
         .allowed_lateness_named("lateness", 10_000_000)
         .unwrap()
         .group_by_key_named("group")
         .unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
-    // Exercise the fold's session state through a configured positive-lateness fold.
     let window = Window::Session { gap_ns: 5_000_000 };
     let event = |time, value| Envelope {
         pane: ironbeam_core::PaneInfo::NO_FIRING,
@@ -491,7 +490,7 @@ fn closed_session_does_not_suppress_open_session_after_bridge_restore() {
     pipeline
         .from_vec("source", vec![(1_i32, 10_i32)])
         .unwrap()
-        .fixed_windows("window", 10_000_000)
+        .session_windows_named("window", 5_000_000)
         .unwrap()
         .allowed_lateness_named("lateness", 10_000_000)
         .unwrap()
@@ -543,7 +542,7 @@ fn late_session_drain_keeps_unrelated_open_session_after_restore() {
     pipeline
         .from_vec("source", vec![(1_i32, 10_i32)])
         .unwrap()
-        .fixed_windows("window", 10_000_000)
+        .session_windows_named("window", 5_000_000)
         .unwrap()
         .allowed_lateness_named("lateness", 10_000_000)
         .unwrap()
@@ -588,6 +587,83 @@ fn late_session_drain_keeps_unrelated_open_session_after_restore() {
         .downcast::<(i32, Vec<i32>)>()
         .unwrap();
     assert_eq!(values, [20]);
+}
+
+#[test]
+fn session_late_count_restores_partial_pane_in_both_modes() {
+    for accumulating in [false, true] {
+        let pipeline = Pipeline::default();
+        let late = pipeline
+            .from_vec("source", vec![(1_i32, 10_i32)])
+            .unwrap()
+            .session_windows_named("window", 5_000_000)
+            .unwrap()
+            .allowed_lateness_named("lateness", 10_000_000)
+            .unwrap();
+        let triggered = if accumulating {
+            late.accumulating_late_count_trigger_named("trigger", 2)
+        } else {
+            late.late_count_trigger_named("trigger", 2)
+        }
+        .unwrap();
+        triggered.group_by_key_named("group").unwrap();
+        let (_, registry) = pipeline.snapshot().unwrap();
+        let window = Window::Session { gap_ns: 5_000_000 };
+        let event = |value| Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, value)),
+            timestamp_ns: 0,
+            window: window.clone(),
+            assigned_window: window.assign(0).unwrap(),
+        };
+        let mut fold = registry.open_fold("group").unwrap();
+        fold.add(event(10)).unwrap();
+        assert_eq!(fold.drain_closed(5_000_000).unwrap().0.len(), 1);
+        fold.add(event(20)).unwrap();
+        assert!(
+            fold.drain_late_at(Some(5_000_000), false)
+                .unwrap()
+                .0
+                .is_empty()
+        );
+        let saved = fold.checkpoint_state().unwrap().unwrap();
+        let mut resumed = registry.open_fold("group").unwrap();
+        resumed.restore_checkpoint_state(&saved).unwrap();
+        resumed.add(event(30)).unwrap();
+        let (late, _) = resumed.drain_late_at(Some(5_000_000), false).unwrap();
+        assert_eq!(late.len(), 1);
+        assert_eq!(late[0].pane.timing, PaneTiming::Late);
+        assert_eq!(late[0].pane.index, 1);
+        let (_, values) = late[0].value.downcast_ref::<(i32, Vec<i32>)>().unwrap();
+        assert_eq!(
+            values.as_slice(),
+            if accumulating {
+                &[10, 20, 30][..]
+            } else {
+                &[20, 30][..]
+            }
+        );
+        resumed.add(event(40)).unwrap();
+        let saved = resumed.checkpoint_state().unwrap().unwrap();
+        let mut resumed = registry.open_fold("group").unwrap();
+        resumed.restore_checkpoint_state(&saved).unwrap();
+        let (final_pane, _) = resumed.drain_late_at(Some(15_000_000), true).unwrap();
+        assert_eq!(final_pane.len(), 1);
+        assert_eq!(final_pane[0].pane.index, 2);
+        assert!(final_pane[0].pane.is_last);
+        let (_, values) = final_pane[0]
+            .value
+            .downcast_ref::<(i32, Vec<i32>)>()
+            .unwrap();
+        assert_eq!(
+            values.as_slice(),
+            if accumulating {
+                &[10, 20, 30, 40][..]
+            } else {
+                &[40][..]
+            }
+        );
+    }
 }
 
 #[test]

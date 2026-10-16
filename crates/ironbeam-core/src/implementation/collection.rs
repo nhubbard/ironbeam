@@ -913,7 +913,8 @@ impl<T: Element> PCollection<T> {
 
     /// Fire a late pane after `count` new elements reach a key and window.
     /// Set a positive allowed lateness before this policy. Incomplete late
-    /// panes are emitted when the window expires.
+    /// panes are emitted when the window expires. Direct supports sessions;
+    /// the pinned Prism runner rejects count triggers on merging windows.
     pub fn late_count_trigger_named(&self, key: &str, count: u64) -> Result<Self, Error> {
         self.set_late_count_trigger_named(key, count, false)
     }
@@ -929,8 +930,8 @@ impl<T: Element> PCollection<T> {
             return Err(Error::graph(key, "late count trigger requires a positive 32-bit count"));
         }
         let time = self.parent()?.time;
-        if time.allowed_lateness_ns == 0 || !time.window.is_millisecond_aligned_fixed_or_sliding() {
-            return Err(Error::graph(key, "late count trigger requires allowed lateness and millisecond-aligned fixed or sliding windows"));
+        if time.allowed_lateness_ns == 0 || !time.window.is_millisecond_aligned_finite() {
+            return Err(Error::graph(key, "late count trigger requires allowed lateness and a millisecond-aligned finite window"));
         }
         self.next_with_time_policy(
             key,

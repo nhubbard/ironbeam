@@ -2,8 +2,8 @@
 
 use beam_proto::pipeline_v1::test_stream_payload::event::Event as StreamEvent;
 use beam_proto::pipeline_v1::{
-    accumulation_mode, output_time, timestamp_transform, trigger, ParDoPayload, StateSpec,
-    TimerFamilySpec,
+    accumulation_mode, merge_status, output_time, timestamp_transform, trigger, ParDoPayload,
+    StateSpec, TimerFamilySpec,
 };
 use ironbeam_core::{
     cogroup_by_key_2_named, Error, OrderedFoldFn, Pipeline, Replay, SinkMode, SinkSpec,
@@ -831,6 +831,64 @@ fn accumulating_late_count_sets_beam_accumulation_mode() {
         accumulation_mode::Enum::Accumulating as i32
     );
     assert_eq!(strategy.allowed_lateness, 5);
+}
+
+#[test]
+fn session_late_count_lowers_to_beam_merging_window_strategy() {
+    for accumulating in [false, true] {
+        let pipeline = Pipeline::default();
+        let late = pipeline
+            .from_vec("values", vec![(1_i32, 2_i32)])
+            .unwrap()
+            .session_windows_named("sessions", 5_000_000)
+            .unwrap()
+            .allowed_lateness_named("lateness", 10_000_000)
+            .unwrap();
+        let triggered = if accumulating {
+            late.accumulating_late_count_trigger_named("late-count", 2)
+        } else {
+            late.late_count_trigger_named("late-count", 2)
+        }
+        .unwrap();
+        triggered
+            .group_by_key_named("groups")
+            .unwrap()
+            .output("result")
+            .unwrap();
+        let (graph, _) = pipeline.snapshot().unwrap();
+        let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+        validate_beam_contract(&graph, &translated).unwrap();
+        let components = translated.pipeline.components.as_ref().unwrap();
+        let trigger_pc = components
+            .pcollections
+            .values()
+            .find(|pc| pc.unique_name == "late-count")
+            .unwrap();
+        let strategy = &components.windowing_strategies[&trigger_pc.windowing_strategy_id];
+        assert_eq!(strategy.merge_status, merge_status::Enum::NeedsMerge as i32);
+        assert_eq!(strategy.allowed_lateness, 10);
+        assert_eq!(
+            strategy.accumulation_mode,
+            if accumulating {
+                accumulation_mode::Enum::Accumulating as i32
+            } else {
+                accumulation_mode::Enum::Discarding as i32
+            }
+        );
+        let Some(trigger::Trigger::AfterEndOfWindow(end)) = strategy
+            .trigger
+            .as_ref()
+            .and_then(|trigger| trigger.trigger.as_ref())
+        else {
+            panic!("expected end-of-window trigger");
+        };
+        assert!(matches!(
+            end.late_firings.as_ref().and_then(|trigger| trigger.trigger.as_ref()),
+            Some(trigger::Trigger::Repeat(repeat))
+                if matches!(repeat.subtrigger.as_ref().and_then(|trigger| trigger.trigger.as_ref()),
+                    Some(trigger::Trigger::ElementCount(count)) if count.element_count == 2)
+        ));
+    }
 }
 
 #[test]

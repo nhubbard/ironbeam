@@ -405,6 +405,13 @@ emit the same late pane metadata. A late bridge after a closed session has
 already fired still differs: Direct includes the closed interval in the new
 window, while pinned Prism omits it.
 
+For session windows with positive allowed lateness, Direct also supports
+`late_count_trigger_named` and its accumulating form. A count of two emits
+a pane after two new late elements; a remaining partial pane is emitted when
+the session expires. The pinned local Prism version rejects stateful triggers
+on merging windows during job preparation, so this policy does not have a
+Prism execution proof.
+
 Bounded session joins and co-groups merge intervals across their inputs
 before matching keyed values. Direct and local Prism agree when another input
 bridges two sessions; Direct also checks inner, left, right, and full join

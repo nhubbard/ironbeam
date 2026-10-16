@@ -413,6 +413,100 @@ fn two_source_session_lateness_keeps_late_and_open_panes_separate() {
 }
 
 #[test]
+fn two_source_session_late_count_fires_after_threshold_and_at_expiry() {
+    for accumulating in [false, true] {
+        let pipeline = Pipeline::default();
+        let committed = Arc::new(Mutex::new(Vec::new()));
+        let accepted = Arc::new(Mutex::new(HashSet::new()));
+        let make = |name: &str, events| {
+            let late = pipeline
+                .test_stream_source(name, events)
+                .unwrap()
+                .session_windows_named(&format!("{name}-window"), 5_000_000)
+                .unwrap()
+                .allowed_lateness_named(&format!("{name}-lateness"), 10_000_000)
+                .unwrap();
+            if accumulating {
+                late.accumulating_late_count_trigger_named(&format!("{name}-count"), 2)
+            } else {
+                late.late_count_trigger_named(&format!("{name}-count"), 2)
+            }
+            .unwrap()
+        };
+        let first = make(
+            "first",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 0)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+                TestStreamEvent::Elements(vec![((1, 30), 0), ((1, 40), 0)]),
+                TestStreamEvent::Elements(vec![((1, 50), 0)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        );
+        let second = make(
+            "second",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 20_i32), 0)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        );
+        let sink = first
+            .co_group_homogeneous_named("group", &[second])
+            .unwrap()
+            .reify_panes_named("pane")
+            .unwrap()
+            .map_named("format", |(pane, (key, buckets))| {
+                format!("{key}:{buckets:?}:{:?}:{}", pane.timing, pane.index)
+            })
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                format!("two-source-session-count-{accumulating}"),
+                {
+                    let committed = Arc::clone(&committed);
+                    let accepted = Arc::clone(&accepted);
+                    move || {
+                        Ok(Box::new(Capture {
+                            committed: Arc::clone(&committed),
+                            accepted: Arc::clone(&accepted),
+                            bundle: None,
+                            staged: Vec::new(),
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        assert_eq!(
+            committed.lock().unwrap().as_slice(),
+            if accumulating {
+                [
+                    "1:[[10], [20]]:OnTime:0",
+                    "1:[[10, 30, 40], [20]]:Late:1",
+                    "1:[[10, 30, 40, 50], [20]]:Late:2",
+                ]
+            } else {
+                [
+                    "1:[[10], [20]]:OnTime:0",
+                    "1:[[30, 40], []]:Late:1",
+                    "1:[[50], []]:Late:2",
+                ]
+            }
+        );
+    }
+}
+
+#[test]
 fn multi_source_late_count_waits_for_threshold_and_flushes_at_expiry() {
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));

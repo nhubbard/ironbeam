@@ -64,16 +64,16 @@ use ironbeam_prism_proof::{
     streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
     streaming_representative_distinct_fixture, streaming_session_expiry_fixture,
     streaming_session_group_fixture, streaming_session_late_bridge_fixture,
-    streaming_session_lateness_fixture, streaming_session_output_time_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_fixture,
-    timed_keyed_batches_fixture, timed_late_keyed_batches_fixture,
-    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_fixture,
-    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_fixture,
-    triple_unbounded_session_output_time_fixture, unbounded_main_bounded_wait_fixture,
-    unbounded_main_grouped_wait_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow,
+    streaming_session_late_count_fixture, streaming_session_lateness_fixture,
+    streaming_session_output_time_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
+    timed_late_keyed_batches_fixture, triple_stream_windowed_wait_fixture,
+    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_fixture,
+    triple_unbounded_session_homogeneous_fixture, triple_unbounded_session_output_time_fixture,
+    unbounded_main_bounded_wait_fixture, unbounded_main_grouped_wait_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture};
@@ -1533,6 +1533,16 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
     }
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_STREAM_SESSION_LATENESS") {
         return streaming_session_lateness_fixture(pipeline, directory.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_SESSION_LATE_COUNT") {
+        return streaming_session_late_count_fixture(pipeline, directory.into(), false)
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_SESSION_LATE_COUNT_ACCUMULATING") {
+        return streaming_session_late_count_fixture(pipeline, directory.into(), true)
             .map(|_| ())
             .map_err(Into::into);
     }

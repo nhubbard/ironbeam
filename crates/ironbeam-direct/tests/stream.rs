@@ -472,6 +472,91 @@ fn session_lateness_keeps_late_and_distant_panes_separate() {
 }
 
 #[test]
+fn session_late_count_fires_full_and_partial_panes_in_both_modes() {
+    for accumulating in [false, true] {
+        let committed = Arc::new(Mutex::new(Vec::new()));
+        let pipeline = Pipeline::default();
+        let late = pipeline
+            .test_stream_source(
+                "events",
+                vec![
+                    TestStreamEvent::Elements(vec![((1_i32, 10_i32), 0)]),
+                    TestStreamEvent::AdvanceWatermark(5_000_000),
+                    TestStreamEvent::Elements(vec![((1, 20), 0), ((1, 30), 0)]),
+                    TestStreamEvent::Elements(vec![((1, 40), 0)]),
+                    TestStreamEvent::AdvanceWatermark(15_000_000),
+                ],
+            )
+            .unwrap()
+            .session_windows_named("sessions", 5_000_000)
+            .unwrap()
+            .allowed_lateness_named("lateness", 10_000_000)
+            .unwrap();
+        let triggered = if accumulating {
+            late.accumulating_late_count_trigger_named("late-count", 2)
+        } else {
+            late.late_count_trigger_named("late-count", 2)
+        }
+        .unwrap();
+        let sink = triggered
+            .group_by_key_named("group")
+            .unwrap()
+            .reify_panes_named("pane")
+            .unwrap()
+            .with_window_named("bounds")
+            .unwrap()
+            .map_named("score", |(window, (pane, (_, values)))| {
+                assert_eq!((window.start_ns, window.end_ns), (0, 5_000_000));
+                assert_eq!(pane.is_first, pane.index == 0);
+                assert_eq!(pane.is_last, pane.index == 2);
+                assert_eq!(
+                    pane.timing,
+                    if pane.index == 0 {
+                        ironbeam_core::PaneTiming::OnTime
+                    } else {
+                        ironbeam_core::PaneTiming::Late
+                    }
+                );
+                pane.index as i32 * 10_000 + values.iter().sum::<i32>()
+            })
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                format!("session-late-count-{accumulating}"),
+                {
+                    let committed = Arc::clone(&committed);
+                    move || {
+                        Ok(Box::new(Capture {
+                            committed: Arc::clone(&committed),
+                            staged: Vec::new(),
+                            fail_commit: Arc::new(AtomicBool::new(false)),
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        assert_eq!(
+            *committed.lock().unwrap(),
+            if accumulating {
+                vec![10, 10_060, 20_100]
+            } else {
+                vec![10, 10_050, 20_040]
+            }
+        );
+    }
+}
+
+#[test]
 fn unbounded_session_bridge_merges_after_checkpoint_restart() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let opens = Arc::new(Mutex::new(Vec::new()));

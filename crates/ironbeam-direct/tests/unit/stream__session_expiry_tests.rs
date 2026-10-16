@@ -7,7 +7,7 @@ fn session_late_pane_does_not_consume_an_open_window() {
     pipeline
         .from_vec("source", vec![(1_i32, 10_i32)])
         .unwrap()
-        .fixed_windows("window", 10_000_000)
+        .session_windows_named("window", 5_000_000)
         .unwrap()
         .allowed_lateness_named("lateness", 10_000_000)
         .unwrap()
@@ -48,7 +48,7 @@ fn expiring_session_flushes_partial_late_count_without_closing_other_session() {
     pipeline
         .from_vec("source", vec![(1_i32, 10_i32)])
         .unwrap()
-        .fixed_windows("window", 10_000_000)
+        .session_windows_named("window", 5_000_000)
         .unwrap()
         .allowed_lateness_named("lateness", 10_000_000)
         .unwrap()

@@ -99,7 +99,7 @@ impl Graph {
                 && (count == 0
                     || count > i32::MAX as u64
                     || node.time.allowed_lateness_ns == 0
-                    || !node.time.window.is_millisecond_aligned_fixed_or_sliding())
+                    || !node.time.window.is_millisecond_aligned_finite())
             {
                 return Err(Error::graph(
                     &node.key,
