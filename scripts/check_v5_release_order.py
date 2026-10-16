@@ -24,6 +24,8 @@ def manifest(path: Path) -> dict:
 
 def release_order(root: Path = ROOT) -> list[tuple[str, str]]:
     workspace = manifest(root / "Cargo.toml")
+    if workspace.get("patch"):
+        raise ValueError("release manifests must not override registry dependencies with patches")
     workspace_dependencies = workspace.get("workspace", {}).get("dependencies", {})
     package_paths = [
         (root / member / "Cargo.toml").resolve()
@@ -54,6 +56,8 @@ def release_order(root: Path = ROOT) -> list[tuple[str, str]]:
                     if inherited is None:
                         raise ValueError(f"{name}: missing workspace dependency {alias}")
                     specification = inherited
+                if isinstance(specification, dict) and "git" in specification:
+                    raise ValueError(f"{name}: {alias} uses a Git dependency instead of a registry version")
                 if not isinstance(specification, dict) or "path" not in specification:
                     continue
                 base = root if from_workspace else path.parent

@@ -63,7 +63,7 @@ rust-version = "1.94.0"
 version = "5.0.0"
 edition = "2024"
 license = "MIT"
-description = "A batch processing clone of Apache Beam in Rust."
+description = "Rust data pipelines with local and Apache Beam portable runners"
 repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
