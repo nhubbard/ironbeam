@@ -194,6 +194,48 @@ pub fn bounded_session_join_fixture(
         )
 }
 
+/// A side-input bridge joins two main-side sessions under one output-time policy.
+pub fn bounded_session_join_output_time_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    let left = pipeline
+        .from_vec(
+            "session-time-join-left-source",
+            vec![(0_i64, ("a".to_owned(), 1_i32)), (8_000_000, ("a".to_owned(), 2))],
+        )?
+        .timestamps_from_pairs_named("session-time-join-left-time")?
+        .session_windows_named("session-time-join-left-window", 5_000_000)?;
+    let right = pipeline
+        .from_vec("session-time-join-right-source", vec![(4_000_000_i64, ("a".to_owned(), 10_i32))])?
+        .timestamps_from_pairs_named("session-time-join-right-time")?
+        .session_windows_named("session-time-join-right-window", 5_000_000)?;
+    let apply = |values: ironbeam_core::PCollection<(String, i32)>, key| match policy {
+        ironbeam_core::WindowOutputTime::EndOfWindow => values.end_of_window_output_time_named(key),
+        ironbeam_core::WindowOutputTime::LatestInPane => values.latest_in_pane_output_time_named(key),
+        ironbeam_core::WindowOutputTime::EarliestInPane => Ok(values),
+    };
+    let left = apply(left, "session-time-join-left-policy")?;
+    let right = apply(right, "session-time-join-right-policy")?;
+    left.join_inner_named("session-time-join", &right)?
+        .reify_timestamps_named("session-time-join-reify")?
+        .with_window_named("session-time-join-bounds")?
+        .map_named("session-time-join-row", |(window, (time, (key, (left, right))))| {
+            format!("{key}|{left}|{right}|{time}|{}|{}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "session-time-join-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+            format!("session-time-join-contract:{}", path.display()),
+            move || Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })),
+        )
+}
+
 /// Three keyed branches of one source contribute to one merged session.
 /// A shared source keeps the bounded Prism fixture's watermark behind every
 /// connecting record; independent-source scheduling is tracked separately.
@@ -247,8 +289,24 @@ pub fn bounded_session_cogroup_fixture(
 
 /// A late-arriving bridge joins two prior sessions for one key.
 pub fn session_group_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    session_group_fixture_with_policy(pipeline, path, None)
+}
+
+pub fn session_group_output_time_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<Sink<String>, Error> {
+    session_group_fixture_with_policy(pipeline, path, Some(policy))
+}
+
+fn session_group_fixture_with_policy(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    policy: Option<ironbeam_core::WindowOutputTime>,
+) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();
-    pipeline
+    let keyed = pipeline
         .from_vec(
             "session-source",
             vec![
@@ -262,7 +320,17 @@ pub fn session_group_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<
             ],
         )?
         .timestamps_from_pairs_named("session-time")?
-        .session_windows_named("session-group/session", 5_000_000)?
+        .session_windows_named("session-group/session", 5_000_000)?;
+    let keyed = match policy {
+        Some(ironbeam_core::WindowOutputTime::EndOfWindow) => {
+            keyed.end_of_window_output_time_named("session-output-time")?
+        }
+        Some(ironbeam_core::WindowOutputTime::LatestInPane) => {
+            keyed.latest_in_pane_output_time_named("session-output-time")?
+        }
+        _ => keyed,
+    };
+    keyed
         .group_by_key_named("session-group")?
         .reify_timestamps_named("session-group-time")?
         .with_window_named("session-group-window")?

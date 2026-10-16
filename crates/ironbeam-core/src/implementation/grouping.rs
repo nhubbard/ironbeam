@@ -351,6 +351,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
                 let prior = row.4.expect("session group has an interval");
                 merged.start_ns = merged.start_ns.min(prior.start_ns);
                 merged.end_ns = merged.end_ns.max(prior.end_ns);
+                if self.output_time == WindowOutputTime::LatestInPane {
+                    let latest = self
+                        .latest_timestamps
+                        .remove(&(group_key.clone(), prior))
+                        .unwrap_or(row.2)
+                        .max(timestamp_ns);
+                    self.latest_timestamps
+                        .insert((group_key.clone(), merged), latest);
+                }
                 row.1.push(value);
                 row.2 = row.2.min(timestamp_ns);
                 row.4 = Some(merged);
@@ -360,23 +369,39 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
             }
             if let Some(&primary) = matches.first() {
                 let mut timestamp = timestamp_ns;
+                let mut latest = timestamp_ns;
                 let mut values = Vec::new();
                 for &index in matches.iter().rev() {
                     let (_, prior_values, prior_timestamp, _, prior_interval) =
                         self.groups.remove(index);
                     let interval = prior_interval.expect("session group has an interval");
+                    if self.output_time == WindowOutputTime::LatestInPane {
+                        latest = latest.max(
+                            self.latest_timestamps
+                                .remove(&(group_key.clone(), interval))
+                                .unwrap_or(prior_timestamp),
+                        );
+                    }
                     merged.start_ns = merged.start_ns.min(interval.start_ns);
                     merged.end_ns = merged.end_ns.max(interval.end_ns);
                     timestamp = timestamp.min(prior_timestamp);
                     values.extend(prior_values);
                 }
                 values.push(value);
+                if self.output_time == WindowOutputTime::LatestInPane {
+                    self.latest_timestamps
+                        .insert((group_key.clone(), merged), latest);
+                }
                 self.groups.insert(
                     primary,
                     (group_key, values, timestamp, window, Some(merged)),
                 );
                 self.rebuild_indices();
             } else {
+                if self.output_time == WindowOutputTime::LatestInPane {
+                    self.latest_timestamps
+                        .insert((group_key.clone(), merged), timestamp_ns);
+                }
                 let index = self.groups.len();
                 self.window_indices.insert((group_key.clone(), merged), index);
                 self.session_indices
@@ -433,8 +458,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             .downcast::<(K, V)>()
             .map_err(|_| Error::execution(&self.key, "direct", "group input type mismatch"))?;
         let scope = assigned_window.map(|interval| (group_key.clone(), interval));
+        let is_session = matches!(window, Window::Session { .. });
         self.add_row(group_key, value, timestamp_ns, window, assigned_window);
         if self.output_time == WindowOutputTime::LatestInPane
+            && !is_session
             && let Some(scope) = scope
         {
             self.latest_timestamps

@@ -818,8 +818,8 @@ impl<T: Element> PCollection<T> {
         )
     }
 
-    /// Timestamp grouped output at the final millisecond in each fixed or
-    /// sliding window. The window dimensions must be whole milliseconds.
+    /// Timestamp grouped output at the final millisecond in each finite
+    /// window. The window dimensions must be whole milliseconds.
     pub fn end_of_window_output_time_named(&self, key: &str) -> Result<Self, Error> {
         self.set_output_time_named(key, WindowOutputTime::EndOfWindow)
     }
@@ -831,8 +831,8 @@ impl<T: Element> PCollection<T> {
 
     fn set_output_time_named(&self, key: &str, policy: WindowOutputTime) -> Result<Self, Error> {
         let window = self.parent()?.time.window;
-        if !window.is_millisecond_aligned_fixed_or_sliding() {
-            return Err(Error::graph(key, "output time policy requires millisecond-aligned fixed or sliding windows"));
+        if !window.is_millisecond_aligned_finite() {
+            return Err(Error::graph(key, "output time policy requires a millisecond-aligned finite window"));
         }
         self.next_with_time_policy(
             key,

@@ -140,7 +140,7 @@ pane.
 ### Group output timestamps
 
 By default, GroupByKey uses the earliest event timestamp in its pane. A
-fixed or sliding window can instead timestamp grouped output at the final
+fixed, sliding, or session window can instead timestamp grouped output at the final
 whole millisecond in the interval:
 
 ```rust
@@ -166,8 +166,17 @@ output is stamped 7 ms, regardless of arrival order. An accumulating pane
 retains the latest timestamp of all values it contains.
 
 Both policies are part of the graph identity and Beam windowing strategy.
-Window sizes, periods, and offsets must be whole milliseconds. They also apply
-to co-groups and joins when every input has the same windowing declaration.
+Window sizes, periods, offsets, and session gaps must be whole milliseconds. In
+a merged session, end-of-window uses the final merged interval; latest-in-pane
+uses the latest input event time, including events seen before a checkpoint or
+before a later event bridged two sessions. Direct and the pinned local Prism
+runner agree on bounded and one-source unbounded merged-session fixtures for
+both policies. The unbounded fixture inserts a bridge after a watermark
+advance and drops an event after closure.
+
+The policies also apply to co-groups and joins when every input has the same
+windowing declaration. A bounded two-input session join with a bridge from the
+second input agrees on both policies in Direct and local Prism.
 For a join, the latest-in-pane timestamp is the latest event timestamp for
 the entire key and window, including input rows that have no match. The default
 join timestamp remains the earlier timestamp of each matched pair; an unmatched

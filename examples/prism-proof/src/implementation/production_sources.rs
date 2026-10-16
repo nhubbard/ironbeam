@@ -219,6 +219,57 @@ pub fn streaming_session_group_fixture(
     )
 }
 
+/// Compare output-time policies after a late bridge joins two open sessions.
+pub fn streaming_session_output_time_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    let keyed = pipeline.test_stream_source(
+        "stream-session-time-events",
+        vec![
+            TestStreamEvent::Elements(vec![
+                ((3_i32, 11_i32), -10_000_000),
+                ((1_i32, 1_i32), 0),
+                ((1, 2), 8_000_000),
+                ((2, 7), 4_000_000),
+            ]),
+            TestStreamEvent::AdvanceWatermark(1_000_000),
+            TestStreamEvent::Elements(vec![((1, 3), 4_000_000)]),
+            TestStreamEvent::AdvanceWatermark(20_000_000),
+            TestStreamEvent::Elements(vec![((1, 99), 0)]),
+        ],
+    )?
+    .session_windows_named("stream-session-time-window", 5_000_000)?;
+    let keyed = match policy {
+        ironbeam_core::WindowOutputTime::EndOfWindow => {
+            keyed.end_of_window_output_time_named("stream-session-time-policy")?
+        }
+        ironbeam_core::WindowOutputTime::LatestInPane => {
+            keyed.latest_in_pane_output_time_named("stream-session-time-policy")?
+        }
+        ironbeam_core::WindowOutputTime::EarliestInPane => keyed,
+    };
+    keyed
+        .group_by_key_named("stream-session-time-group")?
+        .reify_timestamps_named("stream-session-time-reify")?
+        .with_window_named("stream-session-time-bounds")?
+        .map_named("stream-session-time-row", |(window, (time, (key, mut values)))| {
+            values.sort_unstable();
+            format!("{key}|{values:?}|{time}|{}|{}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "stream-session-time-capture",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("stream-session-time-capture:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink {
+                directory: sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )
+}
+
 /// Explicitly ordered multi-row keyed batches on the same unbounded source.
 pub fn streaming_ordered_batch_fixture(
     pipeline: &Pipeline,

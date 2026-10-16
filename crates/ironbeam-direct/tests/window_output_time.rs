@@ -2,6 +2,63 @@ use ironbeam_core::{Pipeline, WindowOutputTime, cogroup_by_key_2_named};
 use ironbeam_direct::{DirectRunner, JobConfig};
 
 #[test]
+fn bounded_session_join_uses_merged_output_time_policy() {
+    for (policy, expected_time) in [
+        (WindowOutputTime::EndOfWindow, 12_000_000),
+        (WindowOutputTime::LatestInPane, 8_000_000),
+    ] {
+        let pipeline = Pipeline::default();
+        let left = pipeline
+            .from_vec(
+                "left",
+                vec![
+                    (0_i64, ("a".to_owned(), 1_i32)),
+                    (8_000_000, ("a".to_owned(), 2)),
+                ],
+            )
+            .unwrap()
+            .timestamps_from_pairs_named("left-time")
+            .unwrap()
+            .session_windows_named("left-window", 5_000_000)
+            .unwrap();
+        let right = pipeline
+            .from_vec("right", vec![(4_000_000_i64, ("a".to_owned(), 10_i32))])
+            .unwrap()
+            .timestamps_from_pairs_named("right-time")
+            .unwrap()
+            .session_windows_named("right-window", 5_000_000)
+            .unwrap();
+        let apply = |values: ironbeam_core::PCollection<(String, i32)>, key| match policy {
+            WindowOutputTime::EndOfWindow => values.end_of_window_output_time_named(key),
+            WindowOutputTime::LatestInPane => values.latest_in_pane_output_time_named(key),
+            WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let left = apply(left, "left-policy").unwrap();
+        let right = apply(right, "right-policy").unwrap();
+        let output = left
+            .join_inner_named("join", &right)
+            .unwrap()
+            .reify_timestamps_named("timestamp")
+            .unwrap()
+            .with_window_named("bounds")
+            .unwrap()
+            .output("result")
+            .unwrap();
+        let mut rows = DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0;
+        rows.sort_by_key(|(_, (_, (_, (left, _))))| *left);
+        assert_eq!(rows.len(), 2);
+        for (window, (time, (key, (left, right)))) in rows {
+            assert_eq!((window.start_ns, window.end_ns), (0, 13_000_000));
+            assert_eq!((time, key, right), (expected_time, "a".to_owned(), 10));
+            assert!((1..=2).contains(&left));
+        }
+    }
+}
+
+#[test]
 fn fixed_window_group_uses_end_of_window_output_timestamp() {
     let pipeline = Pipeline::default();
     let output = pipeline

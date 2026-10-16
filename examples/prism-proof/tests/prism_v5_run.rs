@@ -51,23 +51,23 @@ use ironbeam_prism_proof::{
     allowed_lateness_fixture, bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
     bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
-    bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
-    bounded_three_way_cogroup_fixture, bounded_value_state_fixture, bounded_wait_on_fixture,
-    combine_output_time_fixture, combined_count_fixture, completion_signal,
-    count_and_processing_time_trigger_collection, count_and_processing_time_trigger_fixture,
-    count_then_processing_time_trigger_fixture, count_trigger_stream_fixture, dead_letter_fixture,
-    distinct_window_fixture, dual_count_and_time_cogroup_collection,
-    dual_count_and_time_cogroup_fixture, dual_count_or_time_cogroup_fixture,
-    dual_late_cogroup_collection, dual_late_cogroup_fixture, dual_late_count_cogroup_collection,
-    dual_late_count_cogroup_fixture, dual_positive_late_cogroup_fixture,
-    dual_positive_late_full_join_fixture, dual_positive_late_join_time_fixture,
-    dual_processing_time_cogroup_collection, dual_processing_time_cogroup_fixture,
-    dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
-    dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
-    dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
-    dual_unbounded_fanin_output_time_collection, dual_unbounded_fanin_output_time_fixture,
-    dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
-    dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    bounded_session_join_fixture, bounded_session_join_output_time_fixture,
+    bounded_side_input_fixture, bounded_ten_way_cogroup_fixture, bounded_three_way_cogroup_fixture,
+    bounded_value_state_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
+    combined_count_fixture, completion_signal, count_and_processing_time_trigger_collection,
+    count_and_processing_time_trigger_fixture, count_then_processing_time_trigger_fixture,
+    count_trigger_stream_fixture, dead_letter_fixture, distinct_window_fixture,
+    dual_count_and_time_cogroup_collection, dual_count_and_time_cogroup_fixture,
+    dual_count_or_time_cogroup_fixture, dual_late_cogroup_collection, dual_late_cogroup_fixture,
+    dual_late_count_cogroup_collection, dual_late_count_cogroup_fixture,
+    dual_positive_late_cogroup_fixture, dual_positive_late_full_join_fixture,
+    dual_positive_late_join_time_fixture, dual_processing_time_cogroup_collection,
+    dual_processing_time_cogroup_fixture, dual_stream_windowed_side_collection,
+    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_collection,
+    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_collection,
+    dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_collection,
+    dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_collection,
+    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
@@ -100,7 +100,7 @@ use ironbeam_prism_proof::{
     portable_object_parquet_fixture, portable_object_parquet_replay_fixture,
     portable_tfrecord_collection, portable_tfrecord_fixture, processing_time_trigger_collection,
     processing_time_trigger_fixture, production_join_cogroup_fixture, production_stream_fixture,
-    representative_distinct_fixture, session_group_fixture,
+    representative_distinct_fixture, session_group_fixture, session_group_output_time_fixture,
     shared_accumulating_early_cogroup_collection, shared_accumulating_early_cogroup_fixture,
     shared_accumulating_late_cogroup_collection, shared_accumulating_late_cogroup_fixture,
     shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
@@ -109,17 +109,18 @@ use ironbeam_prism_proof::{
     streaming_distinct_window_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
     streaming_ordered_keyed_fixture, streaming_partition_fixture,
     streaming_representative_distinct_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
-    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
-    timed_late_keyed_batches_fixture, triple_stream_windowed_wait_collection,
-    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_collection,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
-    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
-    triple_unbounded_session_homogeneous_fixture, unbounded_main_bounded_wait_fixture,
-    unbounded_main_grouped_wait_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    streaming_session_output_time_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
+    timed_keyed_batches_fixture, timed_late_keyed_batches_fixture,
+    triple_stream_windowed_wait_collection, triple_stream_windowed_wait_fixture,
+    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
+    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
+    unbounded_main_bounded_wait_fixture, unbounded_main_grouped_wait_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
+    PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -7228,6 +7229,155 @@ async fn prism_matches_direct_merging_keyed_sessions() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_merged_session_output_time_policies() {
+    let directory = tempfile::tempdir().unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    for (policy, env_name, expected) in [
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            "IRONBEAM_V5_PRISM_SESSION_END_TIME",
+            [
+                "a|[1, 2, 3, 4]|17000000|0|18000000",
+                "b|[5]|8000000|4000000|9000000",
+                "c|[6, 7]|3000000|-4000000|4000000",
+            ],
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            "IRONBEAM_V5_PRISM_SESSION_LATEST_TIME",
+            [
+                "a|[1, 2, 3, 4]|13000000|0|18000000",
+                "b|[5]|4000000|4000000|9000000",
+                "c|[6, 7]|-1000000|-4000000|4000000",
+            ],
+        ),
+    ] {
+        let label = match policy {
+            ironbeam_core::WindowOutputTime::EndOfWindow => "end",
+            ironbeam_core::WindowOutputTime::LatestInPane => "latest",
+            ironbeam_core::WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let direct_path = directory.path().join(format!("direct-session-{label}.txt"));
+        let portable_path = directory
+            .path()
+            .join(format!("portable-session-{label}.txt"));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink =
+            session_group_output_time_fixture(&direct_pipeline, direct_path.clone(), policy)
+                .unwrap();
+        DirectRunner
+            .run_sink(&direct_sink, &JobConfig::default())
+            .unwrap();
+        let direct_rows = read_rows(&direct_path);
+        assert_eq!(direct_rows, expected, "Direct {label} output time");
+        let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+            continue;
+        };
+        let _prism_job = prism_job_lock().lock().await;
+        let portable_pipeline = Pipeline::default();
+        session_group_output_time_fixture(&portable_pipeline, portable_path.clone(), policy)
+            .unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &portable_pipeline,
+            "session-output-time",
+            HashMap::from([(
+                env_name.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "Prism session {label} state: {terminal:?}");
+        assert_eq!(read_rows(&portable_path), direct_rows, "session {label}");
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_bounded_session_join_output_times() {
+    let directory = tempfile::tempdir().unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    for (policy, env_name, expected_time) in [
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            "IRONBEAM_V5_PRISM_SESSION_JOIN_END_TIME",
+            12_000_000,
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            "IRONBEAM_V5_PRISM_SESSION_JOIN_LATEST_TIME",
+            8_000_000,
+        ),
+    ] {
+        let label = match policy {
+            ironbeam_core::WindowOutputTime::EndOfWindow => "end",
+            ironbeam_core::WindowOutputTime::LatestInPane => "latest",
+            ironbeam_core::WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let direct_path = directory
+            .path()
+            .join(format!("direct-session-join-{label}.txt"));
+        let portable_path = directory
+            .path()
+            .join(format!("portable-session-join-{label}.txt"));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink =
+            bounded_session_join_output_time_fixture(&direct_pipeline, direct_path.clone(), policy)
+                .unwrap();
+        DirectRunner
+            .run_sink(&direct_sink, &JobConfig::default())
+            .unwrap();
+        let direct_rows = read_rows(&direct_path);
+        assert_eq!(
+            direct_rows,
+            [
+                format!("a|1|10|{expected_time}|0|13000000"),
+                format!("a|2|10|{expected_time}|0|13000000"),
+            ],
+            "Direct session join {label}"
+        );
+        let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+            continue;
+        };
+        let _prism_job = prism_job_lock().lock().await;
+        let portable_pipeline = Pipeline::default();
+        bounded_session_join_output_time_fixture(&portable_pipeline, portable_path.clone(), policy)
+            .unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &portable_pipeline,
+            "session-join-output-time",
+            HashMap::from([(
+                env_name.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "Prism session join {label}: {terminal:?}");
+        assert_eq!(
+            read_rows(&portable_path),
+            direct_rows,
+            "session join {label}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn prism_matches_direct_bounded_join_of_merged_sessions() {
     let directory = tempfile::tempdir().unwrap();
     let direct_path = directory.path().join("direct-session-join.txt");
@@ -8539,6 +8689,85 @@ async fn prism_matches_direct_unbounded_merging_sessions() {
     .await;
     assert_eq!(terminal.0, 3, "Prism streaming session state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_unbounded_merged_session_output_times() {
+    let directory = tempfile::tempdir().unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    for (policy, env_name, expected) in [
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            "IRONBEAM_V5_PRISM_STREAM_SESSION_END_TIME",
+            [
+                "1|[1, 2, 3]|12000000|0|13000000",
+                "2|[7]|8000000|4000000|9000000",
+                "3|[11]|-6000000|-10000000|-5000000",
+            ],
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            "IRONBEAM_V5_PRISM_STREAM_SESSION_LATEST_TIME",
+            [
+                "1|[1, 2, 3]|8000000|0|13000000",
+                "2|[7]|4000000|4000000|9000000",
+                "3|[11]|-10000000|-10000000|-5000000",
+            ],
+        ),
+    ] {
+        let label = match policy {
+            ironbeam_core::WindowOutputTime::EndOfWindow => "end",
+            ironbeam_core::WindowOutputTime::LatestInPane => "latest",
+            ironbeam_core::WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let direct_path = directory
+            .path()
+            .join(format!("direct-session-time-{label}"));
+        let portable_path = directory
+            .path()
+            .join(format!("portable-session-time-{label}"));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink =
+            streaming_session_output_time_fixture(&direct_pipeline, direct_path.clone(), policy)
+                .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let direct_rows = read_rows(&direct_path);
+        assert_eq!(direct_rows, expected, "Direct stream session {label}");
+        let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+            continue;
+        };
+        let _prism_job = prism_job_lock().lock().await;
+        let portable_pipeline = Pipeline::default();
+        streaming_session_output_time_fixture(&portable_pipeline, portable_path.clone(), policy)
+            .unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &portable_pipeline,
+            "stream-session-output-time",
+            HashMap::from([(
+                env_name.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "Prism stream session {label}: {terminal:?}");
+        assert_eq!(
+            read_rows(&portable_path),
+            direct_rows,
+            "stream session {label}"
+        );
+    }
 }
 
 #[tokio::test]

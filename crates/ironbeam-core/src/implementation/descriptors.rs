@@ -291,6 +291,13 @@ impl Element for PaneInfo {
 }
 
 impl Window {
+    pub(crate) const fn is_millisecond_aligned_finite(&self) -> bool {
+        match *self {
+            Self::Session { gap_ns } => gap_ns > 0 && gap_ns % 1_000_000 == 0,
+            _ => self.is_millisecond_aligned_fixed_or_sliding(),
+        }
+    }
+
     pub(crate) const fn is_millisecond_aligned_fixed_or_sliding(&self) -> bool {
         match *self {
             Self::Fixed { size_ns } => size_ns > 0 && size_ns % 1_000_000 == 0,

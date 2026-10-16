@@ -136,6 +136,53 @@ fn latest_in_pane_policy_tracks_maximum_event_time_across_checkpoint_restore() {
 }
 
 #[test]
+fn merged_session_keeps_latest_output_time_across_checkpoint_restore() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("values", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .session_windows_named("sessions", 5_000_000)
+        .unwrap()
+        .latest_in_pane_output_time_named("output-policy")
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut fold = registry.open_fold("groups").unwrap();
+    let add = |fold: &mut Box<dyn ironbeam_core::FoldSession>, time| {
+        fold.add(Envelope {
+            pane: PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, 2_i32)),
+            timestamp_ns: time,
+            window: Window::Session { gap_ns: 5_000_000 },
+            assigned_window: Some(WindowInterval {
+                start_ns: time,
+                end_ns: time + 5_000_000,
+            }),
+        })
+        .unwrap();
+    };
+    add(&mut fold, 0);
+    add(&mut fold, 1_000_000);
+    add(&mut fold, 8_000_000);
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut restored = registry.open_fold("groups").unwrap();
+    restored.restore_checkpoint_state(&saved).unwrap();
+    add(&mut restored, 4_000_000);
+    let (output, released) = restored.drain_closed(13_000_000).unwrap();
+    assert_eq!(released, 4);
+    assert_eq!(output.len(), 1);
+    assert_eq!(output[0].timestamp_ns, 8_000_000);
+    assert_eq!(
+        output[0].assigned_window,
+        Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 13_000_000
+        })
+    );
+}
+
+#[test]
 fn allowed_lateness_changes_time_identity_and_requires_finite_millisecond_windows() {
     let pipeline = Pipeline::default();
     let values = pipeline.from_vec("values", vec![(1_i32, 2_i32)]).unwrap();

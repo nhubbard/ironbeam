@@ -13,18 +13,18 @@ use ironbeam_prism_proof::{
     allowed_lateness_fixture, bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
     bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
-    bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
-    bounded_three_way_cogroup_fixture, bounded_value_state_fixture, bounded_wait_on_fixture,
-    combine_output_time_fixture, combined_count_fixture, completion_signal,
-    count_and_processing_time_trigger_fixture, count_then_processing_time_trigger_fixture,
-    count_trigger_stream_fixture, dead_letter_fixture, distinct_window_fixture,
-    dual_count_and_time_cogroup_fixture, dual_count_or_time_cogroup_fixture,
-    dual_late_cogroup_fixture, dual_late_count_cogroup_fixture, dual_positive_late_cogroup_fixture,
-    dual_positive_late_full_join_fixture, dual_positive_late_join_time_fixture,
-    dual_processing_time_cogroup_fixture, dual_stream_windowed_side_fixture,
-    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_fixture,
-    dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_fixture,
-    dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
+    bounded_session_join_fixture, bounded_session_join_output_time_fixture,
+    bounded_side_input_fixture, bounded_ten_way_cogroup_fixture, bounded_three_way_cogroup_fixture,
+    bounded_value_state_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
+    combined_count_fixture, completion_signal, count_and_processing_time_trigger_fixture,
+    count_then_processing_time_trigger_fixture, count_trigger_stream_fixture, dead_letter_fixture,
+    distinct_window_fixture, dual_count_and_time_cogroup_fixture,
+    dual_count_or_time_cogroup_fixture, dual_late_cogroup_fixture, dual_late_count_cogroup_fixture,
+    dual_positive_late_cogroup_fixture, dual_positive_late_full_join_fixture,
+    dual_positive_late_join_time_fixture, dual_processing_time_cogroup_fixture,
+    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_fixture,
+    dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_fixture,
+    dual_unbounded_flatten_fixture, dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_fixture, dual_unbounded_map_side_fixture,
     dual_unbounded_session_cogroup_fixture, dual_unbounded_session_join_fixture,
     early_sliding_windowed_wait_fixture, early_windowed_wait_fixture,
@@ -49,22 +49,22 @@ use ironbeam_prism_proof::{
     portable_object_avro_replay_fixture, portable_object_parquet_fixture,
     portable_object_parquet_replay_fixture, portable_tfrecord_fixture,
     processing_time_trigger_fixture, production_join_cogroup_fixture, production_stream_fixture,
-    representative_distinct_fixture, session_group_fixture,
+    representative_distinct_fixture, session_group_fixture, session_group_output_time_fixture,
     shared_accumulating_early_cogroup_fixture, shared_accumulating_late_cogroup_fixture,
     shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
     sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
     streaming_count_per_element_fixture, streaming_distinct_window_fixture,
     streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
     streaming_partition_fixture, streaming_representative_distinct_fixture,
-    streaming_session_group_fixture, streaming_sliding_group_fixture,
-    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
-    timed_late_keyed_batches_fixture, triple_stream_windowed_wait_fixture,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_fixture, unbounded_main_bounded_wait_fixture,
-    unbounded_main_grouped_wait_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow,
+    streaming_session_group_fixture, streaming_session_output_time_fixture,
+    streaming_sliding_group_fixture, streaming_windowed_side_input_fixture,
+    timed_keyed_batches_fixture, timed_late_keyed_batches_fixture,
+    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_fixture,
+    unbounded_main_bounded_wait_fixture, unbounded_main_grouped_wait_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture};
@@ -982,10 +982,46 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SESSION_END_TIME") {
+        return session_group_output_time_fixture(
+            pipeline,
+            path.into(),
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SESSION_LATEST_TIME") {
+        return session_group_output_time_fixture(
+            pipeline,
+            path.into(),
+            ironbeam_core::WindowOutputTime::LatestInPane,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SESSION_JOIN") {
         return bounded_session_join_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SESSION_JOIN_END_TIME") {
+        return bounded_session_join_output_time_fixture(
+            pipeline,
+            path.into(),
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SESSION_JOIN_LATEST_TIME") {
+        return bounded_session_join_output_time_fixture(
+            pipeline,
+            path.into(),
+            ironbeam_core::WindowOutputTime::LatestInPane,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SESSION_COGROUP") {
         return bounded_session_cogroup_fixture(pipeline, path.into())
@@ -1229,6 +1265,24 @@ async fn main() -> anyhow::Result<()> {
         return streaming_session_group_fixture(pipeline, directory.into())
             .map(|_| ())
             .map_err(Into::into);
+    }
+    if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_STREAM_SESSION_END_TIME") {
+        return streaming_session_output_time_fixture(
+            pipeline,
+            directory.into(),
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
+    if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_STREAM_SESSION_LATEST_TIME") {
+        return streaming_session_output_time_fixture(
+            pipeline,
+            directory.into(),
+            ironbeam_core::WindowOutputTime::LatestInPane,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
     }
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_STREAM_ORDERED_BATCH") {
         return streaming_ordered_batch_fixture(pipeline, directory.into())
