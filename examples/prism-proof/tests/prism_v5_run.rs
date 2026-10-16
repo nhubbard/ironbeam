@@ -482,6 +482,40 @@ async fn prism_matches_direct_streaming_offset_sdf() {
 }
 
 #[tokio::test]
+async fn prism_restores_user_offset_watermark_in_a_residual_bundle() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("offset-watermark-resume.txt");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::bounded_offset_sdf_fixture(&pipeline, output.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "offset-watermark-resume",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_OFFSET_SDF".into(),
+                output.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_TEST_OFFSET_SDF_RESIDUAL_WATERMARK".into(),
+                "1".into(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "offset residual job failed: {terminal:?}");
+    let rows = std::fs::read_to_string(&output).unwrap();
+    assert_eq!(
+        rows.lines().collect::<Vec<_>>(),
+        ["1", "2", "3", "10", "11", "12"]
+    );
+}
+
+#[tokio::test]
 async fn prism_replays_user_offset_callback_after_execution_child_loss() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

@@ -43,6 +43,7 @@ impl BundleRunner for V5BundleExecutor {
                         {
                             return Ok(ProcessBundleSplitResponse::default());
                         }
+                        let watermark = work.estimator.current()?;
                         if let Some((primary, residual)) =
                             work.tracker.try_split(desired.fraction_of_remainder)?
                         {
@@ -55,6 +56,7 @@ impl BundleRunner for V5BundleExecutor {
                                         pair: crate::sdf_offset_wire::OffsetPair {
                                             element: work.input_element.clone(),
                                             restriction,
+                                            watermark_ns: watermark,
                                         },
                                         size,
                                     },
@@ -77,7 +79,7 @@ impl BundleRunner for V5BundleExecutor {
                                 transform_id: work.process_id.clone(),
                                 input_id: "in".into(),
                                 element: root(residual)?,
-                                output_watermarks: work.estimator.current()?.map(|watermark| {
+                                output_watermarks: watermark.map(|watermark| {
                                     HashMap::from([("out".into(), protobuf_timestamp(watermark))])
                                 }).unwrap_or_default(),
                                 is_bounded: bounded,

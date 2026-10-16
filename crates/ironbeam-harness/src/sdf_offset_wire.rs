@@ -2,7 +2,9 @@
 //!
 //! A pair is `KV<bytes, bytes>` and a sized pair is `KV<pair, double>`.
 //! The first byte field contains the Ironbeam input coder body. The second
-//! contains Beam's two-VarInt `OffsetRange.Coder` body.
+//! contains Beam's two-VarInt `OffsetRange.Coder` body. Residual restrictions
+//! may append a versioned Ironbeam watermark estimator state. The runner
+//! treats the restriction bytes as opaque, while the worker restores the state.
 
 use anyhow::{bail, Context, Result};
 use ironbeam_core::{OffsetRange, OffsetRangeChunks};
@@ -14,7 +16,10 @@ use crate::coders::{decode_length_prefix, encode_length_prefix};
 pub struct OffsetPair {
     pub element: Vec<u8>,
     pub restriction: OffsetRange,
+    pub watermark_ns: Option<i64>,
 }
+
+const WATERMARK_STATE_TAG: &[u8; 5] = b"IBWM\x01";
 
 /// An offset pair and its estimated number of positions.
 #[derive(Clone, Debug, PartialEq)]
@@ -28,6 +33,7 @@ pub fn pair_with_restriction(element: &[u8], restriction: OffsetRange) -> Result
     encode_pair(&OffsetPair {
         element: element.to_vec(),
         restriction,
+        watermark_ns: None,
     })
 }
 
@@ -38,6 +44,7 @@ pub fn split_and_size(pair_body: &[u8], max_positions: u64) -> Result<OffsetSize
     Ok(OffsetSizedChunks {
         element: pair.element,
         ranges: pair.restriction.chunks(max_positions)?,
+        watermark_ns: pair.watermark_ns,
     })
 }
 
@@ -45,6 +52,7 @@ pub fn split_and_size(pair_body: &[u8], max_positions: u64) -> Result<OffsetSize
 pub struct OffsetSizedChunks {
     element: Vec<u8>,
     ranges: OffsetRangeChunks,
+    watermark_ns: Option<i64>,
 }
 
 impl Iterator for OffsetSizedChunks {
@@ -57,6 +65,7 @@ impl Iterator for OffsetSizedChunks {
                 pair: OffsetPair {
                     element: self.element.clone(),
                     restriction,
+                    watermark_ns: self.watermark_ns,
                 },
                 size,
             })
@@ -74,7 +83,12 @@ pub fn truncate_sized(sized_body: &[u8]) -> Result<Vec<u8>> {
 pub fn encode_pair(pair: &OffsetPair) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     encode_length_prefix(&pair.element, &mut output)?;
-    encode_length_prefix(&pair.restriction.encode_beam()?, &mut output)?;
+    let mut restriction = pair.restriction.encode_beam()?;
+    if let Some(watermark) = pair.watermark_ns {
+        restriction.extend_from_slice(WATERMARK_STATE_TAG);
+        restriction.extend_from_slice(&watermark.to_be_bytes());
+    }
+    encode_length_prefix(&restriction, &mut output)?;
     Ok(output)
 }
 
@@ -92,12 +106,30 @@ fn decode_pair_prefix(bytes: &[u8]) -> Result<(OffsetPair, usize)> {
         decode_length_prefix(bytes).context("decode offset SDF input element")?;
     let (restriction, restriction_len) =
         decode_length_prefix(&bytes[element_len..]).context("decode offset SDF restriction")?;
+    let (range_bytes, watermark_ns) = if restriction.len() >= WATERMARK_STATE_TAG.len() + 8 {
+        let suffix_start = restriction.len() - WATERMARK_STATE_TAG.len() - 8;
+        if &restriction[suffix_start..suffix_start + WATERMARK_STATE_TAG.len()]
+            == WATERMARK_STATE_TAG
+        {
+            let watermark = i64::from_be_bytes(
+                restriction[restriction.len() - 8..]
+                    .try_into()
+                    .expect("checked watermark state length"),
+            );
+            (&restriction[..suffix_start], Some(watermark))
+        } else {
+            (restriction, None)
+        }
+    } else {
+        (restriction, None)
+    };
     let restriction =
-        OffsetRange::decode_beam(restriction).context("validate offset SDF restriction")?;
+        OffsetRange::decode_beam(range_bytes).context("validate offset SDF restriction")?;
     Ok((
         OffsetPair {
             element: element.to_vec(),
             restriction,
+            watermark_ns,
         },
         element_len + restriction_len,
     ))

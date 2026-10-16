@@ -89,7 +89,21 @@ fn offset_sdf_fixture(input: PCollection<i32>, path: PathBuf) -> Result<Sink<i32
             Version { major: 1, minor: 0 },
             |_| OffsetRange::new(0, 3),
             |value, context| {
-                for offset in 0..3 {
+                if *value == 1
+                    && std::env::var_os("IRONBEAM_TEST_OFFSET_SDF_RESIDUAL_WATERMARK").is_some()
+                {
+                    let restriction = context.tracker().restriction()?;
+                    if restriction.start == 0 {
+                        context.tracker().try_split(0.5)?;
+                        context.update_watermark(1_000_000)?;
+                    } else if context.estimator().current()? != Some(1_000_000) {
+                        return Err(Error::incompatible(
+                            "offset residual lost its watermark estimator state",
+                        ));
+                    }
+                }
+                let restriction = context.tracker().restriction()?;
+                for offset in restriction.start..restriction.stop {
                     if !context.try_claim(offset)? {
                         break;
                     }

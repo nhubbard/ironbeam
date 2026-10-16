@@ -400,6 +400,8 @@ async fn user_split_residual_runs_in_a_fresh_worker_bundle() {
                 if original.start == 0 {
                     assert!(tracker.try_split(0.5)?.is_some());
                     context.update_watermark(1_000_000)?;
+                } else {
+                    assert_eq!(context.estimator().current()?, Some(1_000_000));
                 }
                 let primary = tracker.restriction()?;
                 for offset in primary.start..primary.stop {
@@ -446,6 +448,7 @@ async fn user_split_residual_runs_in_a_fresh_worker_bundle() {
             pair: ironbeam_harness::sdf_offset_wire::OffsetPair {
                 element: 10_i32.encode().unwrap(),
                 restriction: OffsetRange::new(0, 4).unwrap(),
+                watermark_ns: None,
             },
             size: 4.0,
         },
@@ -465,6 +468,10 @@ async fn user_split_residual_runs_in_a_fresh_worker_bundle() {
     assert_eq!(
         decode_sized(windowed.element).unwrap().pair.restriction,
         OffsetRange::new(1, 4).unwrap()
+    );
+    assert_eq!(
+        decode_sized(windowed.element).unwrap().pair.watermark_ns,
+        Some(1_000_000)
     );
     let (_, second_chunks) = run_bundle(&pipeline, residual.element.clone(), steps()).await;
     let mut values = Vec::new();
@@ -525,12 +532,16 @@ async fn runner_split_active_user_restriction(fraction: f64, second_input: bool,
             |_| OffsetRange::new(0, 6),
             move |value, context| {
                 let range = context.tracker().restriction()?;
+                if range.start > 0 {
+                    assert_eq!(context.estimator().current()?, Some(1_000_000));
+                }
                 for offset in range.start..range.stop {
                     if !context.try_claim(offset)? {
                         break;
                     }
                     context.emit(*value + offset as i32, offset * 1_000_000)?;
                     if range.start == 0 && offset == 1 {
+                        context.update_watermark(1_000_000)?;
                         callback_started.store(true, Ordering::Release);
                         while !callback_release.load(Ordering::Acquire) {
                             std::thread::sleep(Duration::from_millis(1));
@@ -577,6 +588,7 @@ async fn runner_split_active_user_restriction(fraction: f64, second_input: bool,
             pair: ironbeam_harness::sdf_offset_wire::OffsetPair {
                 element: 20_i32.encode().unwrap(),
                 restriction: OffsetRange::new(0, 6).unwrap(),
+                watermark_ns: None,
             },
             size: 6.0,
         },
@@ -591,6 +603,7 @@ async fn runner_split_active_user_restriction(fraction: f64, second_input: bool,
                 pair: ironbeam_harness::sdf_offset_wire::OffsetPair {
                     element: 30_i32.encode().unwrap(),
                     restriction: OffsetRange::new(0, 6).unwrap(),
+                    watermark_ns: None,
                 },
                 size: 6.0,
             },
@@ -641,6 +654,10 @@ async fn runner_split_active_user_restriction(fraction: f64, second_input: bool,
     assert_eq!(
         decode_sized(windowed.element).unwrap().pair.restriction,
         OffsetRange::new(if fraction == 0.0 { 2 } else { 3 }, 6).unwrap()
+    );
+    assert_eq!(
+        decode_sized(windowed.element).unwrap().pair.watermark_ns,
+        Some(1_000_000)
     );
     let (_, second_chunks) = run_bundle(&pipeline, residual.element.clone(), steps()).await;
     let third_chunks = if second_input {
@@ -738,6 +755,7 @@ async fn unbounded_user_residual_keeps_its_beam_boundedness_and_values() {
             pair: ironbeam_harness::sdf_offset_wire::OffsetPair {
                 element: 10_i32.encode().unwrap(),
                 restriction: OffsetRange::new(0, 4).unwrap(),
+                watermark_ns: None,
             },
             size: 4.0,
         },

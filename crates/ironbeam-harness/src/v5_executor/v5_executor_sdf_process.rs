@@ -313,7 +313,7 @@ impl V5BundleExecutor {
                     let sized = crate::sdf_offset_wire::decode_sized(&windowed.element[..body_len])?;
                     let original = sized.pair.restriction;
                     let tracker = ironbeam_core::OffsetRangeTracker::new(original)?;
-                    let estimator = ironbeam_core::OffsetWatermarkEstimator::new(None);
+                    let estimator = ironbeam_core::OffsetWatermarkEstimator::new(sized.pair.watermark_ns);
                     let reported_residual = Arc::new(AtomicBool::new(false));
                     {
                         let mut active = offset_work.lock()
@@ -373,6 +373,7 @@ impl V5BundleExecutor {
                                 pair: crate::sdf_offset_wire::OffsetPair {
                                     element: sized.pair.element,
                                     restriction: residual,
+                                    watermark_ns: estimator.current()?,
                                 },
                                 size: (i128::from(residual.stop) - i128::from(residual.start)) as f64,
                             },

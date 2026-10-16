@@ -9,6 +9,34 @@ fn round_trip_matches_beam_kv_coder_shape() {
     assert_eq!(bytes[2] as usize, restriction.len());
     assert_eq!(&bytes[3..], restriction);
     assert_eq!(decode_pair(&bytes).unwrap().restriction, range);
+    assert_eq!(decode_pair(&bytes).unwrap().watermark_ns, None);
+}
+
+#[test]
+fn residual_watermark_state_round_trips_without_changing_initial_beam_range_bytes() {
+    let pair = OffsetPair {
+        element: b"item".to_vec(),
+        restriction: OffsetRange::new(-2, 5).unwrap(),
+        watermark_ns: Some(-1_000_000),
+    };
+    let encoded = encode_pair(&pair).unwrap();
+    assert_eq!(decode_pair(&encoded).unwrap(), pair);
+    let chunks = split_and_size(&encoded, 3)
+        .unwrap()
+        .collect::<Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(chunks.len(), 3);
+    for chunk in chunks {
+        assert_eq!(
+            decode_sized(&chunk).unwrap().pair.watermark_ns,
+            Some(-1_000_000)
+        );
+        assert_eq!(truncate_sized(&chunk).unwrap(), chunk);
+    }
+    let mut bad_tag = encoded;
+    let tag_start = bad_tag.len() - WATERMARK_STATE_TAG.len() - 8;
+    bad_tag[tag_start] ^= 1;
+    assert!(decode_pair(&bad_tag).is_err());
 }
 
 #[test]
