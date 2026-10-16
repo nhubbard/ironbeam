@@ -219,6 +219,46 @@ pub fn streaming_session_group_fixture(
     )
 }
 
+/// A candidate past its assigned interval can still join a live keyed session.
+pub fn streaming_session_expiry_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "session-expiry-events",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 1_i32), 0), ((1, 2), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+                TestStreamEvent::Elements(vec![((1, 3), 0)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 88), 0)]),
+            ],
+        )?
+        .group_by_session_named("session-expiry-group", 5_000_000)?
+        .with_window_named("session-expiry-window")?
+        .map_named("session-expiry-row", |(window, (key, mut values))| {
+            values.sort_unstable();
+            format!("{key}|{values:?}|{}|{}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "session-expiry-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("session-expiry-capture:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Compare output-time policies after a late bridge joins two open sessions.
 pub fn streaming_session_output_time_fixture(
     pipeline: &Pipeline,

@@ -394,8 +394,11 @@ Prism. Direct restores their open sessions and source cursor from a checkpoint;
 the shared fixture closes one negative-time session, then bridges two open
 sessions and discards a row after its session closes. Direct also resolves an
 incoming element against its still-open merged session before checking expiry,
-including after a checkpoint restore. The same schedule has not yet been
-compared with local Prism. Bounded session joins and co-groups merge intervals
+including after a checkpoint restore. In the pinned local Prism comparison,
+Direct groups values `[1, 2, 3]` into `[0, 9_000_000)` ns after a six-millisecond
+watermark. Prism instead emits `[1]` in `[0, 5_000_000)` ns and `[2, 3]` in
+`[0, 9_000_000)` ns. The comparison remains an ignored diagnostic test while
+this portable mismatch is unresolved. Bounded session joins and co-groups merge intervals
 across their inputs before matching keyed
 values. Direct and local Prism agree when another input bridges two sessions;
 Direct also checks inner, left, right, and full join results. A three-input

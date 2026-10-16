@@ -111,19 +111,19 @@ use ironbeam_prism_proof::{
     sliding_window_group_fixture, streaming_count_per_element_fixture,
     streaming_distinct_window_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
     streaming_ordered_keyed_fixture, streaming_partition_fixture,
-    streaming_representative_distinct_fixture, streaming_session_group_fixture,
-    streaming_session_output_time_fixture, streaming_sliding_group_fixture,
-    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
-    timed_keyed_batches_fixture, timed_late_keyed_batches_fixture,
-    triple_stream_windowed_wait_collection, triple_stream_windowed_wait_fixture,
-    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
-    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
-    unbounded_main_bounded_wait_fixture, unbounded_main_grouped_wait_fixture,
-    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
-    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
-    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
-    PRODUCTION_AVRO_SCHEMA,
+    streaming_representative_distinct_fixture, streaming_session_expiry_fixture,
+    streaming_session_group_fixture, streaming_session_output_time_fixture,
+    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
+    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
+    timed_late_keyed_batches_fixture, triple_stream_windowed_wait_collection,
+    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_collection,
+    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
+    triple_unbounded_session_homogeneous_fixture, unbounded_main_bounded_wait_fixture,
+    unbounded_main_grouped_wait_fixture, validation_fail_fixture, validation_skip_fixture,
+    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
+    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -9031,6 +9031,50 @@ async fn prism_matches_direct_unbounded_merging_sessions() {
     )
     .await;
     assert_eq!(terminal.0, 3, "Prism streaming session state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+#[ignore = "pinned Prism splits an overlapping session across an intermediate watermark"]
+async fn prism_matches_direct_live_session_after_original_expiry() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-session-expiry");
+    let portable_path = directory.path().join("portable-session-expiry");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        streaming_session_expiry_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let direct_rows = read_rows(&direct_path);
+    assert_eq!(direct_rows, ["1|[1, 2, 3]|0|9000000"]);
+    let portable_pipeline = Pipeline::default();
+    streaming_session_expiry_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "stream-session-expiry",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAM_SESSION_EXPIRY".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism session expiry state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct_rows);
 }
 
