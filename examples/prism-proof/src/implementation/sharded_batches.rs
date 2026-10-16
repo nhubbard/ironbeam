@@ -144,6 +144,16 @@ pub fn beam_sharded_byte_batches_stream_fixture(
         )?
         .reify_timestamps_named("sharded-byte-time")?
         .map_named("sharded-byte-output", |(timestamp, (key, values))| {
+            if let Some(path) = std::env::var_os("IRONBEAM_TEST_KILL_SHARDED_BYTE_CHILD") {
+                if let Ok(file) = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(path)
+                {
+                    let _ = file.sync_all();
+                    std::process::exit(88);
+                }
+            }
             let values = values
                 .into_iter()
                 .map(|(_, value)| value)

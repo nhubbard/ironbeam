@@ -7103,6 +7103,49 @@ async fn prism_matches_direct_streaming_sharded_byte_batches() {
 }
 
 #[tokio::test]
+async fn prism_recovers_streaming_sharded_byte_batches_after_child_failure() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("replayed-sharded-byte-stream");
+    let witness = directory.path().join("killed-sharded-byte-child");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::beam_sharded_byte_batches_stream_fixture(&pipeline, output.clone())
+        .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "beam-sharded-byte-recovery",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_BEAM_SHARDED_BYTE_STREAM".into(),
+                output.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_TEST_KILL_SHARDED_BYTE_CHILD".into(),
+                witness.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "sharded byte replay failed: {terminal:?}");
+    assert!(witness.exists(), "the first execution child did not fail");
+    let mut rows = read_open_rows(&output);
+    rows.sort();
+    assert_eq!(
+        rows,
+        [
+            "hot:[1]:1000000:[\"a\", \"b\"]",
+            "hot:[1]:5000000:[\"oversized\"]",
+            "hot:[2]:2000000:[\"x\", \"y\"]",
+        ]
+    );
+}
+
+#[tokio::test]
 async fn prism_recovers_streaming_sharded_batches_after_child_failure() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
