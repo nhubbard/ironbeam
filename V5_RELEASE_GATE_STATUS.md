@@ -60,6 +60,8 @@ decision; it remains staged.
 | Avro object input | URI and prefix readers use sequential provider reads. Direct and local Prism decode a provider-bound object with a defaulted reader field; a supervised Prism execution-child loss during the first decoded row reopens the object and commits both rows once. | Per-object temporary disk use, hosted provider binding, and live service proof. |
 | Parquet object input | URI and prefix readers pass local provider tests. Direct and local Prism read two provider-bound Parquet objects under one prefix; a supervised Prism execution-child loss during the second object's decoded row reopens the prefix and commits all three rows once. | Per-object temporary disk use, hosted provider binding, and live service proof. |
 | Streaming recovery | Source residuals and accepted bundles resume across worker processes; Direct checkpoints supported open state. | Whole-process or host replacement within one active Prism job. |
+| Global-window expiration callback | Direct emits its callback when a finite stream completes. | The pinned Prism intermittently omits this callback or panics in its Go WaitGroup. Its cross-runner fixture is retained as an ignored diagnostic, outside the 5.0.0 portable support claim. Fixed-window expiration has passing shared fixtures. |
+| Partial global byte batch at finite completion | Direct flushes the partial keyed batch after an intermediate watermark and source completion. | The pinned Prism intermittently reports `DONE` without the final partial batch. Its cross-runner comparison is an ignored diagnostic. Timed global partial batches have a separate shared fixture. |
 | Object-backed finalization | The object journal validates listed bundle records, completion markers, identity, and declared sinks. A publication plan pairs its completed manifest with runner-committed sink counts; local object-provider tests cover incomplete callbacks, corrupt markers, unknown entries, and foreign identities. The Dataflow entrypoint accepts a provider registry and journal URI for the worker and supervised children. A live local Prism job kills one execution child, recovers in its replacement, reaches `DONE`, and authorizes publication from its object journal and committed metrics. The Dataflow driver can retrieve regional service metrics as typed records. | Map hosted service metrics to exact committed sink counts, supply a GCS-backed registry, and prove publication through a controlled service. |
 | GCP clients | Opt-in Cloud Storage, Pub/Sub, BigQuery, and Secret Manager adapters compile and have isolated tests. | Live service and hosted Dataflow proofs. |
 | Quality | Core, Direct, Graphx, and local Prism suites have passing gates; later sections record exact runs. | Hosted execution and registry publication remain staged. |
@@ -80,10 +82,15 @@ The 2026-10-16 Linux Prism run passed its eight repeated residual-source
 cases and its first 99 shared cases. During the next global byte-batch job,
 the pinned Go Prism process panicked with `sync: WaitGroup is reused before
 previous Wait has returned`; later cases failed to connect to the dead job
-service. CI now retries the entire shared suite once on a fresh Prism process
-only when the original process log contains that exact upstream panic. A
-normal test failure still fails immediately. This workaround needs a passing
-remote run before the portable gate can be considered green.
+service. A full-suite retry reached 203 passing cases before the same panic
+occurred in the global-window expiration case. The pinned runner also
+intermittently reports `DONE` for that case without the callback output on
+fresh processes. The CI suite now starts a fresh Prism service for each small
+set of fixtures and retries only the fixture interrupted by that exact panic.
+The global-window expiration and final partial global byte-batch comparisons
+are ignored diagnostics; Direct has independent completion tests for both.
+A normal supported fixture failure remains a failure.
+This workflow still needs a passing remote run before the portable gate is green.
 
 ### Merge-aware session lateness contract
 
