@@ -1468,7 +1468,9 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_COUNT_AND_TIME") {
         let accumulating = std::env::var("IRONBEAM_V5_PRISM_COUNT_AND_TIME_ACCUMULATING")
             .as_deref() == Ok("1");
-        return count_and_processing_time_trigger_fixture(pipeline, path.into(), accumulating)
+        let count_first = std::env::var("IRONBEAM_V5_PRISM_COUNT_AND_TIME_COUNT_FIRST")
+            .as_deref() == Ok("1");
+        return count_and_processing_time_trigger_fixture(pipeline, path.into(), accumulating, count_first)
             .map(|_| ())
             .map_err(Into::into);
     }

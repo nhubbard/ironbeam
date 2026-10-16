@@ -429,7 +429,7 @@ async fn prism_and_direct_count_trigger_match_overlapping_sliding_windows() {
 }
 
 #[tokio::test]
-async fn prism_matches_direct_count_and_processing_time_panes() {
+async fn count_and_processing_time_firing_order_matches_prism_where_supported() {
     struct DirectRows {
         rows: Arc<Mutex<Vec<String>>>,
         accepted: Arc<Mutex<HashSet<String>>>,
@@ -456,77 +456,111 @@ async fn prism_matches_direct_count_and_processing_time_panes() {
             Ok(())
         }
     }
-    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
-        return;
+    let endpoint = std::env::var("IRONBEAM_PRISM_ENDPOINT").ok();
+    let _prism_job = if endpoint.is_some() {
+        Some(prism_job_lock().lock().await)
+    } else {
+        None
     };
-    let _prism_job = prism_job_lock().lock().await;
     let directory = tempfile::tempdir().unwrap();
-    for accumulating in [false, true] {
-        let portable_path = directory
-            .path()
-            .join(format!("count-and-time-{accumulating}.txt"));
-        let direct_rows = Arc::new(Mutex::new(Vec::new()));
-        let accepted = Arc::new(Mutex::new(HashSet::new()));
-        let direct_pipeline = Pipeline::default();
-        let direct_sink =
-            count_and_processing_time_trigger_collection(&direct_pipeline, accumulating)
+    for count_first in [true, false] {
+        for accumulating in [false, true] {
+            let portable_path = directory
+                .path()
+                .join(format!("count-and-time-{count_first}-{accumulating}.txt"));
+            let direct_rows = Arc::new(Mutex::new(Vec::new()));
+            let accepted = Arc::new(Mutex::new(HashSet::new()));
+            let direct_pipeline = Pipeline::default();
+            let direct_sink = count_and_processing_time_trigger_collection(
+                &direct_pipeline,
+                accumulating,
+                count_first,
+            )
+            .unwrap()
+            .sink_named_with_config(
+                "count-and-time-result",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                format!("count-and-time-direct-{count_first}-{accumulating}-v1"),
+                {
+                    let rows = Arc::clone(&direct_rows);
+                    let accepted = Arc::clone(&accepted);
+                    move || {
+                        Ok(Box::new(DirectRows {
+                            rows: Arc::clone(&rows),
+                            accepted: Arc::clone(&accepted),
+                            staged: Vec::new(),
+                            bundle: String::new(),
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+            DirectRunner
+                .start_stream_sink(&direct_sink, &JobConfig::default())
                 .unwrap()
-                .sink_named_with_config(
-                    "count-and-time-result",
-                    SinkSpec {
-                        mode: SinkMode::Append,
-                        replay: Replay::Idempotent,
-                        commit: true,
-                    },
-                    format!("count-and-time-direct-{accumulating}-v1"),
-                    {
-                        let rows = Arc::clone(&direct_rows);
-                        let accepted = Arc::clone(&accepted);
-                        move || {
-                            Ok(Box::new(DirectRows {
-                                rows: Arc::clone(&rows),
-                                accepted: Arc::clone(&accepted),
-                                staged: Vec::new(),
-                                bundle: String::new(),
-                            }))
-                        }
-                    },
-                )
+                .wait()
                 .unwrap();
-        DirectRunner
-            .start_stream_sink(&direct_sink, &JobConfig::default())
-            .unwrap()
-            .wait()
+            let mut direct = direct_rows.lock().unwrap().clone();
+            direct.sort();
+            let early = "group:a:[2, 3]:Early:true:false:0:-1".to_owned();
+            assert_eq!(direct.as_slice(), std::slice::from_ref(&early), "Direct count-and-time panes: count_first={count_first}, accumulating={accumulating}");
+            let Some(endpoint) = endpoint.as_deref() else {
+                continue;
+            };
+            let pipeline = Pipeline::default();
+            count_and_processing_time_trigger_fixture(
+                &pipeline,
+                portable_path.clone(),
+                accumulating,
+                count_first,
+            )
             .unwrap();
-        let pipeline = Pipeline::default();
-        count_and_processing_time_trigger_fixture(&pipeline, portable_path.clone(), accumulating)
-            .unwrap();
-        let terminal = run_shared_fixture(
-            &endpoint,
-            &pipeline,
-            &format!("count-and-time-{accumulating}"),
-            HashMap::from([
-                (
-                    "IRONBEAM_V5_PRISM_COUNT_AND_TIME".into(),
-                    portable_path.to_string_lossy().into_owned(),
-                ),
-                (
-                    "IRONBEAM_V5_PRISM_COUNT_AND_TIME_ACCUMULATING".into(),
-                    if accumulating { "1" } else { "0" }.into(),
-                ),
-            ]),
-        )
-        .await;
-        assert_eq!(terminal.0, 3, "count-and-time job state: {terminal:?}");
-        let mut direct = direct_rows.lock().unwrap().clone();
-        let mut portable = std::fs::read_to_string(&portable_path)
-            .unwrap()
-            .lines()
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        direct.sort();
-        portable.sort();
-        assert_eq!(portable, direct, "count-and-time panes differ");
+            let terminal = run_shared_fixture(
+                endpoint,
+                &pipeline,
+                &format!("count-and-time-{count_first}-{accumulating}"),
+                HashMap::from([
+                    (
+                        "IRONBEAM_V5_PRISM_COUNT_AND_TIME".into(),
+                        portable_path.to_string_lossy().into_owned(),
+                    ),
+                    (
+                        "IRONBEAM_V5_PRISM_COUNT_AND_TIME_ACCUMULATING".into(),
+                        if accumulating { "1" } else { "0" }.into(),
+                    ),
+                    (
+                        "IRONBEAM_V5_PRISM_COUNT_AND_TIME_COUNT_FIRST".into(),
+                        if count_first { "1" } else { "0" }.into(),
+                    ),
+                ]),
+            )
+            .await;
+            assert_eq!(terminal.0, 3, "count-and-time job state: {terminal:?}");
+            let mut portable = std::fs::read_to_string(&portable_path)
+                .unwrap()
+                .lines()
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            portable.sort();
+            if accumulating {
+                // Beam's FIRE_IF_NONEMPTY requires new input since the early
+                // firing. Pinned Prism currently emits this extra on-time pane
+                // even though both values were already included in the early pane.
+                assert_eq!(
+                    portable,
+                    [early, "group:a:[2, 3]:OnTime:false:true:1:0".to_owned()]
+                );
+            } else {
+                assert_eq!(
+                    portable, direct,
+                    "count-and-time panes differ: count_first={count_first}"
+                );
+            }
+        }
     }
 }
 

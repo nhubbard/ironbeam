@@ -67,17 +67,27 @@ pub fn count_then_processing_time_trigger_fixture(
 pub fn count_and_processing_time_trigger_collection(
     pipeline: &Pipeline,
     accumulating: bool,
+    count_first: bool,
 ) -> Result<PCollection<String>, Error> {
+    let events = if count_first {
+        vec![
+            TestStreamEvent::Elements(vec![
+                (('a'.to_string(), 2_i32), 1_000_000),
+                (('a'.to_string(), 3_i32), 2_000_000),
+            ]),
+            TestStreamEvent::AdvanceProcessingTime(5_000_000),
+            TestStreamEvent::AdvanceWatermark(10_000_000),
+        ]
+    } else {
+        vec![
+            TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 1_000_000)]),
+            TestStreamEvent::AdvanceProcessingTime(5_000_000),
+            TestStreamEvent::Elements(vec![(('a'.to_string(), 3_i32), 2_000_000)]),
+            TestStreamEvent::AdvanceWatermark(10_000_000),
+        ]
+    };
     let values = pipeline
-        .test_stream_source(
-            "count-and-time-events",
-            vec![
-                TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 1_000_000)]),
-                TestStreamEvent::AdvanceProcessingTime(5_000_000),
-                TestStreamEvent::Elements(vec![(('a'.to_string(), 3_i32), 2_000_000)]),
-                TestStreamEvent::AdvanceWatermark(10_000_000),
-            ],
-        )?
+        .test_stream_source("count-and-time-events", events)?
         .fixed_windows("count-and-time-windows", 10_000_000)?;
     let values = if accumulating {
         values.accumulating_count_and_processing_time_trigger_named(
@@ -101,12 +111,13 @@ pub fn count_and_processing_time_trigger_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
     accumulating: bool,
+    count_first: bool,
 ) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();
-    count_and_processing_time_trigger_collection(pipeline, accumulating)?.sink_named_with_config(
+    count_and_processing_time_trigger_collection(pipeline, accumulating, count_first)?.sink_named_with_config(
         "count-and-time-result",
         SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
-        format!("count-and-time-result:{}:{accumulating}", path.display()),
+        format!("count-and-time-result:{}:{accumulating}:{count_first}", path.display()),
         move || Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
             path: sink_path.clone(),
             values: Vec::new(),
