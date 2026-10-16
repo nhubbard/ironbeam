@@ -288,3 +288,78 @@ pub fn ordered_helpers_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sin
             },
         )
 }
+
+/// Exercise explicit-order helpers in two closed windows of an unbounded source.
+pub fn streaming_ordered_helpers_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let source = pipeline
+        .test_stream_source(
+            "streaming-ordered-helpers-source",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((3_i32, 20_i32), 3_000_000),
+                    ((1, 10), 1_000_000),
+                    ((2, 10), 2_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![
+                    ((5, 10), 12_000_000),
+                    ((6, 30), 13_000_000),
+                    ((4, 10), 11_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )?
+        .fixed_windows("streaming-ordered-helpers-window", 10_000_000)?;
+    let list = source
+        .to_list_ordered_by_named("streaming-ordered-helpers-list", |row| row.0)?
+        .with_window_named("streaming-ordered-helpers-list-window")?
+        .flat_map_named("streaming-ordered-helpers-list-rows", |(window, rows)| {
+            rows.into_iter()
+                .enumerate()
+                .map(|(index, (rank, value))| {
+                    format!("list:{}:{index}:{rank}:{value}", window.start_ns / 1_000_000)
+                })
+                .collect::<Vec<_>>()
+        })?;
+    let take = source
+        .take_ordered_by_named("streaming-ordered-helpers-take", 2, |row| row.0)?
+        .with_window_named("streaming-ordered-helpers-take-window")?
+        .map_named("streaming-ordered-helpers-take-rows", |(window, (rank, value))| {
+            format!("take:{}:{rank}:{value}", window.start_ns / 1_000_000)
+        })?;
+    let first = source
+        .first_ordered_by_named("streaming-ordered-helpers-first", |row| row.0)?
+        .with_window_named("streaming-ordered-helpers-first-window")?
+        .map_named("streaming-ordered-helpers-first-rows", |(window, (rank, value))| {
+            format!("first:{}:{rank}:{value}", window.start_ns / 1_000_000)
+        })?;
+    let distinct = source
+        .distinct_by_ordered_by_named("streaming-ordered-helpers-distinct", |row| row.1, |row| row.0)?
+        .with_window_named("streaming-ordered-helpers-distinct-window")?
+        .map_named("streaming-ordered-helpers-distinct-rows", |(window, (rank, value))| {
+            format!("distinct:{}:{rank}:{value}", window.start_ns / 1_000_000)
+        })?;
+    let sink_path = path.clone();
+    list.flatten_named(
+        "streaming-ordered-helpers-flatten",
+        &[take, first, distinct],
+    )?
+    .sink_named_with_config(
+        "streaming-ordered-helpers-sink",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::Idempotent,
+            commit: true,
+        },
+        format!("streaming-ordered-helpers:{}", path.display()),
+        move || {
+            Ok(Box::new(IdempotentRowSink {
+                directory: sink_path.clone(),
+                pending: Vec::new(),
+            }))
+        },
+    )
+}

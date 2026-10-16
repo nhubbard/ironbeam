@@ -1,5 +1,5 @@
 use super::*;
-use ironbeam_prism_proof::ordered_helpers_fixture;
+use ironbeam_prism_proof::{ordered_helpers_fixture, streaming_ordered_helpers_fixture};
 
 #[tokio::test]
 async fn prism_matches_direct_explicit_order_helpers() {
@@ -48,5 +48,58 @@ async fn prism_matches_direct_explicit_order_helpers() {
         "take:2:30",
     ];
     assert_eq!(read_rows(&direct_path), expected);
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
+async fn prism_runs_windowed_streaming_order_helpers() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let portable_path = directory.path().join("portable-windowed-helpers");
+    let portable = Pipeline::default();
+    streaming_ordered_helpers_fixture(&portable, portable_path.clone()).unwrap();
+    let (state, messages) = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "streaming-ordered-helpers",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAMING_ORDERED_HELPERS".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        state, 3,
+        "Prism streaming ordered helpers failed: {messages:?}"
+    );
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = [
+        "distinct:0:1:10",
+        "distinct:0:3:20",
+        "distinct:10:4:10",
+        "distinct:10:6:30",
+        "first:0:1:10",
+        "first:10:4:10",
+        "list:0:0:1:10",
+        "list:0:1:2:10",
+        "list:0:2:3:20",
+        "list:10:0:4:10",
+        "list:10:1:5:10",
+        "list:10:2:6:30",
+        "take:0:1:10",
+        "take:0:2:10",
+        "take:10:4:10",
+        "take:10:5:10",
+    ];
     assert_eq!(read_rows(&portable_path), expected);
 }
