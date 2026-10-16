@@ -43,6 +43,10 @@ pub enum WindowTrigger {
     EarlyCountOrProcessingTimeAndLateCount { count: u64, delay_ns: i64, late_count: u64 },
     /// Count-or-time early and count-based late panes retain prior values.
     EarlyCountOrProcessingTimeAndLateCountAccumulating { count: u64, delay_ns: i64, late_count: u64 },
+    /// Fire early after both count and processing time, then on a late count.
+    EarlyCountAndProcessingTimeAndLateCount { count: u64, delay_ns: i64, late_count: u64 },
+    /// Retain values across count-and-time early and count-based late panes.
+    EarlyCountAndProcessingTimeAndLateCountAccumulating { count: u64, delay_ns: i64, late_count: u64 },
     /// Repeated early firings after both a count and processing-time delay.
     EarlyCountAndProcessingTime { count: u64, delay_ns: i64 },
     /// Count-and-processing-time firings that retain earlier values.
@@ -79,6 +83,8 @@ impl WindowTrigger {
             | Self::EarlyCountOrProcessingTimeAccumulating { count, .. }
             | Self::EarlyCountOrProcessingTimeAndLateCount { count, .. }
             | Self::EarlyCountOrProcessingTimeAndLateCountAccumulating { count, .. }
+            | Self::EarlyCountAndProcessingTimeAndLateCount { count, .. }
+            | Self::EarlyCountAndProcessingTimeAndLateCountAccumulating { count, .. }
             | Self::EarlyCountAndProcessingTime { count, .. }
             | Self::EarlyCountAndProcessingTimeAccumulating { count, .. }
             | Self::EarlyCountThenProcessingTime { count, .. }
@@ -100,6 +106,8 @@ impl WindowTrigger {
             | Self::EarlyCountOrProcessingTimeAccumulating { delay_ns, .. }
             | Self::EarlyCountOrProcessingTimeAndLateCount { delay_ns, .. }
             | Self::EarlyCountOrProcessingTimeAndLateCountAccumulating { delay_ns, .. }
+            | Self::EarlyCountAndProcessingTimeAndLateCount { delay_ns, .. }
+            | Self::EarlyCountAndProcessingTimeAndLateCountAccumulating { delay_ns, .. }
             | Self::EarlyCountAndProcessingTime { delay_ns, .. }
             | Self::EarlyCountAndProcessingTimeAccumulating { delay_ns, .. }
             | Self::EarlyCountThenProcessingTime { delay_ns, .. }
@@ -115,6 +123,8 @@ impl WindowTrigger {
             self,
             Self::EarlyCountAndProcessingTime { .. }
                 | Self::EarlyCountAndProcessingTimeAccumulating { .. }
+                | Self::EarlyCountAndProcessingTimeAndLateCount { .. }
+                | Self::EarlyCountAndProcessingTimeAndLateCountAccumulating { .. }
         )
     }
 
@@ -136,7 +146,9 @@ impl WindowTrigger {
             Self::EarlyAndLateElementCount { late_count, .. }
             | Self::EarlyAndLateElementCountAccumulating { late_count, .. }
             | Self::EarlyCountOrProcessingTimeAndLateCount { late_count, .. }
-            | Self::EarlyCountOrProcessingTimeAndLateCountAccumulating { late_count, .. } => Some(*late_count),
+            | Self::EarlyCountOrProcessingTimeAndLateCountAccumulating { late_count, .. }
+            | Self::EarlyCountAndProcessingTimeAndLateCount { late_count, .. }
+            | Self::EarlyCountAndProcessingTimeAndLateCountAccumulating { late_count, .. } => Some(*late_count),
             _ => None,
         }
     }
@@ -150,6 +162,7 @@ impl WindowTrigger {
                 | Self::EarlyProcessingTimeAccumulating { .. }
                 | Self::EarlyCountOrProcessingTimeAccumulating { .. }
                 | Self::EarlyCountOrProcessingTimeAndLateCountAccumulating { .. }
+                | Self::EarlyCountAndProcessingTimeAndLateCountAccumulating { .. }
                 | Self::EarlyCountAndProcessingTimeAccumulating { .. }
                 | Self::EarlyCountThenProcessingTimeAccumulating { .. }
                 | Self::LateElementCountAccumulating { .. }

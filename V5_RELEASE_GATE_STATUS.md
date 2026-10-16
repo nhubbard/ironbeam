@@ -50,6 +50,7 @@ the local Semantic Release simulation.
 | Accumulating early and late count | The combined policy has distinct graph identity and tested panes on both runners. | Exact scheduling differs in one accumulating stream. |
 | Processing-time triggers | Whole-millisecond delays have fixed-window Direct and Prism proofs, including scripted clocks and Direct restart. | Mixed clock domains, session merging, and synchronized time. |
 | Count-and-time triggers | Repeated Beam `AfterAll` count-and-time schedules have Direct and Prism cases. | Other `AfterAll` expressions and wider fan-in. |
+| Count-and-time with late count | A fixed-window TestStream fires a conjunctive count-and-processing-time early pane, then a count-based late pane. Direct and pinned local Prism emit the same values and pane metadata. Core validates both accumulation modes; graph tests verify `AfterAll` and repeated late count lowering. | Wider trigger schedules and late-pane recovery. |
 | Accumulating late fan-in | Direct checkpoints retained values in co-groups and typed joins; selected Prism jobs complete. | Typed-join intermediate panes differ. |
 | Typed Partition | Versioned classifiers produce numbered branches with matching Direct and Prism outputs. | Wider multi-output execution. |
 | Representative Distinct | A native shuffle selects the smallest encoded representative per derived key and window on both runners. | Deterministic coders and more stream schedules. |

@@ -256,3 +256,53 @@ async fn prism_matches_direct_accumulating_timed_and_late_group_panes() {
     assert_eq!(terminal.0, 3, "Prism timed-late group failed: {terminal:?}");
     assert_eq!(read_rows(&portable_path), expected);
 }
+
+#[tokio::test]
+async fn prism_matches_direct_conjunctive_early_and_late_count_panes() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-and-time-late");
+    let portable_path = directory.path().join("portable-and-time-late");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        count_and_time_late_group_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut expected = [
+        "a:[2, 3]:Early:true:false:0:-1",
+        "a:[5, 7]:Late:false:false:1:0",
+    ];
+    expected.sort();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    assert_eq!(read_rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    count_and_time_late_group_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "count-and-time-late-group",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_COUNT_AND_TIME_LATE_GROUP".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism conjunctive early and late group failed: {terminal:?}"
+    );
+    assert_eq!(read_rows(&portable_path), expected);
+}

@@ -316,6 +316,64 @@ fn count_or_time_and_late_count_requires_finite_lateness_and_unique_identity() {
 }
 
 #[test]
+fn count_and_time_with_late_count_validates_and_identifies_both_modes() {
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
+    let windowed = source.fixed_windows("window", 10_000_000).unwrap();
+    assert!(
+        windowed
+            .count_and_processing_time_and_late_count_trigger_named(
+                "without-lateness",
+                2,
+                5_000_000,
+                2
+            )
+            .is_err()
+    );
+    let late = windowed
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap();
+    for (count, delay, late_count) in [(0, 5_000_000, 2), (2, 1, 2), (2, 5_000_000, 0)] {
+        assert!(
+            late.count_and_processing_time_and_late_count_trigger_named(
+                "invalid", count, delay, late_count
+            )
+            .is_err()
+        );
+    }
+    let discarding = late
+        .count_and_processing_time_and_late_count_trigger_named("discarding", 2, 5_000_000, 2)
+        .unwrap();
+    let accumulating = late
+        .accumulating_count_and_processing_time_and_late_count_trigger_named(
+            "accumulating",
+            2,
+            5_000_000,
+            2,
+        )
+        .unwrap();
+    discarding.group_by_key_named("discarding-group").unwrap();
+    accumulating
+        .group_by_key_named("accumulating-group")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let trigger = graph.node("discarding").unwrap().time.trigger;
+    assert_eq!(trigger.early_count(), Some(2));
+    assert_eq!(trigger.early_processing_time(), Some(5_000_000));
+    assert_eq!(trigger.late_count(), Some(2));
+    assert!(trigger.is_count_and_processing_time());
+    assert!(!trigger.is_accumulating());
+    assert!(
+        graph
+            .node("accumulating")
+            .unwrap()
+            .time
+            .trigger
+            .is_accumulating()
+    );
+}
+
+#[test]
 fn processing_time_trigger_validates_delay_and_changes_graph_identity() {
     let make = |delay_ns, accumulating| {
         let pipeline = Pipeline::default();

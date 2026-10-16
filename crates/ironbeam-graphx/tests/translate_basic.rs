@@ -74,6 +74,73 @@ fn count_and_processing_time_lowers_to_repeated_beam_after_all() {
 }
 
 #[test]
+fn count_and_time_with_late_count_lowers_to_after_all_and_repeated_late_count() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)])],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .accumulating_count_and_processing_time_and_late_count_trigger_named(
+            "trigger", 2, 5_000_000, 3,
+        )
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "trigger")
+        .unwrap();
+    let strategy = &components.windowing_strategies[&pc.windowing_strategy_id];
+    assert_eq!(
+        strategy.accumulation_mode,
+        accumulation_mode::Enum::Accumulating as i32
+    );
+    let Some(trigger::Trigger::AfterEndOfWindow(end)) =
+        strategy.trigger.as_ref().and_then(|t| t.trigger.as_ref())
+    else {
+        panic!("expected end-of-window trigger");
+    };
+    let Some(trigger::Trigger::Repeat(early)) =
+        end.early_firings.as_ref().and_then(|t| t.trigger.as_ref())
+    else {
+        panic!("expected repeated early trigger");
+    };
+    let Some(trigger::Trigger::AfterAll(all)) =
+        early.subtrigger.as_ref().and_then(|t| t.trigger.as_ref())
+    else {
+        panic!("expected conjunctive early trigger");
+    };
+    assert!(
+        matches!(all.subtriggers[0].trigger, Some(trigger::Trigger::ElementCount(ref count)) if count.element_count == 2)
+    );
+    assert!(matches!(
+        all.subtriggers[1].trigger,
+        Some(trigger::Trigger::AfterProcessingTime(_))
+    ));
+    let Some(trigger::Trigger::Repeat(late)) =
+        end.late_firings.as_ref().and_then(|t| t.trigger.as_ref())
+    else {
+        panic!("expected repeated late trigger");
+    };
+    assert!(
+        matches!(late.subtrigger.as_ref().and_then(|t| t.trigger.as_ref()), Some(trigger::Trigger::ElementCount(count)) if count.element_count == 3)
+    );
+}
+
+#[test]
 fn count_then_processing_time_lowers_to_repeated_beam_after_each() {
     let pipeline = Pipeline::default();
     pipeline

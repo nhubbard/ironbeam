@@ -689,7 +689,7 @@ impl<T: Element> PCollection<T> {
         delay_ns: i64,
         late_count: u64,
     ) -> Result<Self, Error> {
-        self.count_or_time_and_late_count_named(key, count, delay_ns, late_count, false)
+        self.count_time_and_late_count_named(key, count, delay_ns, late_count, false, CompositeTriggerMode::Any)
     }
 
     /// Retain values across early and late count-or-time panes.
@@ -700,16 +700,40 @@ impl<T: Element> PCollection<T> {
         delay_ns: i64,
         late_count: u64,
     ) -> Result<Self, Error> {
-        self.count_or_time_and_late_count_named(key, count, delay_ns, late_count, true)
+        self.count_time_and_late_count_named(key, count, delay_ns, late_count, true, CompositeTriggerMode::Any)
     }
 
-    fn count_or_time_and_late_count_named(
+    /// Fire early after both the element count and processing-time delay are
+    /// reached, then fire late after `late_count` new values.
+    pub fn count_and_processing_time_and_late_count_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+        late_count: u64,
+    ) -> Result<Self, Error> {
+        self.count_time_and_late_count_named(key, count, delay_ns, late_count, false, CompositeTriggerMode::All)
+    }
+
+    /// Retain values across count-and-time early and count-based late panes.
+    pub fn accumulating_count_and_processing_time_and_late_count_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+        late_count: u64,
+    ) -> Result<Self, Error> {
+        self.count_time_and_late_count_named(key, count, delay_ns, late_count, true, CompositeTriggerMode::All)
+    }
+
+    fn count_time_and_late_count_named(
         &self,
         key: &str,
         count: u64,
         delay_ns: i64,
         late_count: u64,
         accumulating: bool,
+        mode: CompositeTriggerMode,
     ) -> Result<Self, Error> {
         if count == 0 || count > i32::MAX as u64 || late_count == 0 || late_count > i32::MAX as u64 {
             return Err(Error::graph(key, "early and late counts must be positive 32-bit values"));
@@ -719,7 +743,7 @@ impl<T: Element> PCollection<T> {
         }
         let time = self.parent()?.time;
         if time.allowed_lateness_ns == 0 || !time.window.is_millisecond_aligned_fixed_or_sliding() {
-            return Err(Error::graph(key, "combined count-or-time and late count trigger requires allowed lateness and millisecond-aligned fixed or sliding windows"));
+            return Err(Error::graph(key, "combined count/time and late count trigger requires allowed lateness and millisecond-aligned fixed or sliding windows"));
         }
         let operation = match time.window {
             Window::Fixed { .. } | Window::FixedOffset { .. } => Operation::FixedWindow,
@@ -733,10 +757,12 @@ impl<T: Element> PCollection<T> {
             Some(time.window),
             None,
             TimePolicyOverride {
-                trigger: Some(if accumulating {
-                    WindowTrigger::EarlyCountOrProcessingTimeAndLateCountAccumulating { count, delay_ns, late_count }
-                } else {
-                    WindowTrigger::EarlyCountOrProcessingTimeAndLateCount { count, delay_ns, late_count }
+                trigger: Some(match (mode, accumulating) {
+                    (CompositeTriggerMode::Any, false) => WindowTrigger::EarlyCountOrProcessingTimeAndLateCount { count, delay_ns, late_count },
+                    (CompositeTriggerMode::Any, true) => WindowTrigger::EarlyCountOrProcessingTimeAndLateCountAccumulating { count, delay_ns, late_count },
+                    (CompositeTriggerMode::All, false) => WindowTrigger::EarlyCountAndProcessingTimeAndLateCount { count, delay_ns, late_count },
+                    (CompositeTriggerMode::All, true) => WindowTrigger::EarlyCountAndProcessingTimeAndLateCountAccumulating { count, delay_ns, late_count },
+                    (CompositeTriggerMode::Each, _) => unreachable!("sequential trigger has no late-count helper"),
                 }),
                 output_time: None,
                 on_time_behavior: None,

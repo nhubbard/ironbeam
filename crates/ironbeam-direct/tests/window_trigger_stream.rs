@@ -1017,6 +1017,108 @@ fn accumulating_count_or_time_and_late_count_retains_window_values() {
 }
 
 #[test]
+fn count_and_time_with_late_count_fires_only_when_both_early_conditions_hold() {
+    for accumulating in [false, true] {
+        let committed = Arc::new(Mutex::new(Vec::new()));
+        let accepted = Arc::new(Mutex::new(HashSet::new()));
+        let pipeline = Pipeline::default();
+        let windowed = pipeline
+            .test_stream_source(
+                "values",
+                vec![
+                    TestStreamEvent::Elements(vec![
+                        (('a'.to_string(), 2_i32), 2_000_000),
+                        (('a'.to_string(), 3), 3_000_000),
+                    ]),
+                    TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                    TestStreamEvent::Elements(vec![(('a'.to_string(), 4), 4_000_000)]),
+                    TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                    TestStreamEvent::Elements(vec![(('a'.to_string(), 6), 6_000_000)]),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                    TestStreamEvent::Elements(vec![
+                        (('a'.to_string(), 5), 5_000_000),
+                        (('a'.to_string(), 7), 7_000_000),
+                    ]),
+                    TestStreamEvent::AdvanceWatermark(15_000_000),
+                ],
+            )
+            .unwrap()
+            .fixed_windows("window", 10_000_000)
+            .unwrap()
+            .allowed_lateness_named("lateness", 5_000_000)
+            .unwrap();
+        let triggered = if accumulating {
+            windowed.accumulating_count_and_processing_time_and_late_count_trigger_named(
+                "trigger", 2, 5_000_000, 2,
+            )
+        } else {
+            windowed
+                .count_and_processing_time_and_late_count_trigger_named("trigger", 2, 5_000_000, 2)
+        }
+        .unwrap();
+        let sink = triggered
+            .group_by_key_named("group")
+            .unwrap()
+            .reify_panes_named("pane")
+            .unwrap()
+            .map_named("row", |(pane, (key, values))| {
+                format!(
+                    "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                    pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+                )
+            })
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                format!("count-and-time-late-{accumulating}-v1"),
+                {
+                    let committed = Arc::clone(&committed);
+                    let accepted = Arc::clone(&accepted);
+                    move || {
+                        Ok(Box::new(Capture {
+                            committed: Arc::clone(&committed),
+                            accepted: Arc::clone(&accepted),
+                            staged: Vec::new(),
+                            bundle: None,
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let rows = committed.lock().unwrap().clone();
+        if accumulating {
+            assert_eq!(
+                rows,
+                [
+                    "a:[2, 3]:Early:true:false:0:-1",
+                    "a:[2, 3, 4, 6]:Early:false:false:1:-1",
+                    "a:[2, 3, 4, 6, 5, 7]:Late:false:false:2:0"
+                ]
+            );
+        } else {
+            assert_eq!(
+                rows,
+                [
+                    "a:[2, 3]:Early:true:false:0:-1",
+                    "a:[4, 6]:Early:false:false:1:-1",
+                    "a:[5, 7]:Late:false:false:2:0"
+                ]
+            );
+        }
+    }
+}
+
+#[test]
 fn unbounded_fixed_window_group_into_batches_flushes_partial_batch_at_watermark() {
     assert_eq!(
         run_unbounded_keyed_batches(true, false),
