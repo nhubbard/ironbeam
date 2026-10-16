@@ -2793,6 +2793,65 @@ async fn prism_matches_direct_unbounded_sliding_map_state() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_unbounded_sliding_multimap_state() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-sliding-multimap");
+    let portable_path = directory.path().join("portable-sliding-multimap");
+    let direct = Pipeline::default();
+    let sink = ironbeam_prism_proof::streaming_sliding_multimap_state_fixture(
+        &direct,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = [
+        "0:10000000:1:11:0:0",
+        "0:10000000:1:12:0:1",
+        "10000000:20000000:1:11:0:0",
+        "10000000:20000000:1:11:1:1",
+        "15000000:25000000:1:11:0:0",
+        "5000000:15000000:1:11:0:0",
+        "5000000:15000000:1:11:1:2",
+        "5000000:15000000:1:12:0:1",
+    ];
+    assert_eq!(read_rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_sliding_multimap_state_fixture(
+        &portable,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "unbounded-sliding-multimap-state",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAMING_SLIDING_MULTIMAP_STATE".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism sliding multimap state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_bounded_runner_contract() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

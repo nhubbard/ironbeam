@@ -175,6 +175,62 @@ pub fn streaming_windowed_multimap_state_fixture(
         )
 }
 
+/// Duplicate-preserving state in overlapping sliding windows.
+pub fn streaming_sliding_multimap_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "sliding-multimap-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 6_000_000), ((1, 12), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(8_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 12_000_000)]),
+                TestStreamEvent::AdvanceWatermark(16_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 18_000_000)]),
+                TestStreamEvent::AdvanceWatermark(26_000_000),
+            ],
+        )?
+        .sliding_windows("sliding-multimap-window", 10_000_000, 5_000_000, 0)?
+        .stateful_multimap_map_named::<i32, i32, (i32, i32, i32)>(
+            "sliding-multimap-membership",
+            "prism-proof/sliding-key-multimap-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                Ok((
+                    MultimapStateMutation::Append(value, value),
+                    (
+                        value,
+                        i32::try_from(prior.get(&value).map_or(0, Vec::len))
+                            .expect("fixture fits i32"),
+                        i32::try_from(prior.values().map(Vec::len).sum::<usize>())
+                            .expect("fixture fits i32"),
+                    ),
+                ))
+            },
+        )?
+        .map_named("sliding-multimap-label", |(key, (value, count, size))| {
+            format!("{key}:{value}:{count}:{size}")
+        })?
+        .sink_named_with_config(
+            "sliding-multimap-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("sliding-multimap-state:{}", directory.display()),
+            move || {
+                Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                })))
+            },
+        )
+}
+
 /// Production unbounded source with duplicate-preserving state and idempotent output.
 pub fn production_multimap_state_fixture(
     pipeline: &Pipeline,
