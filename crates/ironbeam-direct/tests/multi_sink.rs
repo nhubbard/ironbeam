@@ -324,6 +324,104 @@ fn two_stream_branches_route_independent_event_timers() {
     assert_eq!(*right_rows.lock().unwrap(), ["1:30"]);
 }
 
+#[test]
+fn serial_stateful_timers_fire_in_graph_order_at_one_watermark() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .test_stream_source(
+            "source",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+            ],
+        )
+        .unwrap();
+    let left_rows = Arc::new(Mutex::new(Vec::new()));
+    let right_rows = Arc::new(Mutex::new(Vec::new()));
+    let families = BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]);
+    let left_capture = Arc::clone(&left_rows);
+    let left = source
+        .stateful_timer_map_named::<i32, i32>(
+            "z-upstream-timer",
+            "tests/serial-upstream-timer-v1",
+            Version { major: 1, minor: 0 },
+            families.clone(),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "a-downstream-timer",
+            "tests/serial-downstream-timer-v1",
+            Version { major: 1, minor: 0 },
+            families,
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value * 10),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("left-label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named("left", spec(), move || {
+            Ok(Box::new(Capture {
+                rows: Arc::clone(&left_capture),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    let right_capture = Arc::clone(&right_rows);
+    let right = source
+        .map_named("right-label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named("right", spec(), move || {
+            Ok(Box::new(Capture {
+                rows: Arc::clone(&right_capture),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    DirectRunner
+        .start_stream_sink_pair(&left, &right, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*left_rows.lock().unwrap(), ["1:30"]);
+    assert_eq!(*right_rows.lock().unwrap(), ["1:3"]);
+}
+
 struct Capture<T> {
     rows: Arc<Mutex<Vec<T>>>,
     pending: Vec<T>,

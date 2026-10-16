@@ -2824,7 +2824,7 @@ fn run_stream_pair(
             {
                 let now_ns = processing_time_now_ns(source.as_ref())?;
                 let mut timer_due = false;
-                for key in &plan.stateful_keys {
+                for key in &plan.timer_keys {
                     timer_due |= registry
                         .next_stateful_timer_deadline(key)?
                         .is_some_and(|deadline| deadline <= now_ns);
@@ -2844,7 +2844,7 @@ fn run_stream_pair(
                     let mut right_session = None;
                     let result = (|| {
                         let mut written = 0_u64;
-                        for key in &plan.stateful_keys {
+                        for key in &plan.timer_keys {
                             let firings = catch_unwind(AssertUnwindSafe(|| {
                                 registry.drain_stateful_timers(key, None, Some(now_ns))
                             }))
@@ -2962,7 +2962,7 @@ fn run_stream_pair(
                     config,
                 )?);
             }
-            for key in &plan.stateful_keys {
+            for key in &plan.timer_keys {
                 let processing_time_ns = if registry.next_stateful_timer_deadline(key)?.is_some() {
                     Some(processing_time_now_ns(source.as_ref())?)
                 } else {
@@ -2995,7 +2995,7 @@ fn run_stream_pair(
             if config.cancellation.load(Ordering::Acquire) {
                 return Err(cancelled());
             }
-            for key in &plan.stateful_keys {
+            for key in &plan.timer_keys {
                 registry.expire_stateful_value(key, batch.progress.event_time_ns)?;
             }
             let state = pair_state::snapshot(plan, registry, config.memory_budget_bytes)?;

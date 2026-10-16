@@ -11,6 +11,7 @@ use std::sync::atomic::Ordering;
 pub(crate) struct PairPlan {
     pub(crate) source_key: String,
     pub(crate) stateful_keys: Vec<String>,
+    pub(crate) timer_keys: Vec<String>,
     split_key: String,
     common_stages: Vec<String>,
     left_stages: Vec<String>,
@@ -134,6 +135,12 @@ fn prepare_routes(
         .filter(|key| registry.has_stateful_value(key))
         .collect::<std::collections::BTreeSet<_>>();
     let stateful_keys: Vec<String> = stateful.into_iter().cloned().collect();
+    let mut timer_keys = Vec::with_capacity(stateful_keys.len());
+    for key in left.iter().chain(&right) {
+        if registry.has_stateful_value(key) && !timer_keys.contains(key) {
+            timer_keys.push(key.clone());
+        }
+    }
     for key in &stateful_keys {
         let Some(Operation::StatefulParDo { .. }) = graph.node(key).map(|node| &node.operation)
         else {
@@ -151,6 +158,7 @@ fn prepare_routes(
     Ok(PairPlan {
         source_key: left[0].clone(),
         stateful_keys,
+        timer_keys,
         split_key: split_key.clone(),
         common_stages: left[1..common].to_vec(),
         left_stages: left[common..].to_vec(),

@@ -95,7 +95,7 @@ fn three_linear_stateful_stages_restore_together() {
     };
     let left = source
         .stateful_value_map_named::<i32, i32>(
-            "left-first",
+            "z-left-first",
             "tests/three-state-left-first",
             Version { major: 1, minor: 0 },
             |_, value, prior| {
@@ -105,7 +105,7 @@ fn three_linear_stateful_stages_restore_together() {
         )
         .unwrap()
         .stateful_value_map_named::<i32, i32>(
-            "left-second",
+            "a-left-second",
             "tests/three-state-left-second",
             Version { major: 1, minor: 0 },
             |_, value, prior| {
@@ -118,7 +118,7 @@ fn three_linear_stateful_stages_restore_together() {
         .unwrap();
     let right = source
         .stateful_value_map_named::<i32, i32>(
-            "right-third",
+            "m-right-third",
             "tests/three-state-right-third",
             Version { major: 1, minor: 0 },
             |_, value, prior| {
@@ -132,6 +132,14 @@ fn three_linear_stateful_stages_restore_together() {
     let (graph, registry) = left.snapshot().unwrap();
     let plan = prepare_stream_sinks(&graph, &registry, left.key(), right.key()).unwrap();
     assert_eq!(plan.stateful_keys.len(), 3);
+    assert_eq!(
+        plan.stateful_keys,
+        ["a-left-second", "m-right-third", "z-left-first"]
+    );
+    assert_eq!(
+        plan.timer_keys,
+        ["z-left-first", "a-left-second", "m-right-third"]
+    );
     let event = |value| Envelope {
         value: Box::new((1_i32, value)),
         timestamp_ns: 0,
