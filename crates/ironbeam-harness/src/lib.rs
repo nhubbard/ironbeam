@@ -30,6 +30,7 @@ pub mod logging;
 pub mod portable_metrics;
 pub mod portable_publication;
 pub mod provision;
+pub mod sdf_offset_wire;
 pub mod sdf_wire;
 mod server;
 pub mod state;

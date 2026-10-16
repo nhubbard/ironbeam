@@ -655,9 +655,11 @@ start when no claim has been made. Focused tests cover no claims, skipped
 offsets, fractions after claims, and concurrent splitting. Split arithmetic
 now uses the decimal representation of Beam's fraction and truncates the final
 position toward zero, matching pinned Java results for negative ranges and
-the full signed 64-bit span. It is not yet
-registered as an executable splittable transform on either runner, so the
-splittable-processing parity row remains open.
+the full signed 64-bit span. Bounded user offset callbacks are registered and
+execute on Direct. The worker now has a tested pair and sized-pair codec that
+uses those Beam range bytes, checks malformed restrictions and sizes, splits
+the full signed span without overflow, and preserves finite work on drain.
+Graphx lowering and Fn API execution of registered user SDFs remain open.
 The Linux core coverage job for commit `85a28b3` passed its unchanged floor:
 **5366/5571 source lines (96.32%)** and **1082/1246 source branches (86.84%)**.
 Its strict Clippy job also passed.
