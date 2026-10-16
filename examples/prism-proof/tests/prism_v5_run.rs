@@ -6807,6 +6807,59 @@ async fn prism_matches_direct_timed_byte_batches_and_window_expiry() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_global_timed_byte_batches_on_finite_stream() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-global-timed-byte-batches");
+    let portable_path = directory.path().join("portable-global-timed-byte-batches");
+    let direct = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::streaming_global_timed_byte_batches_fixture(
+        &direct,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_global_timed_byte_batches_fixture(
+        &portable,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "global-timed-byte-batches",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_GLOBAL_TIMED_BYTE_BATCHES".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism global timed batches failed: {terminal:?}"
+    );
+    let rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = ["1:1000000:[\"a\", \"b\"]", "1:3000000:[\"c\"]"];
+    assert_eq!(rows(&direct_path), expected);
+    assert_eq!(rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_replays_timed_byte_batches_after_execution_child_loss() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
@@ -6843,6 +6896,58 @@ async fn prism_replays_timed_byte_batches_after_execution_child_loss() {
     assert_eq!(
         terminal.0, 3,
         "Prism timed byte replay failed: {terminal:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap(),
+        "the first execution child was not replaced"
+    );
+    let mut rows = std::fs::read_dir(&output)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    rows.sort();
+    assert_eq!(rows, ["1:1000000:[\"a\", \"b\"]", "1:3000000:[\"c\"]"]);
+}
+
+#[tokio::test]
+async fn prism_replays_global_timed_byte_batches_after_execution_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("replayed-global-timed-byte-batches");
+    let trigger = directory.path().join("global-timed-byte-child-trigger");
+    let killed = directory.path().join("killed-global-timed-byte-child");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::streaming_global_timed_byte_batches_fixture(&pipeline, output.clone())
+        .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "replayed-global-timed-byte-batches",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_GLOBAL_TIMED_BYTE_BATCHES".into(),
+                output.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            ("IRONBEAM_V5_PRISM_KILL_TIMED_BYTE_BATCH".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism global timed replay failed: {terminal:?}"
     );
     assert_eq!(
         std::fs::read_to_string(&killed).unwrap(),

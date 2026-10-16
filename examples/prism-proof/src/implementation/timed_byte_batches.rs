@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 struct DelayedByteSource {
     cursor: Option<u8>,
     next_ready_millis: u64,
+    global: bool,
 }
 
 impl UnboundedSource<Timestamped<(i32, String)>> for DelayedByteSource {
@@ -23,7 +24,16 @@ impl UnboundedSource<Timestamped<(i32, String)>> for DelayedByteSource {
             Some(1) if source_clock_millis()? < self.next_ready_millis => {
                 return Ok(UnboundedPoll::Pending);
             }
-            Some(1) => (vec![("c", 3_000_000)], 2, 10_000_000, true),
+            Some(1) => (
+                vec![("c", 3_000_000)],
+                2,
+                if self.global { 3_000_000 } else { 10_000_000 },
+                !self.global,
+            ),
+            Some(2) if self.global && source_clock_millis()? < self.next_ready_millis => {
+                return Ok(UnboundedPoll::Pending);
+            }
+            Some(2) if self.global => (Vec::new(), 3, 3_000_000, true),
             _ => return Ok(UnboundedPoll::Pending),
         };
         self.cursor = Some(cursor);
@@ -68,44 +78,68 @@ pub fn streaming_timed_byte_batches_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<String>, Error> {
+    timed_byte_batches_fixture(pipeline, directory, false)
+}
+
+/// A global stream waits for both processing timers before completing.
+pub fn streaming_global_timed_byte_batches_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    timed_byte_batches_fixture(pipeline, directory, true)
+}
+
+fn timed_byte_batches_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    global: bool,
+) -> Result<Sink<String>, Error> {
     let sink_directory = directory.clone();
-    pipeline
-        .unbounded_source_with_factory(
-            "timed-byte-input",
-            SourceProgress {
-                stable_split_id: true,
-                replay: Replay::AtLeastOnce,
-                reports_event_time: true,
-            },
-            "prism-proof/timed-byte-source-v2".into(),
-            0,
-            move |position| {
-                if std::env::var_os("IRONBEAM_V5_PRISM_KILL_TIMED_BYTE_BATCH").is_some()
-                    && position
-                        .as_deref()
-                        .is_some_and(|bytes| bytes.first() == Some(&1))
+    let source = pipeline.unbounded_source_with_factory(
+        "timed-byte-input",
+        SourceProgress {
+            stable_split_id: true,
+            replay: Replay::AtLeastOnce,
+            reports_event_time: true,
+        },
+        format!("prism-proof/timed-byte-source-v3/global={global}"),
+        0,
+        move |position| {
+            if std::env::var_os("IRONBEAM_V5_PRISM_KILL_TIMED_BYTE_BATCH").is_some()
+                && position
+                    .as_deref()
+                    .is_some_and(|bytes| bytes.first() == Some(&1))
+            {
+                super::await_supervised_source_replacement(Some(&[1]))?;
+            }
+            let (cursor, next_ready_millis) = match position.as_deref() {
+                None => (None, 0),
+                Some([stage @ (1 | 2), rest @ ..])
+                    if rest.len() == 8 && (*stage == 1 || global) =>
                 {
-                    super::await_supervised_source_replacement(Some(&[1]))?;
-                }
-                let (cursor, next_ready_millis) = match position.as_deref() {
-                    None => (None, 0),
-                    Some([1, rest @ ..]) if rest.len() == 8 => (
-                        Some(1),
+                    (
+                        Some(*stage),
                         u64::from_be_bytes(rest.try_into().map_err(|_| {
                             Error::incompatible("invalid timed byte source deadline")
                         })?),
-                    ),
-                    Some([2]) => (Some(2), 0),
-                    _ => return Err(Error::incompatible("unexpected timed byte source cursor")),
-                };
-                Ok(Box::new(DelayedByteSource {
-                    cursor,
-                    next_ready_millis,
-                })
-                    as TypedUnboundedSourceReader<(i32, String)>)
-            },
-        )?
-        .fixed_windows("timed-byte-window", 10_000_000)?
+                    )
+                }
+                Some([2]) => (Some(2), 0),
+                _ => return Err(Error::incompatible("unexpected timed byte source cursor")),
+            };
+            Ok(Box::new(DelayedByteSource {
+                cursor,
+                next_ready_millis,
+                global,
+            }) as TypedUnboundedSourceReader<(i32, String)>)
+        },
+    )?;
+    let source = if global {
+        source
+    } else {
+        source.fixed_windows("timed-byte-window", 10_000_000)?
+    };
+    source
         .group_into_batches_with_limits_and_max_buffering_duration_named(
             "timed-byte-batches",
             10,

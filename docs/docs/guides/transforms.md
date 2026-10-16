@@ -184,6 +184,9 @@ replayable production-source fixture checks the processing-time flush and the
 later window-end flush on Direct and local Prism. Prism's TestStream can
 schedule downstream work after its scripted processing-time advances, so the
 production-source fixture is the timing proof for that runner.
+For a finite global stream, partial batches need a buffering duration if they
+must be emitted before source completion. A production-source fixture confirms
+that two such partial batches flush on their timers on both runners.
 
 `group_into_batches_with_limits_and_sharded_key_named` applies the same count
 and byte limits after a caller supplied selector assigns each value to a
