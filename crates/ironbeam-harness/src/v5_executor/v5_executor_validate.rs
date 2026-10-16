@@ -185,7 +185,9 @@ impl V5BundleExecutor {
                             let collection = if self
                                 .graph
                                 .node(&side.key)
-                                .is_some_and(|side| side.time.window == Window::Global)
+                                .is_some_and(|side| side.time.window == Window::Global
+                                    || (matches!(node.operation, Operation::SideInputMap)
+                                        && side.time != node.time))
                                 || matches!(node.operation, Operation::WaitOnWindowed)
                             {
                                 collection_id(&side.key)

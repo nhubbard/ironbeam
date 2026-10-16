@@ -32,6 +32,66 @@ fn multimap_side_view<K: Eq + Hash, V>(values: Vec<(K, V)>) -> HashMap<K, Vec<V>
     view
 }
 
+fn validate_mapped_side_windows(key: &str, main: &Time, side: &Time) -> Result<(), Error> {
+    if main.window == side.window
+        || main.trigger != WindowTrigger::Default
+        || side.trigger != WindowTrigger::Default
+        || main.allowed_lateness_ns != 0
+        || side.allowed_lateness_ns != 0
+        || !matches!(main.window, Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. })
+    {
+        return Err(Error::graph(key, "mapped side view requires distinct finite windows with default triggers and zero lateness"));
+    }
+    let aligned = |window: &Window| match window {
+        Window::Fixed { size_ns } => *size_ns > 0 && size_ns % 1_000_000 == 0,
+        Window::FixedOffset { size_ns, offset_ns } => *size_ns > 0
+            && size_ns % 1_000_000 == 0
+            && offset_ns % 1_000_000 == 0,
+        Window::Sliding { size_ns, period_ns, offset_ns } => *size_ns > 0
+            && *period_ns > 0
+            && size_ns % 1_000_000 == 0
+            && period_ns % 1_000_000 == 0
+            && offset_ns % 1_000_000 == 0,
+        _ => false,
+    };
+    if !aligned(&main.window) || !aligned(&side.window) {
+        return Err(Error::graph(key, "mapped side windows require whole-millisecond fixed or sliding windows"));
+    }
+    Ok(())
+}
+
+fn mapped_side_window(main: WindowInterval, side: &Window) -> Result<WindowInterval, Error> {
+    let timestamp = i128::from(main.end_ns) - 1_000_000;
+    let (size, period, offset, sliding) = match side {
+        Window::Fixed { size_ns } => (*size_ns, *size_ns, 0, false),
+        Window::FixedOffset { size_ns, offset_ns } => (*size_ns, *size_ns, *offset_ns, false),
+        Window::Sliding { size_ns, period_ns, offset_ns } => {
+            (*size_ns, *period_ns, *offset_ns, true)
+        }
+        _ => return Err(Error::incompatible("mapped side window is not fixed or sliding")),
+    };
+    let (size, period, offset) = (i128::from(size), i128::from(period), i128::from(offset));
+    if size <= 0 || period <= 0 {
+        return Err(Error::incompatible("mapped side window size or period is invalid"));
+    }
+    let latest_start = timestamp - (timestamp - offset).rem_euclid(period);
+    let distance = timestamp - latest_start;
+    if size <= distance {
+        return Err(Error::incompatible("sliding side window has no target for main window"));
+    }
+    let first_start = if sliding {
+        latest_start - ((size - 1 - distance) / period) * period
+    } else {
+        latest_start
+    };
+    Ok(WindowInterval {
+        start_ns: i64::try_from(first_start)
+            .map_err(|_| Error::incompatible("mapped side window start exceeds i64"))?,
+        end_ns: i64::try_from(first_start + size)
+            .map_err(|_| Error::incompatible("mapped side window end exceeds i64"))?,
+    })
+}
+
 fn linear_wait_source<'a>(graph: &'a Graph, mut key: &'a str) -> Option<&'a str> {
     loop {
         let node = graph.node(key)?;

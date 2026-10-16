@@ -22,14 +22,15 @@ use std::collections::{HashMap, HashSet};
 
 use beam_proto::fn_execution_v1::{ProcessBundleDescriptor, RemoteGrpcPort};
 use beam_proto::pipeline_v1::{
-    state_spec, time_domain, Coder, FunctionSpec, PTransform, ParDoPayload, WindowIntoPayload,
+    state_spec, time_domain, Coder, FixedWindowsPayload, FunctionSpec, PTransform, ParDoPayload,
+    SideInput, SlidingWindowsPayload, WindowIntoPayload,
 };
 use ironbeam_graphx::{urns, v5::V5NodeRef};
 use prost::Message;
 
 #[path = "bundle_map_windows.rs"]
 mod map_windows;
-use map_windows::{coders_equivalent, plan_map_windows};
+use map_windows::{coders_equivalent, duration_millis, plan_map_windows, timestamp_millis};
 #[path = "bundle_merge_windows.rs"]
 mod merge_windows;
 use merge_windows::plan_merge_windows;
@@ -67,6 +68,33 @@ fn reject_unsupported_state_and_timers(id: &str, payload: &ParDoPayload) -> Resu
         });
     }
     Ok(())
+}
+
+fn supported_side_input_spec(spec: &SideInput) -> bool {
+    let global = ironbeam_graphx::v5::side_input_spec();
+    if spec == &global || spec == &ironbeam_graphx::v5::windowed_wait_side_input_spec() {
+        return true;
+    }
+    if spec.access_pattern != global.access_pattern || spec.view_fn != global.view_fn {
+        return false;
+    }
+    let Some(mapping) = spec.window_mapping_fn.as_ref() else {
+        return false;
+    };
+    match mapping.urn.as_str() {
+        urns::WINDOW_MAPPING_FIXED => FixedWindowsPayload::decode(mapping.payload.as_slice())
+            .is_ok_and(|payload| {
+                duration_millis(payload.size.as_ref()).is_ok_and(|size| size > 0)
+                    && timestamp_millis(payload.offset.as_ref()).is_ok()
+            }),
+        urns::WINDOW_MAPPING_SLIDING => SlidingWindowsPayload::decode(mapping.payload.as_slice())
+            .is_ok_and(|payload| {
+                duration_millis(payload.size.as_ref()).is_ok_and(|size| size > 0)
+                    && duration_millis(payload.period.as_ref()).is_ok_and(|period| period > 0)
+                    && timestamp_millis(payload.offset.as_ref()).is_ok()
+            }),
+        _ => false,
+    }
 }
 
 fn value_state_payload(
@@ -494,14 +522,14 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
                         .filter(|(local, _)| local.as_str() != "in")
                         .map(|(local, collection)| (local.clone(), collection.clone()))
                         .collect::<HashMap<_, _>>();
-                    if sides.len() != pardo.side_inputs.len() || sides.iter().any(|(local, _)| {
-                        !matches!(
-                            pardo.side_inputs.get(local),
-                            Some(spec)
-                                if spec == &ironbeam_graphx::v5::side_input_spec()
-                                    || spec == &ironbeam_graphx::v5::windowed_wait_side_input_spec()
-                        )
-                    }) {
+                    if sides.len() != pardo.side_inputs.len()
+                        || sides.iter().any(|(local, _)| {
+                            !pardo
+                                .side_inputs
+                                .get(local)
+                                .is_some_and(supported_side_input_spec)
+                        })
+                    {
                         return Err(PlanError::BadPayload {
                             id: id.to_string(),
                             err: "v5 side input contract differs".into(),

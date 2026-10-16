@@ -2,7 +2,8 @@ fn needs_side_global(graph: &Graph, node: &Node) -> bool {
     matches!(node.operation, Operation::SideInputMap | Operation::WaitOn)
         && graph
             .node(&node.additional_inputs[0].key)
-            .is_some_and(|side| side.time.window != Window::Global)
+            .is_some_and(|side| side.time.window != Window::Global
+                && (matches!(node.operation, Operation::WaitOn) || side.time == node.time))
 }
 
 fn keyed_input_reaches(graph: &Graph, current: &str, target: &str) -> bool {
@@ -647,7 +648,7 @@ fn lower(
                     urn: urns::DOFN_IRONBEAM_V5.into(),
                     payload: node_ref.encode()?,
                 }),
-                side_inputs: side_input_specs(node),
+                side_inputs: side_input_specs(graph, node)?,
                 requests_finalization: finalization_sinks.contains(key),
                 restriction_coder_id: if is_production_source(node)
                     || matches!(node.operation, Operation::SplittableParDo)

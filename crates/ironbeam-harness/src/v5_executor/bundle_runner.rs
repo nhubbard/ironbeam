@@ -189,7 +189,7 @@ impl BundleRunner for V5BundleExecutor {
         } else {
             None
         };
-        let mut side_views: HashMap<String, Box<dyn Any + Send>> = HashMap::new();
+        let mut side_views: HashMap<(String, Option<WindowInterval>), Box<dyn Any + Send>> = HashMap::new();
         if !plan.side_inputs.is_empty() {
             let state = state.as_ref().expect("connected for side inputs");
             for step in &plan.steps {
@@ -208,6 +208,11 @@ impl BundleRunner for V5BundleExecutor {
                     continue;
                 }
                 let side_parent = &node.additional_inputs[0].key;
+                if matches!(node.operation, Operation::SideInputMap)
+                    && self.graph.node(side_parent).is_some_and(|side| side.time != node.time)
+                {
+                    continue;
+                }
                 let state_key = StateKey {
                     r#type: Some(state_key::Type::IterableSideInput(
                         state_key::IterableSideInput {
@@ -231,7 +236,7 @@ impl BundleRunner for V5BundleExecutor {
                     consumed += len;
                 }
                 side_views.insert(
-                    node.key.clone(),
+                    (node.key.clone(), None),
                     catch_unwind(AssertUnwindSafe(|| {
                         self.registry.materialize_side_input(&node.key, values)
                     }))

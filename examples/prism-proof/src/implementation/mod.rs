@@ -25,6 +25,8 @@ mod row_decimal;
 pub use row_decimal::*;
 mod row_projection;
 pub use row_projection::*;
+mod mapped_side_views;
+pub use mapped_side_views::*;
 mod sharded_key;
 pub use sharded_key::*;
 mod sharded_batches;

@@ -130,12 +130,12 @@ pub(super) fn plan_map_windows(
     })
 }
 
-fn duration_millis(value: Option<&prost_types::Duration>) -> Result<i64, String> {
+pub(super) fn duration_millis(value: Option<&prost_types::Duration>) -> Result<i64, String> {
     let value = value.ok_or("window mapping is missing a duration")?;
     whole_millis(value.seconds, value.nanos)
 }
 
-fn timestamp_millis(value: Option<&prost_types::Timestamp>) -> Result<i64, String> {
+pub(super) fn timestamp_millis(value: Option<&prost_types::Timestamp>) -> Result<i64, String> {
     let value = value.ok_or("window mapping is missing an offset")?;
     whole_millis(value.seconds, value.nanos)
 }

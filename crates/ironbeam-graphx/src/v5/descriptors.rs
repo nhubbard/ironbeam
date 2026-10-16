@@ -64,20 +64,50 @@ fn wait_side_input_id(index: usize, total: usize) -> String {
     }
 }
 
-fn side_input_specs(node: &Node) -> HashMap<String, SideInput> {
-    match node.operation {
-        Operation::SideInputMap | Operation::WaitOn => {
-            HashMap::from([(SIDE_INPUT_LOCAL_ID.into(), side_input_spec())])
+fn mapped_side_input_spec(window: &Window) -> Result<SideInput, V5Error> {
+    let mut spec = side_input_spec();
+    let mut mapping = match window {
+        Window::Fixed { size_ns } => fixed_window_fn(*size_ns, 0),
+        Window::FixedOffset { size_ns, offset_ns } => fixed_window_fn(*size_ns, *offset_ns),
+        Window::Sliding { size_ns, period_ns, offset_ns } => {
+            sliding_window_fn(*size_ns, *period_ns, *offset_ns)
         }
-        Operation::WaitOnWindowed => node
+        _ => return Err(V5Error::Wire("mapped side view needs fixed or sliding windows".into())),
+    }
+    .map_err(V5Error::Wire)?;
+    mapping.urn = if matches!(window, Window::Sliding { .. }) {
+        urns::WINDOW_MAPPING_SLIDING.into()
+    } else {
+        urns::WINDOW_MAPPING_FIXED.into()
+    };
+    spec.window_mapping_fn = Some(mapping);
+    Ok(spec)
+}
+
+fn side_input_specs(graph: &Graph, node: &Node) -> Result<HashMap<String, SideInput>, V5Error> {
+    match node.operation {
+        Operation::SideInputMap => {
+            let side_key = &node.additional_inputs.first()
+                .ok_or_else(|| V5Error::Wire("side view has no side input".into()))?.key;
+            let side = graph.node(side_key)
+                .ok_or_else(|| V5Error::Wire("side view input is missing".into()))?;
+            let spec = if side.time == node.time {
+                side_input_spec()
+            } else {
+                mapped_side_input_spec(&side.time.window)?
+            };
+            Ok(HashMap::from([(SIDE_INPUT_LOCAL_ID.into(), spec)]))
+        }
+        Operation::WaitOn => Ok(HashMap::from([(SIDE_INPUT_LOCAL_ID.into(), side_input_spec())])),
+        Operation::WaitOnWindowed => Ok(node
             .additional_inputs
             .iter()
             .enumerate()
             .map(|(index, _)| {
                 (wait_side_input_id(index, node.additional_inputs.len()), windowed_wait_side_input_spec())
             })
-            .collect(),
-        _ => HashMap::new(),
+            .collect()),
+        _ => Ok(HashMap::new()),
     }
 }
 

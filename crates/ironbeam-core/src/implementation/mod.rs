@@ -31,6 +31,7 @@ include!("pipeline.rs");
 include!("collection.rs");
 include!("splittable_collection.rs");
 include!("side_views.rs");
+include!("mapped_side_views.rs");
 include!("grouping.rs");
 include!("session_join.rs");
 include!("stateful.rs");

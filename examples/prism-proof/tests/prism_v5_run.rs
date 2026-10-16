@@ -3717,6 +3717,66 @@ async fn prism_matches_direct_windowed_singleton_map_and_multimap_views() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_fixed_offset_sliding_and_empty_mapped_side_views() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-mapped-side.txt");
+    let portable_path = directory.path().join("portable-mapped-side.txt");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        ironbeam_prism_proof::mapped_side_view_fixture(&direct_pipeline, direct_path.clone())
+            .unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
+    let rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    let expected = [
+        "1000000:fixed:10:7",
+        "1000000:offset:10:17",
+        "1000000:sliding:10:1",
+        "13000000:fixed:40:27",
+        "13000000:offset:40:16",
+        "13000000:sliding:40:27",
+        "25000000:fixed:50:0",
+        "25000000:offset:50:0",
+        "25000000:sliding:50:0",
+        "5000000:fixed:20:7",
+        "5000000:offset:20:17",
+        "5000000:sliding:20:7",
+        "9000000:fixed:30:27",
+        "9000000:offset:30:17",
+        "9000000:sliding:30:17",
+    ];
+    assert_eq!(rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    ironbeam_prism_proof::mapped_side_view_fixture(&portable_pipeline, portable_path.clone())
+        .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "mapped-side-views",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_MAPPED_SIDE_VIEWS".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism mapped side view state: {terminal:?}");
+    assert_eq!(rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_and_direct_reject_duplicate_windowed_map_keys_before_commit() {
     let directory = tempfile::tempdir().unwrap();
     let direct_path = directory.path().join("direct-windowed-duplicate-map.txt");

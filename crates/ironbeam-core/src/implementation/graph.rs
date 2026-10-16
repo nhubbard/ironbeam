@@ -393,13 +393,15 @@ impl Graph {
                                     "flatten input type/coder mismatch",
                                 ));
                             }
-                            if other.time != node.time
-                                && !matches!(node.operation, Operation::WaitOn)
-                            {
-                                return Err(Error::graph(
-                                    &node.key,
-                                    "flatten time/window mismatch",
-                                ));
+                            if other.time != node.time {
+                                if matches!(node.operation, Operation::SideInputMap) {
+                                    validate_mapped_side_windows(&node.key, &node.time, &other.time)?;
+                                } else if !matches!(node.operation, Operation::WaitOn) {
+                                    return Err(Error::graph(
+                                        &node.key,
+                                        "flatten time/window mismatch",
+                                    ));
+                                }
                             }
                             unbounded |= other.boundedness == Boundedness::Unbounded;
                         }

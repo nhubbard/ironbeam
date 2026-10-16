@@ -1,5 +1,5 @@
 struct BundleInputs<'a> {
-    side_views: &'a mut HashMap<String, Box<dyn Any + Send>>,
+    side_views: &'a mut HashMap<(String, Option<WindowInterval>), Box<dyn Any + Send>>,
     state: Option<&'a StateClient>,
     timer_data: &'a DataClient,
     timer_source_key: Option<&'a str>,
@@ -349,42 +349,57 @@ impl V5BundleExecutor {
                             let parent = node.input.as_deref().ok_or_else(|| {
                                 anyhow!("v5 side input {} has no main input", node.key)
                             })?;
-                            let view = inputs.side_views.get(&node.key).ok_or_else(|| {
-                                anyhow!("v5 side view {} was not materialized", node.key)
-                            })?;
-                            collections
+                            let side_key = &node.additional_inputs.first()
+                                .ok_or_else(|| anyhow!("v5 side input {} has no side input", node.key))?.key;
+                            let side = self.graph.node(side_key)
+                                .ok_or_else(|| anyhow!("v5 side input {} has no side node", node.key))?;
+                            let mapped = side.time != node.time;
+                            let input = collections
                                 .get(input_pc.as_str())
-                                .ok_or_else(|| anyhow!("missing v5 collection {input_pc}"))?
-                                .iter()
-                                .map(|wire| {
-                                    let event = Envelope {
-                                        pane: wire.pane,
-                                        value: self.registry.decode_element(parent, &wire.bytes)?,
-                                        timestamp_ns: wire.timestamp_ns,
-                                        window: node.time.window.clone(),
-                                        assigned_window: wire.window,
-                                    };
-                                    let output = catch_unwind(AssertUnwindSafe(|| {
-                                        self.registry.apply_side_input(
-                                            &node.key,
-                                            event,
-                                            view.as_ref(),
-                                        )
-                                    }))
-                                    .map_err(|panic| {
-                                        user_panic_error(&node.key, "aggregate", panic)
-                                    })??;
-                                    Ok(WireValue {
-                                        bytes: self
-                                            .registry
-                                            .encode_element(&node.key, output.value.as_ref())?,
-                                        timestamp_ns: output.timestamp_ns,
-                                        window: output.assigned_window,
-                                        pane: output.pane,
-                                        element_metadata: wire.element_metadata.clone(),
-                                    })
-                                })
-                                .collect::<Result<Vec<_>>>()?
+                                .ok_or_else(|| anyhow!("missing v5 collection {input_pc}"))?;
+                            let mut produced = Vec::with_capacity(input.len());
+                            for wire in input {
+                                let view_window = if mapped {
+                                    let main_window = wire.window.ok_or_else(|| {
+                                        anyhow!("mapped side input has no main window")
+                                    })?;
+                                    let state = inputs.state.ok_or_else(|| {
+                                        anyhow!("mapped side input has no runner State endpoint")
+                                    })?;
+                                    Some(self.ensure_mapped_side_view(
+                                        instruction_id,
+                                        transform_id,
+                                        node,
+                                        main_window,
+                                        state,
+                                        inputs.side_views,
+                                    ).await?)
+                                } else {
+                                    None
+                                };
+                                let view = inputs.side_views
+                                    .get(&(node.key.clone(), view_window))
+                                    .ok_or_else(|| anyhow!("v5 side view {} was not materialized", node.key))?;
+                                let event = Envelope {
+                                    pane: wire.pane,
+                                    value: self.registry.decode_element(parent, &wire.bytes)?,
+                                    timestamp_ns: wire.timestamp_ns,
+                                    window: node.time.window.clone(),
+                                    assigned_window: wire.window,
+                                };
+                                let output = catch_unwind(AssertUnwindSafe(|| {
+                                    self.registry.apply_side_input(&node.key, event, view.as_ref())
+                                }))
+                                .map_err(|panic| user_panic_error(&node.key, "aggregate", panic))??;
+                                produced.push(WireValue {
+                                    bytes: self.registry.encode_element(&node.key, output.value.as_ref())?,
+                                    timestamp_ns: output.timestamp_ns,
+                                    window: output.assigned_window,
+                                    pane: output.pane,
+                                    element_metadata: wire.element_metadata.clone(),
+                                });
+                            }
+                            produced
                         }
                         Operation::Sink { .. } => {
                             let input = collections
