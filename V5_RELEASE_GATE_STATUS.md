@@ -330,6 +330,15 @@ reopened the two-object prefix after supervised execution-child loss and
 committed both messages once, matching Direct. Hosted provider binding remains
 unproved.
 
+The remaining multi-signal early-release boundary needs a Direct route for
+one main source and at least two independently watermarked signals. A graph
+that flattens those signals and applies `WaitOnWindowed` validates, but Direct
+rejects the three-source stream as `stateful-stream-route` before opening a
+source. The current keyed co-group route still buffers main values until its
+own window closes. The early-release path needs a shared checkpoint for every
+signal cursor and a matching Prism execution proof before it can replace that
+route.
+
 ### Timer callback boundary
 
 The pinned Beam proto and Python worker were checked for the timer work. A
