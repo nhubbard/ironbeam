@@ -155,3 +155,59 @@ pub fn streaming_windowed_combining_state_fixture(
             },
         )
 }
+
+/// Independent sum accumulators in overlapping sliding windows.
+pub fn streaming_sliding_combining_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "sliding-combining-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 6_000_000), ((1, 12), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(8_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 12_000_000)]),
+                TestStreamEvent::AdvanceWatermark(16_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 18_000_000)]),
+                TestStreamEvent::AdvanceWatermark(26_000_000),
+            ],
+        )?
+        .sliding_windows("sliding-combining-window", 10_000_000, 5_000_000, 0)?
+        .stateful_combining_map_named::<i32, String>(
+            "sliding-combining-sum",
+            "prism-proof/sliding-combining-state",
+            Version { major: 1, minor: 0 },
+            CombiningFunction {
+                semantic_id: "prism-proof/checked-sum",
+                version: Version { major: 1, minor: 0 },
+            },
+            |left, right| {
+                left.checked_add(right)
+                    .ok_or_else(|| Error::incompatible("combining sum overflow"))
+            },
+            |key, value, prior| {
+                Ok((
+                    CombiningStateMutation::Add(value),
+                    format!("{key}:{value}:{}", prior.copied().unwrap_or_default()),
+                ))
+            },
+        )?
+        .map_named("sliding-combining-label", |(_, label)| label)?
+        .sink_named_with_config(
+            "sliding-combining-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("sliding-combining-state:{}", directory.display()),
+            move || {
+                Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                })))
+            },
+        )
+}

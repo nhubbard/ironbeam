@@ -359,6 +359,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
         .map(|_| ())
         .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_SLIDING_COMBINING_STATE") {
+        return ironbeam_prism_proof::streaming_sliding_combining_state_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_COMBINING_STATE") {
         return ironbeam_prism_proof::production_combining_state_fixture(pipeline, path.into())
             .map(|_| ())
