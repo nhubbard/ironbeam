@@ -238,6 +238,7 @@ struct GroupByKeyFoldState<K, V> {
     trigger: WindowTrigger,
     output_time: WindowOutputTime,
     allowed_lateness_ns: i64,
+    last_watermark_ns: Option<i64>,
     global_indices: HashMap<K, usize>,
     window_indices: HashMap<(K, WindowInterval), usize>,
     session_indices: HashMap<K, Vec<usize>>,
@@ -282,6 +283,8 @@ struct GroupFoldCheckpoint {
     fired_panes: Vec<GroupFoldCheckpointPane>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     session_lineage: Vec<GroupFoldCheckpointSession>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_watermark_ns: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -316,7 +319,8 @@ struct GroupFoldCheckpointRow {
     processing_ready: bool,
 }
 
-const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 1 };
+const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 2 };
+const LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 1 };
 const PRE_LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 0 };
 
 impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
@@ -337,6 +341,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
             }
         });
         active.push(interval);
+        let absorbed_closed = absorbed.iter().any(|prior| {
+            self.nonspeculative_base.contains_key(&(key.clone(), *prior))
+        });
         for prior in absorbed {
             if prior == interval {
                 continue;
@@ -370,6 +377,13 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
             if self.processing_ready.remove(&old) {
                 self.processing_ready.insert(new);
             }
+        }
+        if absorbed_closed
+            && self
+                .last_watermark_ns
+                .is_some_and(|watermark| interval.end_ns > watermark)
+        {
+            self.nonspeculative_base.remove(&(key.clone(), interval));
         }
         interval
     }
@@ -908,6 +922,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         if self.trigger.late_count().is_none() {
             self.latest_timestamps.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         }
+        self.last_watermark_ns = Some(
+            self.last_watermark_ns
+                .map_or(watermark_ns, |prior| prior.max(watermark_ns)),
+        );
         self.rebuild_indices();
         Ok((closed, released))
     }
@@ -1067,6 +1085,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             groups,
             fired_panes,
             session_lineage,
+            last_watermark_ns: self.last_watermark_ns,
         })
         .map(Some)
         .map_err(|error| Error::recovery(&self.key, error.to_string()))
@@ -1079,6 +1098,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let checkpoint: GroupFoldCheckpoint = serde_json::from_slice(state)
             .map_err(|error| Error::recovery(&self.key, error.to_string()))?;
         if checkpoint.version != GROUP_FOLD_CHECKPOINT_VERSION
+            && checkpoint.version != LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION
             && checkpoint.version != PRE_LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION
         {
             return Err(Error::incompatible(
@@ -1095,6 +1115,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             trigger: self.trigger,
             output_time: self.output_time,
             allowed_lateness_ns: self.allowed_lateness_ns,
+            last_watermark_ns: checkpoint.last_watermark_ns,
             global_indices: HashMap::new(),
             window_indices: HashMap::new(),
             session_indices: HashMap::new(),
@@ -1477,6 +1498,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFol
             groups,
             fired_panes: Vec::new(),
             session_lineage: Vec::new(),
+            last_watermark_ns: None,
         })
         .map(Some)
         .map_err(|error| Error::recovery(&self.key, error.to_string()))

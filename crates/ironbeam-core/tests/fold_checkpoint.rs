@@ -486,6 +486,56 @@ fn closed_session_lineage_survives_checkpoint_for_late_bridge() {
 }
 
 #[test]
+fn closed_session_does_not_suppress_open_session_after_bridge_restore() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 10_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 10_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let window = Window::Session { gap_ns: 5_000_000 };
+    let event = |time, value| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, value)),
+        timestamp_ns: time,
+        window: window.clone(),
+        assigned_window: window.assign(time).unwrap(),
+    };
+    let mut fold = registry.open_fold("group").unwrap();
+    fold.add(event(0, 10)).unwrap();
+    assert_eq!(fold.drain_closed(5_000_000).unwrap().0.len(), 1);
+    fold.add(event(8_000_000, 20)).unwrap();
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut resumed = registry.open_fold("group").unwrap();
+    resumed.restore_checkpoint_state(&saved).unwrap();
+    resumed.add(event(4_000_000, 30)).unwrap();
+    let (closed, released) = resumed.drain_closed(13_000_000).unwrap();
+    assert_eq!(released, 2);
+    assert_eq!(closed.len(), 1);
+    assert_eq!(
+        closed[0].assigned_window,
+        Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 13_000_000
+        })
+    );
+    let (_, mut values) = *closed
+        .into_iter()
+        .next()
+        .unwrap()
+        .value
+        .downcast::<(i32, Vec<i32>)>()
+        .unwrap();
+    values.sort_unstable();
+    assert_eq!(values, [20, 30]);
+}
+
+#[test]
 fn accumulating_late_group_releases_state_at_expiry() {
     let pipeline = Pipeline::default();
     pipeline

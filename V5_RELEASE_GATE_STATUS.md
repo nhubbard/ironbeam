@@ -57,7 +57,7 @@ the local Semantic Release simulation.
 | Two-source sessions | Direct restores merged open sessions across two source cursors. Selected Prism schedules agree. | Intermediate-watermark and late-pane agreement. |
 | Session interval adjacency | Core folding, bounded joins, and multi-source Direct closure keep half-open sessions that only meet at an endpoint separate. A later overlapping event merges both; core checkpoint, bounded join, and multi-source closure fixtures cover this rule. | Pinned Prism has merged a touching pair in a pipeline fixture; runner agreement and late panes remain open. |
 | Active-session expiry | Direct resolves an expired candidate against a still-open keyed session in single-source groups, multi-source groups, joins, and co-groups. Checkpoint recovery fixtures now cover all four paths, including a three-source grouped bridge after its original interval expires. | Pinned Prism splits the tested intermediate-watermark session; portable runner agreement and positive allowed lateness remain open. |
-| Session allowed lateness | Core still rejects nonzero lateness on session windows. Its fold now checkpoints closed-session lineage, resolves a late bridge after recovery, moves its pane index to the merged interval, and clears that state at expiry. The regression exercises this internal contract while the public guard remains. | Complete Direct's single- and multi-source late-session paths, establish pinned Prism behavior for the bridge schedule, and prove runner agreement before lifting the guard. |
+| Session allowed lateness | Core still rejects nonzero lateness on session windows. Its fold checkpoints closed-session lineage and watermark, resolves a late bridge after recovery, moves its pane index to the merged interval, and clears that state at expiry. A second checkpoint regression proves a fired session cannot suppress the on-time pane of a still-open session after a bridge. These exercise the internal fold while the public guard remains. | Complete Direct's single- and multi-source late-session paths, establish pinned Prism behavior for the bridge schedules, and prove runner agreement before lifting the guard. |
 | Intermediate session watermarks | A pinned Prism case splits a session that Direct merges. | Runner agreement is unproved for this schedule. |
 | Three-input bounded sessions | A pinned Prism case splits a connected session that Direct merges. | Independent-source session resolution. |
 | Coverage after session work | The unchanged core and Direct coverage floors passed. | Destructive Prism cases were excluded from that measurement. |
@@ -140,10 +140,12 @@ internal decision separated the two outputs.
 
 The core fold now persists active-window lineage per key, resolves a late
 candidate against it after checkpoint restore, moves pane and timer state
-when a session grows, and drops closed lineage at expiry. A fold regression
-proves a late pane keeps its index through a single closed-session bridge;
-the public graph guard remains. Direct's late-session routing and the three
-runner schedules above still require proof before that guard can be lifted.
+when a session grows, and drops closed lineage at expiry. The fold also
+checkpoints its last watermark so a closed session merged into an open one
+can fire on time again. Fold regressions cover a late pane's index and the
+closed-plus-open bridge across recovery; the public graph guard remains.
+Direct's late-session routing and the three runner schedules above still
+require proof before that guard can be lifted.
 
 The processing-time change passes the full core, Direct, Graphx, and Prism
 proof package suites, strict core/Direct and Graphx/Prism lint, and the focused
