@@ -49,7 +49,8 @@ const fn supports_trigger(node: &ironbeam_core::Node, unbounded_source: bool) ->
         && (!unbounded_source
             || (node.time.allowed_lateness_ns > 0
                 && node.time.trigger.late_count().is_some()
-                && node.time.trigger.early_count().is_none())
+                && (node.time.trigger.early_count().is_none()
+                    || !matches!(node.time.window, ironbeam_core::Window::Session { .. })))
             || (node.time.allowed_lateness_ns == 0
                 && (node.time.trigger.early_count().is_some()
                     || node.time.trigger.early_processing_time().is_some())

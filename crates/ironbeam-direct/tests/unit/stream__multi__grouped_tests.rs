@@ -443,7 +443,7 @@ fn grouped_start_rejects_combined_count_and_late_count_without_lateness() {
                 early_count: 1,
                 late_count: 1,
             },
-            5_000_000,
+            0,
         ),
         (WindowTrigger::LateElementCount { count: 1 }, 0),
     ] {

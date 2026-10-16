@@ -624,6 +624,16 @@ fn multi_source_accumulating_early_count_restores_values_and_panes() {
 }
 
 #[test]
+fn multi_source_early_and_late_count_restores_cursors_and_panes() {
+    assert_multi_source_late_group_restores_cursors_and_panes(LateMode::EarlyLateCount);
+}
+
+#[test]
+fn multi_source_accumulating_early_and_late_count_restores_values_and_panes() {
+    assert_multi_source_late_group_restores_cursors_and_panes(LateMode::EarlyLateAccumulating);
+}
+
+#[test]
 fn global_multi_source_accumulating_count_restores_values_and_panes() {
     assert_multi_source_late_group_restores_cursors_and_panes(LateMode::GlobalEarlyAccumulating);
 }
@@ -635,6 +645,8 @@ enum LateMode {
     AccumulatingCount,
     EarlyCount,
     EarlyAccumulating,
+    EarlyLateCount,
+    EarlyLateAccumulating,
     GlobalEarlyAccumulating,
 }
 
@@ -749,6 +761,16 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                 .unwrap()
                 .accumulating_late_count_trigger_named(&format!("trigger-{index}"), 2)
                 .unwrap(),
+            LateMode::EarlyLateCount => windowed
+                .allowed_lateness_named(&format!("lateness-{index}"), 5_000_000)
+                .unwrap()
+                .early_and_late_count_trigger_named(&format!("trigger-{index}"), 1, 2)
+                .unwrap(),
+            LateMode::EarlyLateAccumulating => windowed
+                .allowed_lateness_named(&format!("lateness-{index}"), 5_000_000)
+                .unwrap()
+                .accumulating_early_and_late_count_trigger_named(&format!("trigger-{index}"), 1, 2)
+                .unwrap(),
             LateMode::EarlyCount => windowed
                 .early_count_trigger_named(&format!("trigger-{index}"), 1)
                 .unwrap(),
@@ -818,6 +840,8 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
     }
     let initial = match mode {
         LateMode::EarlyCount => vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"],
+        LateMode::EarlyLateCount => vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"],
+        LateMode::EarlyLateAccumulating => vec!["1:[[2], []]:Early:0", "1:[[2], [4]]:Early:1"],
         LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => {
             vec!["1:[[2], []]:Early:0", "1:[[2], [4]]:Early:1"]
         }
@@ -836,6 +860,8 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
         LateMode::Default => "1:[[3], []]:Late:1",
         LateMode::DiscardingCount => "1:[[3, 5], []]:Late:1",
         LateMode::AccumulatingCount => "1:[[2, 3, 5], [4]]:Late:1",
+        LateMode::EarlyLateCount => "1:[[3, 5], []]:Late:2",
+        LateMode::EarlyLateAccumulating => "1:[[2, 3, 5], [4]]:Late:2",
         LateMode::EarlyCount => "1:[[3], []]:Early:2",
         LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => {
             "1:[[2, 3], [4]]:Early:2"

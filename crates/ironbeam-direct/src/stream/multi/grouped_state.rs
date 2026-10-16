@@ -27,6 +27,13 @@ pub(super) enum MultiWindowState {
         buffered: usize,
         policy: EarlyPolicy,
     },
+    EarlyLate {
+        folds: WindowFolds,
+        buffered: usize,
+        late_windows: BTreeSet<(i64, i64)>,
+        allowed_lateness_ns: i64,
+        policy: EarlyPolicy,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -48,6 +55,12 @@ impl MultiWindowState {
                     | EarlyPolicy::CountAndProcessingTime(_, _)
                     | EarlyPolicy::CountThenProcessingTime(_, _),
                 ..
+            } | Self::EarlyLate {
+                policy: EarlyPolicy::ProcessingTime(_)
+                    | EarlyPolicy::CountOrProcessingTime(_, _)
+                    | EarlyPolicy::CountAndProcessingTime(_, _)
+                    | EarlyPolicy::CountThenProcessingTime(_, _),
+                ..
             }
         )
     }
@@ -58,6 +71,41 @@ impl MultiWindowState {
             buffered: 0,
             policy,
         }
+    }
+
+    pub(super) fn early_late(policy: EarlyPolicy, allowed_lateness_ns: i64) -> Self {
+        Self::EarlyLate {
+            folds: BTreeMap::new(),
+            buffered: 0,
+            late_windows: BTreeSet::new(),
+            allowed_lateness_ns,
+            policy,
+        }
+    }
+
+    pub(super) fn restore_early_late(
+        registry: &Registry,
+        route: &MultiGroupedStreamRoute,
+        bytes: &[u8],
+        version: u8,
+        policy: EarlyPolicy,
+        allowed_lateness_ns: i64,
+        budget_elements: usize,
+    ) -> Result<Self, Error> {
+        if version != 4 || allowed_lateness_ns <= 0 {
+            return Err(Error::incompatible(
+                "multi-group early/late state version mismatch",
+            ));
+        }
+        let (folds, buffered) =
+            restore_grouped_folds(registry, &route.group_key, bytes, budget_elements, true)?;
+        Ok(Self::EarlyLate {
+            folds,
+            buffered,
+            late_windows: BTreeSet::new(),
+            allowed_lateness_ns,
+            policy,
+        })
     }
 
     pub(super) fn restore_early(
@@ -83,7 +131,7 @@ impl MultiWindowState {
     }
 
     pub(super) fn arm_processing_time(&mut self, now_ns: i64) -> Result<(), Error> {
-        if let Self::Early { folds, policy, .. } = self {
+        if let Self::Early { folds, policy, .. } | Self::EarlyLate { folds, policy, .. } = self {
             let delay_ns = match policy {
                 EarlyPolicy::ProcessingTime(delay_ns)
                 | EarlyPolicy::CountOrProcessingTime(_, delay_ns)
@@ -99,22 +147,16 @@ impl MultiWindowState {
     }
 
     pub(super) fn next_processing_time_deadline(&self) -> Option<i64> {
-        if let Self::Early {
-            folds,
-            policy:
-                EarlyPolicy::ProcessingTime(_)
-                | EarlyPolicy::CountOrProcessingTime(_, _)
-                | EarlyPolicy::CountAndProcessingTime(_, _)
-                | EarlyPolicy::CountThenProcessingTime(_, _),
-            ..
-        } = self
-        {
-            folds
-                .values()
-                .filter_map(|(fold, _)| fold.next_processing_time_deadline())
-                .min()
-        } else {
-            None
+        match self {
+            Self::Early { folds, policy, .. } | Self::EarlyLate { folds, policy, .. }
+                if !matches!(policy, EarlyPolicy::Count(_)) =>
+            {
+                folds
+                    .values()
+                    .filter_map(|(fold, _)| fold.next_processing_time_deadline())
+                    .min()
+            }
+            _ => None,
         }
     }
 
@@ -123,13 +165,19 @@ impl MultiWindowState {
         route: &MultiGroupedStreamRoute,
         deadline_ns: i64,
     ) -> Result<Vec<Envelope>, Error> {
-        let Self::Early {
-            folds,
-            buffered,
-            policy,
-        } = self
-        else {
-            return Ok(Vec::new());
+        let (folds, buffered, policy) = match self {
+            Self::Early {
+                folds,
+                buffered,
+                policy,
+            }
+            | Self::EarlyLate {
+                folds,
+                buffered,
+                policy,
+                ..
+            } => (folds, buffered, policy),
+            _ => return Ok(Vec::new()),
         };
         let mut panes = Vec::new();
         for (fold, rows) in folds.values_mut() {
@@ -214,13 +262,16 @@ impl MultiWindowState {
             Self::Rows { .. } => 1,
             Self::Late { .. } => 2,
             Self::Early { .. } => 3,
+            Self::EarlyLate { .. } => 4,
         }
     }
 
     pub(super) fn is_empty(&self) -> bool {
         match self {
             Self::Rows { windows, .. } => windows.is_empty(),
-            Self::Late { folds, .. } | Self::Early { folds, .. } => folds.is_empty(),
+            Self::Late { folds, .. }
+            | Self::Early { folds, .. }
+            | Self::EarlyLate { folds, .. } => folds.is_empty(),
         }
     }
 
@@ -234,7 +285,9 @@ impl MultiWindowState {
             Self::Rows { windows, .. } => {
                 encode_window_rows(registry, &route.group_input_key, windows, max_bytes)
             }
-            Self::Late { folds, .. } | Self::Early { folds, .. } => {
+            Self::Late { folds, .. }
+            | Self::Early { folds, .. }
+            | Self::EarlyLate { folds, .. } => {
                 encode_grouped_folds(folds, max_bytes, &route.group_key)
             }
         }
@@ -282,6 +335,13 @@ impl MultiWindowState {
                 buffered,
                 late_windows,
                 allowed_lateness_ns,
+            }
+            | Self::EarlyLate {
+                folds,
+                buffered,
+                late_windows,
+                allowed_lateness_ns,
+                ..
             } => {
                 let session = matches!(route.window, Window::Session { .. });
                 let scope = if session {
@@ -374,6 +434,10 @@ impl MultiWindowState {
         prior_watermark: Option<i64>,
         progress: &ProgressSignal,
     ) -> Result<Vec<Envelope>, Error> {
+        let early_late_policy = match &*self {
+            Self::EarlyLate { policy, .. } => Some(*policy),
+            _ => None,
+        };
         match self {
             Self::Rows { windows, buffered } => {
                 let Some(watermark) = (if progress.completed {
@@ -419,7 +483,40 @@ impl MultiWindowState {
                 buffered,
                 late_windows,
                 allowed_lateness_ns,
+            }
+            | Self::EarlyLate {
+                folds,
+                buffered,
+                late_windows,
+                allowed_lateness_ns,
+                ..
             } => {
+                let mut panes = Vec::new();
+                if let Some(
+                    EarlyPolicy::Count(count)
+                    | EarlyPolicy::CountOrProcessingTime(count, _)
+                    | EarlyPolicy::CountAndProcessingTime(count, _)
+                    | EarlyPolicy::CountThenProcessingTime(count, _),
+                ) = early_late_policy
+                {
+                    for (&(_, end), (fold, rows)) in folds.iter_mut() {
+                        if prior_watermark.is_some_and(|prior| end <= prior) {
+                            continue;
+                        }
+                        let (mut fired, released) = catch_group_user(
+                            &route.group_key,
+                            "group early count trigger panicked",
+                            || fold.drain_ready_count(count),
+                        )?;
+                        *rows = rows.checked_sub(released).ok_or_else(|| {
+                            Error::recovery(&route.group_key, "early fold released too many rows")
+                        })?;
+                        *buffered = buffered.checked_sub(released).ok_or_else(|| {
+                            Error::recovery(&route.group_key, "group buffer count underflow")
+                        })?;
+                        panes.append(&mut fired);
+                    }
+                }
                 let watermark = if progress.completed {
                     Some(i64::MAX)
                 } else {
@@ -472,7 +569,6 @@ impl MultiWindowState {
                     })?;
                     return Ok(panes);
                 }
-                let mut panes = Vec::new();
                 let closing = folds
                     .keys()
                     .copied()

@@ -1283,6 +1283,40 @@ fn multi_grouped_state_versions_and_empty_snapshots_are_distinct() {
         )
         .is_err()
     );
+    let early_late = MultiWindowState::early_late(grouped_state::EarlyPolicy::Count(2), 5);
+    assert!(early_late.is_empty());
+    assert_eq!(early_late.version(), 4);
+    let bytes = early_late.encode(&registry, &route, 1024).unwrap();
+    let restored = MultiWindowState::restore_early_late(
+        &registry,
+        &route,
+        &bytes,
+        4,
+        grouped_state::EarlyPolicy::Count(2),
+        5,
+        10,
+    )
+    .unwrap();
+    assert!(restored.is_empty());
+    assert_eq!(restored.version(), 4);
+    for (version, lateness, payload) in [
+        (3, 5, bytes.as_slice()),
+        (4, 0, bytes.as_slice()),
+        (4, 5, b"bad".as_slice()),
+    ] {
+        assert!(
+            MultiWindowState::restore_early_late(
+                &registry,
+                &route,
+                payload,
+                version,
+                grouped_state::EarlyPolicy::Count(2),
+                lateness,
+                10,
+            )
+            .is_err()
+        );
+    }
 }
 
 #[test]

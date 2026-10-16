@@ -329,6 +329,51 @@ pub fn dual_count_and_time_cogroup_fixture(
     )
 }
 
+/// Two sources jointly satisfy a count-and-time early trigger, then a late count.
+pub fn dual_count_and_time_late_cogroup_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let source = |name: &str, first: i32, late: i32| {
+        pipeline
+            .test_stream_source(
+                name,
+                vec![
+                    TestStreamEvent::Elements(vec![((1_i32, first), i64::from(first) * 1_000_000)]),
+                    TestStreamEvent::AdvanceWatermark(0),
+                    TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                    TestStreamEvent::Elements(vec![((1_i32, late), i64::from(late) * 1_000_000)]),
+                    TestStreamEvent::AdvanceWatermark(15_000_000),
+                ],
+            )?
+            .fixed_windows(&format!("{name}-window"), 10_000_000)?
+            .allowed_lateness_named(&format!("{name}-lateness"), 5_000_000)?
+            .count_and_processing_time_and_late_count_trigger_named(
+                &format!("{name}-trigger"), 2, 5_000_000, 2,
+            )
+    };
+    let sink_directory = directory.clone();
+    source("dual-and-late-first", 2, 5)?
+        .co_group_homogeneous_named("dual-and-late-group", &[source("dual-and-late-second", 4, 7)?])?
+        .reify_panes_named("dual-and-late-pane")?
+        .map_named("dual-and-late-row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })?
+        .sink_named_with_config(
+            "dual-and-late-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("dual-and-late:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink {
+                directory: sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )
+}
+
 pub fn dual_count_or_time_cogroup_fixture(
     pipeline: &Pipeline,
     path: PathBuf,

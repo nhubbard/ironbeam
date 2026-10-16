@@ -109,9 +109,10 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
     if group.time.trigger != WindowTrigger::Default
         && !(allowed_lateness_ns > 0
             && group.time.trigger.late_count().is_some()
-            && early_count.is_none())
+            && (early_policy.is_none() || !matches!(route.window, Window::Session { .. })))
         && !(allowed_lateness_ns == 0
             && early_policy.is_some()
+            && group.time.trigger.late_count().is_none()
             && !matches!(route.window, Window::Session { .. }))
     {
         return Err(Error::unsupported(
@@ -211,7 +212,17 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
                 "multi-group progress does not match cursors",
             ));
         }
-        let windows = if let Some(policy) = early_policy {
+        let windows = if let Some(policy) = early_policy.filter(|_| allowed_lateness_ns > 0) {
+            MultiWindowState::restore_early_late(
+                &registry,
+                &route,
+                &state.windows,
+                state.version,
+                policy,
+                allowed_lateness_ns,
+                config.buffer_budget_elements,
+            )?
+        } else if let Some(policy) = early_policy {
             MultiWindowState::restore_early(
                 &registry,
                 &route,
@@ -235,10 +246,11 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
         (
             0,
             vec![None; route.sources.len()],
-            early_policy.map_or_else(
-                || MultiWindowState::empty(allowed_lateness_ns),
-                MultiWindowState::early,
-            ),
+            match (early_policy, allowed_lateness_ns > 0) {
+                (Some(policy), true) => MultiWindowState::early_late(policy, allowed_lateness_ns),
+                (Some(policy), false) => MultiWindowState::early(policy),
+                (None, _) => MultiWindowState::empty(allowed_lateness_ns),
+            },
             None,
         )
     };
