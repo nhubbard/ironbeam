@@ -68,7 +68,7 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = ["cloud", "validation-json"]
-cloud = ["ironbeam-io/cloud", "ironbeam-io-jsonl/cloud", "ironbeam-io-avro?/cloud", "ironbeam-io-csv?/cloud", "ironbeam-io-parquet?/cloud", "ironbeam-io-tfrecord?/cloud"]
+cloud = ["ironbeam-io/cloud", "ironbeam-io-jsonl/cloud", "ironbeam-io-avro?/cloud", "ironbeam-io-csv?/cloud", "ironbeam-io-parquet?/cloud", "ironbeam-io-tfrecord?/cloud", "ironbeam-io-protobuf?/cloud"]
 validation-json = ["ironbeam-transforms/validation-json"]
 v5-regex = ["dep:ironbeam-transform-regex"]
 v5-approx = ["dep:ironbeam-transform-approx"]

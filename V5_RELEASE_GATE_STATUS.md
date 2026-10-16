@@ -322,6 +322,14 @@ whole-object downloads. A pinned local Prism job reopened the two-object
 prefix after supervised execution-child loss and committed both frames once,
 matching Direct. Hosted provider binding remains unproved.
 
+Length-delimited Protobuf has a provider-bound sequential object source and
+fixed sorted prefix. Direct verifies changed-object rejection, malformed
+message errors, sorted prefix contents, and a 10,000-message read through a
+provider that rejects whole-object downloads. A pinned local Prism job
+reopened the two-object prefix after supervised execution-child loss and
+committed both messages once, matching Direct. Hosted provider binding remains
+unproved.
+
 ### Timer callback boundary
 
 The pinned Beam proto and Python worker were checked for the timer work. A

@@ -90,6 +90,20 @@ portable worker needs access to the same provider and credentials as the
 submitting process. A local Prism fixture has reopened a two-object CSV prefix
 after execution-child replacement and committed each row once.
 
+## Protobuf in object storage
+
+`cloud_protobuf_streaming_uri_source` reads length-delimited Protobuf messages
+through a registered object provider. Its type parameter is a Rust type that
+implements `prost::Message`, `Default`, and Ironbeam's `Element` trait. The
+`cloud_protobuf_streaming_uri_prefix_source` variant fixes a sorted set of
+objects when the graph is built. Both forms verify object bytes before
+emitting messages and decode incrementally from a temporary file. Temporary
+disk use grows with each object. The crate's `cloud` feature enables these
+functions; the root `cloud` feature forwards to it when `v5-io-protobuf` is
+enabled. A portable worker needs the same provider and credentials as the
+submitting process. A local Prism job reopened a two-object prefix after an
+execution child was replaced and committed both messages once.
+
 ## Reading TFRecord frames
 
 `tfrecord_streaming_source` reads frames incrementally and checks their length

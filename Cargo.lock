@@ -3156,10 +3156,12 @@ dependencies = [
 name = "ironbeam-io-protobuf"
 version = "5.0.0"
 dependencies = [
+ "ironbeam-cloud-objects",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
  "prost 0.14.4",
+ "sha2 0.10.9",
  "tempfile",
 ]
 

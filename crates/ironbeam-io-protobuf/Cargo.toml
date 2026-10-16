@@ -14,11 +14,15 @@ compression-gzip = ["ironbeam-io/compression-gzip"]
 compression-zstd = ["ironbeam-io/compression-zstd"]
 compression-bzip2 = ["ironbeam-io/compression-bzip2"]
 compression-xz = ["ironbeam-io/compression-xz"]
+cloud = ["dep:ironbeam-cloud-objects", "dep:sha2", "dep:tempfile", "ironbeam-io/cloud"]
 
 [dependencies]
 ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
 ironbeam-io = { version = "5.0.0", path = "../ironbeam-io", default-features = false, features = ["file"] }
 prost = "0.14"
+ironbeam-cloud-objects = { version = "5.0.0", path = "../ironbeam-cloud-objects", optional = true }
+sha2 = { version = "0.10", optional = true }
+tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
 ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }
