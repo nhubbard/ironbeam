@@ -1,7 +1,7 @@
 use ironbeam_core::{
-    Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
-    Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
-    UnboundedSource, Version,
+    Element, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
+    SourceProgress, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
+    UnboundedPoll, UnboundedSource, Version,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::{HashSet, VecDeque};
@@ -74,11 +74,20 @@ impl TypedSink<String> for Capture {
 }
 
 #[test]
+fn sharded_batches_restore_both_open_shards_without_replaying_the_source() {
+    run_sharded_batch_recovery(false);
+}
+
+#[test]
+fn sharded_byte_batches_restore_both_open_shards_without_replaying_the_source() {
+    run_sharded_batch_recovery(true);
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "the source restart checks both open shard folds and committed batches"
 )]
-fn sharded_batches_restore_both_open_shards_without_replaying_the_source() {
+fn run_sharded_batch_recovery(byte_limited: bool) {
     let directory = tempfile::tempdir().unwrap();
     let opens = Arc::new(Mutex::new(Vec::new()));
     let rows = Arc::new(Mutex::new(Vec::new()));
@@ -123,14 +132,25 @@ fn sharded_batches_restore_both_open_shards_without_replaying_the_source() {
         .unwrap()
         .fixed_windows("window", 10_000_000)
         .unwrap();
-    let sink = source
-        .group_into_batches_with_sharded_key_named(
+    let batches = if byte_limited {
+        source.group_into_batches_with_limits_and_sharded_key_named(
+            "batches",
+            10,
+            (1_u8, 10_i32).encoded_len().unwrap() * 2,
+            "tests/recovery-shard",
+            Version { major: 1, minor: 0 },
+            |_, (shard, _)| vec![*shard],
+        )
+    } else {
+        source.group_into_batches_with_sharded_key_named(
             "batches",
             2,
             "tests/recovery-shard",
             Version { major: 1, minor: 0 },
             |_, (shard, _)| vec![*shard],
         )
+    };
+    let sink = batches
         .unwrap()
         .map_named("row", |(key, values)| {
             let mut values = values
