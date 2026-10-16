@@ -342,6 +342,18 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let (Ok(left), Ok(right)) = (
+        std::env::var("IRONBEAM_V5_PRISM_TWO_BRANCH_LEFT_STATE"),
+        std::env::var("IRONBEAM_V5_PRISM_TWO_BRANCH_RIGHT_STATE"),
+    ) {
+        return ironbeam_prism_proof::streaming_two_branch_value_state_fixture(
+            pipeline,
+            left.into(),
+            right.into(),
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
     if let (Ok(stateful), Ok(stateless)) = (
         std::env::var("IRONBEAM_V5_PRISM_BRANCH_VALUE_STATE"),
         std::env::var("IRONBEAM_V5_PRISM_BRANCH_RAW"),

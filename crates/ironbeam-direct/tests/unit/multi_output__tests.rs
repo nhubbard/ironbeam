@@ -1,5 +1,5 @@
 // Unit tests for src/multi_output.rs.
-use super::{prepare, prepare_sinks, prepare_stream_sinks, process_event};
+use super::{prepare, prepare_sinks, prepare_stream_sinks, process_event, process_timer_event};
 use crate::{JobConfig, metrics::MetricsState};
 use ironbeam_core::{
     Envelope, Error, ErrorKind, PaneInfo, Pipeline, Registry, Replay, SinkMode, SinkSpec,
@@ -189,4 +189,21 @@ fn stream_pair_accepts_two_distinct_stateful_stages() {
     let (graph, registry) = left.snapshot().unwrap();
     let plan = prepare_stream_sinks(&graph, &registry, left.key(), right.key()).unwrap();
     assert_eq!(plan.stateful_keys, ["left-state", "right-state"]);
+    let error = process_timer_event(
+        Envelope {
+            value: Box::new((1_i32, 2_i32)),
+            timestamp_ns: 0,
+            window: Window::Global,
+            assigned_window: None,
+            pane: PaneInfo::NO_FIRING,
+        },
+        "unknown-state",
+        &plan,
+        &registry,
+        &JobConfig::default(),
+        &MetricsState::default(),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(error.kind, ErrorKind::Graph);
 }

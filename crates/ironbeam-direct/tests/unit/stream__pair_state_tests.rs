@@ -69,4 +69,10 @@ fn pair_state_roundtrips_and_rejects_corrupt_or_oversized_payloads() {
             ErrorKind::Incompatible
         );
     }
+    let mut trailing = state.clone();
+    trailing.push(0);
+    assert_eq!(
+        restore(&plan, &registry, &trailing).err().unwrap().kind,
+        ErrorKind::Incompatible
+    );
 }

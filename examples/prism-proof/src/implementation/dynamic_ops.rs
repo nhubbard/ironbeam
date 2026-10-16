@@ -313,6 +313,29 @@ pub fn streaming_branch_value_state_fixture(
     stateful_directory: PathBuf,
     stateless_directory: PathBuf,
 ) -> Result<(Sink<String>, Sink<String>), Error> {
+    streaming_branch_value_state_fixture_impl(
+        pipeline,
+        stateful_directory,
+        stateless_directory,
+        false,
+    )
+}
+
+/// One TestStream feeds two independently stateful branches.
+pub fn streaming_two_branch_value_state_fixture(
+    pipeline: &Pipeline,
+    left_directory: PathBuf,
+    right_directory: PathBuf,
+) -> Result<(Sink<String>, Sink<String>), Error> {
+    streaming_branch_value_state_fixture_impl(pipeline, left_directory, right_directory, true)
+}
+
+fn streaming_branch_value_state_fixture_impl(
+    pipeline: &Pipeline,
+    stateful_directory: PathBuf,
+    stateless_directory: PathBuf,
+    second_stateful: bool,
+) -> Result<(Sink<String>, Sink<String>), Error> {
     let source = pipeline.test_stream_source(
         "branch-state-input",
         vec![
@@ -343,7 +366,20 @@ pub fn streaming_branch_value_state_fixture(
             })),
         )?;
     let stateless_sink_directory = stateless_directory.clone();
-    let stateless = source
+    let right_source = if second_stateful {
+        source.stateful_value_map_named::<i32, i32>(
+            "branch-right-value-state",
+            "prism-proof/branch-right-value-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let next = prior.unwrap_or(0) + value * 10;
+                Ok((Some(next), next))
+            },
+        )?
+    } else {
+        source
+    };
+    let stateless = right_source
         .map_named("branch-raw-label", |(key, value)| format!("{key}:{value}"))?
         .sink_named_with_config(
             "branch-raw-result",
