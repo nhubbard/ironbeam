@@ -18,6 +18,7 @@ The 5.0.0 source is a release candidate. Local Direct execution and the workspac
 | [Direct checkpoints](guides/checkpoints.md) | Recovery state and identity |
 | [Migration from v4](migration/index.md) | API and operational changes |
 | [5.0.0 support boundary](reference/support.md) | Tested behavior and limits |
+| [API reference](reference/api.md) | Common entry points and crate Rustdoc |
 | [Package reference](reference/packages.md) | Crate ownership |
 | [Example programs](reference/examples.md) | Runnable programs in the repository |
 

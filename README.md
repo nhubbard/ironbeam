@@ -96,8 +96,8 @@ reference for the separate `ironbeam-compat` test corpus, and the
 [v4 README](V4_README.md) describes its old API. See the
 [migration guide](V4_TO_V5_MIGRATION.md) for concrete API changes and the
 [replacement roadmap](V5_REPLACEMENT_ROADMAP.md) for the workspace boundary.
-The local release candidate is undergoing its final connector audit;
-publication remains staged at the user's request.
+The local release candidate is undergoing final documentation, package, and
+CI checks; publication remains staged at the user's request.
 
 Run the comparable local benchmark examples with:
 
