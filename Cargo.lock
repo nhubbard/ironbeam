@@ -3081,11 +3081,13 @@ name = "ironbeam-io-csv"
 version = "5.0.0"
 dependencies = [
  "csv",
+ "ironbeam-cloud-objects",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tempfile",
 ]
 

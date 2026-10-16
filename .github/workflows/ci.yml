@@ -191,6 +191,8 @@ jobs:
           cargo test -p ironbeam-io-tfrecord --all-features
           cargo test -p ironbeam-compat --test tfrecord_wire
           cargo test -p ironbeam-io-csv --all-features
+          cargo test -p ironbeam-io-csv --features cloud --test cloud
+          cargo test -p ironbeam --no-default-features --features cloud,v5-io-csv --test v5_facade_prelude
           cargo test -p ironbeam-io-xml --all-features
           cargo test -p ironbeam-io-msgpack --all-features
           cargo test -p ironbeam-io-cbor --all-features

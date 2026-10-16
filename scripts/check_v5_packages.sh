@@ -110,6 +110,7 @@ fi
 "$cargo_bin" test -p ironbeam-io-protobuf --all-features
 "$cargo_bin" test -p ironbeam-io-tfrecord --all-features
 "$cargo_bin" test -p ironbeam-io-csv --all-features
+"$cargo_bin" test -p ironbeam-io-csv --features cloud --test cloud
 "$cargo_bin" test -p ironbeam-io-xml --all-features
 "$cargo_bin" test -p ironbeam-io-msgpack --all-features
 "$cargo_bin" test -p ironbeam-io-cbor --all-features

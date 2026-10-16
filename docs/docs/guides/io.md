@@ -77,6 +77,19 @@ credentials as the submitting process. A local Prism fixture has also reopened
 a JSONL object glob after an execution child was replaced and committed each
 row once.
 
+## CSV in object storage
+
+CSV objects can be read through `cloud_csv_streaming_uri_source` in the
+`ironbeam-io-csv` crate. Its `cloud` feature enables provider-bound input;
+the root `cloud` feature forwards to it when `v5-io-csv` is enabled. The
+`cloud_csv_streaming_uri_prefix_source` variant fixes a sorted set of objects
+when the graph is built. Both forms verify each object's bytes before
+emitting records and decode CSV rows as requested from a temporary file. The
+temporary file requires disk space proportional to the object size. A
+portable worker needs access to the same provider and credentials as the
+submitting process. A local Prism fixture has reopened a two-object CSV prefix
+after execution-child replacement and committed each row once.
+
 ## Reading TFRecord frames
 
 `tfrecord_streaming_source` reads frames incrementally and checks their length

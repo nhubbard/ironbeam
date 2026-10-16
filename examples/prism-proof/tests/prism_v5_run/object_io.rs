@@ -1,6 +1,92 @@
 use super::*;
 
 #[tokio::test]
+async fn prism_reopens_streaming_csv_prefix_after_execution_child_loss() {
+    let directory = tempfile::tempdir().unwrap();
+    let object_root = directory.path().join("objects");
+    let mut stores = ObjectStores::new();
+    stores
+        .register("file", LocalObjectIO::new(&object_root).unwrap())
+        .unwrap();
+    stores
+        .write("file://bucket/input/b.csv", b"id,label\n2,two\n")
+        .unwrap();
+    stores
+        .write("file://bucket/input/a.csv", b"id,label\n1,one\n")
+        .unwrap();
+
+    let direct = Pipeline::default();
+    assert_eq!(
+        portable_object_csv_collection(&direct, &object_root)
+            .unwrap()
+            .collect_seq()
+            .unwrap(),
+        ["1:one", "2:two"]
+    );
+    let direct_path = directory.path().join("direct-csv-rows");
+    let direct = Pipeline::default();
+    let direct_sink =
+        portable_object_csv_replay_fixture(&direct, &object_root, direct_path.clone()).unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    assert_eq!(read_rows(&direct_path), ["1:one", "2:two"]);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_path = directory.path().join("portable-csv-rows");
+    let trigger = directory.path().join("csv-replay-trigger");
+    let killed = directory.path().join("killed-csv-child");
+    let portable = Pipeline::default();
+    portable_object_csv_replay_fixture(&portable, &object_root, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "replayed-streaming-provider-csv",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_OBJECT_CSV_REPLAY_ROOT".into(),
+                object_root.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_OBJECT_CSV_REPLAY_RESULT".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_PRISM_KILL_OBJECT_CSV".into(), "1".into()),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism streaming CSV replay failed: {terminal:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap()
+    );
+    assert_eq!(read_rows(&portable_path), ["1:one", "2:two"]);
+}
+
+#[tokio::test]
 async fn prism_reopens_streaming_jsonl_glob_after_execution_child_loss() {
     let directory = tempfile::tempdir().unwrap();
     let object_root = directory.path().join("objects");
