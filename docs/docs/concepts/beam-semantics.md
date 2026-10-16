@@ -182,10 +182,10 @@ contains a working example.
 The portable worker also handles a runner-issued `MergeWindows` bundle for
 session windows. Its Fn Data contract follows the Beam Java merge handler:
 intervals must overlap, so a window ending where another begins is reported
-separately. The pinned Prism runner merges that touching pair in tested
-pipelines. Runner-issued merging has an isolated wire test; it has not yet
-been observed in a live Prism job. Applications requiring identical session
-bounds at touching endpoints should treat this distinction as unresolved.
+separately. Direct folding and bounded joins follow the same rule. The pinned
+Prism runner merged a touching pair in an earlier pipeline fixture, so
+runner agreement at that boundary remains unresolved. Runner-issued merging
+has an isolated wire test; it has not yet been observed in a live Prism job.
 
 An intermediate-watermark case remains unresolved. With an `a` event at zero
 on the main input, an `a` event at four milliseconds on the side input, and a
@@ -622,7 +622,7 @@ commit decision or the sink's durable finalization record.
 | Event timestamps and watermarks | Timestamp assignment and source progress are available; Direct and Prism compare tested fixed-window results. |
 | Global and fixed windows | Supported on the established Direct and local Prism corpus. |
 | Sliding windows | Supported on bounded and unbounded collections on Direct and local Prism, including overlap, negative event time, watermark closure, and late-row discard. |
-| Session windows | Bounded and single-source unbounded keyed grouping merge overlapping or touching intervals on Direct and local Prism. Bounded joins and co-groups, including a three-input shared-source co-group, merge keyed intervals. Two-source unbounded joins and co-groups also run on both. Direct checkpoints open unbounded sessions and source cursors. Independent-source and intermediate-watermark session cases can differ on local Prism; more than two unbounded inputs and nonzero allowed lateness remain unproved. |
+| Session windows | Bounded and single-source unbounded keyed grouping merge overlapping intervals on Direct and local Prism. Direct keeps merely touching half-open intervals separate; local Prism has merged them in a tested pipeline. Bounded joins and co-groups, including a three-input shared-source co-group, merge keyed intervals. Two-source unbounded joins and co-groups also run on both. Direct checkpoints open unbounded sessions and source cursors. Independent-source and intermediate-watermark session cases can differ on local Prism; more than two unbounded inputs and nonzero allowed lateness remain unproved. |
 | Default trigger | Used by portable lowering, with discarding accumulation. Direct and Prism agree on fixed-window on-time and late panes with nonzero allowed lateness for single-input GroupByKey. |
 | Group output timestamp | Earliest-in-pane is the default. End-of-window and latest-in-pane are available for millisecond-aligned fixed, sliding, and session windows on GroupByKey. Bounded fixed-window and merged-session jobs agree on Direct and pinned Prism. A one-source TestStream bridge also agrees for both merged-session policies, including a later dropped row. A bounded two-input session join and three-branch co-group agree on both policies after their inputs bridge sessions. Direct restores the latest merged-session timestamp across a checkpoint. Late and unbounded multi-input session panes remain unproved. |
 | Pane metadata | `reify_panes_named` makes `PaneInfo` available to elementwise callbacks, and typed sinks receive it in `ElementMetadata`. Direct and Prism agree for fixed and sliding grouped windows. The pinned Prism runner marks the tested merged-session group as `Early` while Direct marks it `OnTime`. |

@@ -388,7 +388,7 @@ fn main() -> Result<(), ironbeam::Error> {
 The three rows for `a` form one interval `[0, 13_000_000)` ns. The event at
 `4_000_000` ns joins the intervals initially assigned at zero and eight
 milliseconds. The grouped result keeps the earliest input event time. Direct
-and local Prism agree on that result, on a touching boundary, and on a second
+and local Prism agree on that overlapping bridge and on a second
 key. Single-source unbounded keyed groups also merge in Direct and local
 Prism. Direct restores their open sessions and source cursor from a checkpoint;
 the shared fixture closes one negative-time session, then bridges two open
@@ -404,11 +404,12 @@ restore the open rows and both source cursors from a checkpoint. Sessions
 across more than two unbounded inputs have not been tested.
 Portable session gaps must be positive whole milliseconds.
 
-The worker's runner-issued `MergeWindows` function uses the Beam Java rule of
-strict interval overlap. It reports endpoint-touching windows separately.
-That function has a wire-level test, but no live Prism job has been observed
-requesting it. For portable jobs that depend on a touching boundary, verify
-the result on the chosen runner.
+The worker's runner-issued `MergeWindows` function and Direct use the Beam
+Java rule of strict interval overlap. They report endpoint-touching windows
+separately. That worker function has a wire-level test, but no live Prism job
+has been observed requesting it. Pinned Prism merged a touching pair in an
+earlier pipeline fixture. For portable jobs that depend on this boundary,
+verify the result on the chosen runner.
 
 `group_by_session_named` assigns sessions and then groups the keyed elements.
 Use `session_windows_named` to assign intervals separately when another

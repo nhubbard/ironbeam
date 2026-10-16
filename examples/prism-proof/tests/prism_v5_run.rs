@@ -7306,7 +7306,7 @@ async fn prism_matches_direct_merging_keyed_sessions() {
     assert_eq!(
         direct_rows,
         [
-            "a|[1, 2, 3, 4]|0|0|18000000",
+            "a|[1, 2, 3, 4]|0|0|17000000",
             "b|[5]|4000000|4000000|9000000",
             "c|[6, 7]|-4000000|-4000000|4000000",
         ]
@@ -7348,7 +7348,7 @@ async fn prism_matches_direct_merged_session_output_time_policies() {
             ironbeam_core::WindowOutputTime::EndOfWindow,
             "IRONBEAM_V5_PRISM_SESSION_END_TIME",
             [
-                "a|[1, 2, 3, 4]|17000000|0|18000000",
+                "a|[1, 2, 3, 4]|16000000|0|17000000",
                 "b|[5]|8000000|4000000|9000000",
                 "c|[6, 7]|3000000|-4000000|4000000",
             ],
@@ -7357,7 +7357,7 @@ async fn prism_matches_direct_merged_session_output_time_policies() {
             ironbeam_core::WindowOutputTime::LatestInPane,
             "IRONBEAM_V5_PRISM_SESSION_LATEST_TIME",
             [
-                "a|[1, 2, 3, 4]|13000000|0|18000000",
+                "a|[1, 2, 3, 4]|12000000|0|17000000",
                 "b|[5]|4000000|4000000|9000000",
                 "c|[6, 7]|-1000000|-4000000|4000000",
             ],

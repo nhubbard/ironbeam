@@ -369,7 +369,7 @@ fn session_group_fixture_with_policy(
                 (0_i64, ("a".to_owned(), 1_i32)),
                 (8_000_000, ("a".to_owned(), 2)),
                 (4_000_000, ("a".to_owned(), 3)),
-                (13_000_000, ("a".to_owned(), 4)),
+                (12_000_000, ("a".to_owned(), 4)),
                 (4_000_000, ("b".to_owned(), 5)),
                 (-4_000_000, ("c".to_owned(), 6)),
                 (-1_000_000, ("c".to_owned(), 7)),
