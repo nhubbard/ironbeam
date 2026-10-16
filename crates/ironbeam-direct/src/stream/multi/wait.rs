@@ -108,6 +108,9 @@ pub(crate) fn start_multi_wait_stream_sink<T: Element>(
     } else {
         (0, vec![None; route.sources.len()], WindowRows::new(), 0)
     };
+    for ((key, _), signal) in route.sources.iter().zip(&sources) {
+        resume_source_finalization(&registry, key, checkpoint.as_ref(), signal.as_ref())?;
+    }
     #[allow(unused_mut)]
     let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
     #[cfg(feature = "metrics")]
@@ -350,6 +353,12 @@ fn run_multi_wait_stream(
                 })
                 .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
                 checkpoint.save_state(&combined, &state, config.memory_budget_bytes)?;
+            }
+            if let Some(signal) = sources[index]
+                .as_ref()
+                .filter(|signal| signal.checkpoint_position.is_some())
+            {
+                registry.finalize_source_progress(key, signal)?;
             }
             let total = handle
                 .metrics

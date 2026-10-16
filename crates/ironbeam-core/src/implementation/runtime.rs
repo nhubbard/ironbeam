@@ -61,6 +61,7 @@ pub type UnboundedSourceReader = Box<dyn UnboundedSource<Envelope>>;
 pub type TypedUnboundedSourceReader<T> = Box<dyn UnboundedSource<Timestamped<T>>>;
 type UnboundedSourceFactory =
     Arc<dyn Fn(Option<Vec<u8>>) -> Result<UnboundedSourceReader, Error> + Send + Sync>;
+type SourceFinalizer = Arc<dyn Fn(&ProgressSignal) -> Result<(), Error> + Send + Sync>;
 type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync>;
 type TypedSourceFactory<T> = Arc<dyn Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync>;
 type TypedVecBatchFactory<T> = Arc<dyn Fn(usize, usize) -> Result<Vec<T>, Error> + Send + Sync>;
@@ -651,6 +652,7 @@ impl<T: Element> SinkSession for SinkAdapter<T> {
 struct SourceRegistration {
     factory: SourceFactory,
     unbounded_factory: Option<UnboundedSourceFactory>,
+    finalizer: Option<SourceFinalizer>,
     typed_factory: Option<Arc<dyn Any + Send + Sync>>,
     vec_batch_factory: Option<Arc<dyn Any + Send + Sync>>,
     erased_vec_batch_factory: Option<(TypeId, ErasedVecBatchFactory)>,

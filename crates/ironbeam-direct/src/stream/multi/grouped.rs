@@ -254,6 +254,9 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
             None,
         )
     };
+    for (source, signal) in route.sources.iter().zip(&sources) {
+        resume_source_finalization(&registry, &source.key, checkpoint.as_ref(), signal.as_ref())?;
+    }
     #[allow(unused_mut)]
     let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
     #[cfg(feature = "metrics")]
@@ -558,6 +561,12 @@ fn run_multi_grouped_stream(
                 processing_clock_ns,
                 closing,
             )?;
+            if let Some(signal) = sources[index]
+                .as_ref()
+                .filter(|signal| signal.checkpoint_position.is_some())
+            {
+                registry.finalize_source_progress(source_key, signal)?;
+            }
             if combined.completed {
                 return Ok(());
             }

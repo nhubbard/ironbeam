@@ -137,6 +137,41 @@ fn validates_restriction_before_source_open() {
 }
 
 #[test]
+fn finalized_source_is_rejected_before_reader_open() {
+    let opened = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let reader_opened = Arc::clone(&opened);
+    pipeline
+        .unbounded_source_with_finalizer(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "finalized-source-v1".into(),
+            0,
+            move |position| {
+                reader_opened.lock().unwrap().push(position);
+                Ok(Box::new(Script(VecDeque::new())) as TypedUnboundedSourceReader<i32>)
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    let error = SourcePoller::open(
+        &graph,
+        &registry,
+        "events",
+        SourceRestriction::initial("events"),
+    )
+    .err()
+    .expect("portable source finalization is unsupported");
+    assert!(error.to_string().contains("source-bundle-finalization"));
+    assert!(opened.lock().unwrap().is_empty());
+}
+
+#[test]
 fn rejects_unregistered_reader_and_repeated_data_cursor() {
     let pipeline = Pipeline::default();
     pipeline

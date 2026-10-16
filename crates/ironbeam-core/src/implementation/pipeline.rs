@@ -334,6 +334,7 @@ impl Pipeline {
             Some(SourceRegistration {
                 factory,
                 unbounded_factory: None,
+                finalizer: None,
                 typed_factory: Some(Arc::new(typed_factory)),
                 vec_batch_factory: Some(Arc::new(vec_batch_factory)),
                 erased_vec_batch_factory: Some((TypeId::of::<Vec<T>>(), erased_vec_batch_factory)),
@@ -415,6 +416,7 @@ impl Pipeline {
             Some(SourceRegistration {
                 factory,
                 unbounded_factory: None,
+                finalizer: None,
                 typed_factory: Some(Arc::new(typed_factory)),
                 vec_batch_factory: None,
                 erased_vec_batch_factory: None,
@@ -457,12 +459,76 @@ impl Pipeline {
         + Sync
         + 'static,
     ) -> Result<PCollection<T>, Error> {
+        self.unbounded_source_with_finalizer_option(
+            key,
+            progress,
+            config_digest,
+            initial_timestamp_ns,
+            open,
+            None,
+        )
+    }
+
+    /// Register a resumable source with a callback after committed progress.
+    /// Direct requires a durable streaming checkpoint and calls `finalize`
+    /// after the output sinks and checkpoint commit. It retries the saved
+    /// position on restart, so the callback must be idempotent. The source
+    /// must redeliver unacknowledged records even when reopened at that saved
+    /// position. The portable worker currently rejects finalized sources.
+    ///
+    /// # Errors
+    /// Returns an error for missing replay support or an invalid source digest.
+    pub fn unbounded_source_with_finalizer<T: Element>(
+        &self,
+        key: &str,
+        progress: SourceProgress,
+        config_digest: String,
+        initial_timestamp_ns: i64,
+        open: impl Fn(Option<Vec<u8>>) -> Result<TypedUnboundedSourceReader<T>, Error>
+        + Send
+        + Sync
+        + 'static,
+        finalize: impl Fn(&ProgressSignal) -> Result<(), Error> + Send + Sync + 'static,
+    ) -> Result<PCollection<T>, Error> {
+        if !progress.stable_split_id || progress.replay == Replay::None {
+            return Err(Error::graph(
+                key,
+                "finalized source requires a stable split and replay support",
+            ));
+        }
+        self.unbounded_source_with_finalizer_option(
+            key,
+            progress,
+            config_digest,
+            initial_timestamp_ns,
+            open,
+            Some(Arc::new(finalize)),
+        )
+    }
+
+    fn unbounded_source_with_finalizer_option<T: Element>(
+        &self,
+        key: &str,
+        progress: SourceProgress,
+        config_digest: String,
+        initial_timestamp_ns: i64,
+        open: impl Fn(Option<Vec<u8>>) -> Result<TypedUnboundedSourceReader<T>, Error>
+        + Send
+        + Sync
+        + 'static,
+        finalizer: Option<SourceFinalizer>,
+    ) -> Result<PCollection<T>, Error> {
         if config_digest.is_empty() {
             return Err(Error::graph(
                 key,
                 "unbounded source configuration digest is required",
             ));
         }
+        let config_digest = if finalizer.is_some() {
+            format!("{config_digest}:post-commit-finalizer-v1")
+        } else {
+            config_digest
+        };
         let typed_factory = Arc::new(open);
         let unbounded_factory: UnboundedSourceFactory = Arc::new(move |position| {
             Ok(Box::new(TypedUnboundedAdapter {
@@ -477,6 +543,7 @@ impl Pipeline {
             Some(SourceRegistration {
                 factory: Arc::new(|| Err(Error::incompatible("unbounded source requires polling"))),
                 unbounded_factory: Some(unbounded_factory),
+                finalizer,
                 typed_factory: None,
                 vec_batch_factory: None,
                 erased_vec_batch_factory: None,
@@ -563,6 +630,7 @@ impl Pipeline {
                         )?),
                     }))
                 })),
+                finalizer: None,
                 typed_factory: None,
                 vec_batch_factory: None,
                 erased_vec_batch_factory: None,

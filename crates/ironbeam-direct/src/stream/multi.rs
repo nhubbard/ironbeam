@@ -332,6 +332,12 @@ pub(super) fn start_dual_side_stream<T: Element>(
                 ClosedPanes::new(),
             )
         };
+    for (key, signal) in [route.source_key.as_str(), route.side_source_key.as_str()]
+        .into_iter()
+        .zip(&progress_by_source)
+    {
+        resume_source_finalization(&registry, key, checkpoint.as_ref(), signal.as_ref())?;
+    }
     #[allow(unused_mut)]
     let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
     #[cfg(feature = "metrics")]
@@ -533,6 +539,14 @@ pub(super) fn start_multi_stream_sink<T: Element>(
     } else {
         (0, vec![None; plan.routes.len()])
     };
+    for (route, signal) in plan.routes.iter().zip(&source_progress) {
+        resume_source_finalization(
+            &registry,
+            &route.source_key,
+            checkpoint.as_ref(),
+            signal.as_ref(),
+        )?;
+    }
     #[allow(unused_mut)]
     let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
     #[cfg(feature = "metrics")]
@@ -749,6 +763,12 @@ fn run_multi_stream(
                 })
                 .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
                 checkpoint.save_state(&combined, &state, config.memory_budget_bytes)?;
+            }
+            if let Some(signal) = source_progress[index]
+                .as_ref()
+                .filter(|signal| signal.checkpoint_position.is_some())
+            {
+                registry.finalize_source_progress(&route.source_key, signal)?;
             }
             let total = handle
                 .metrics
@@ -1254,6 +1274,12 @@ fn run_dual_side_stream(
                 })
                 .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
                 checkpoint.save_state(&combined, &state, config.memory_budget_bytes)?;
+            }
+            if let Some(signal) = progress[index]
+                .as_ref()
+                .filter(|signal| signal.checkpoint_position.is_some())
+            {
+                registry.finalize_source_progress(source_keys[index], signal)?;
             }
             let total = handle
                 .metrics

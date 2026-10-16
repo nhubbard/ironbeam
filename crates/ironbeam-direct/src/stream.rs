@@ -24,6 +24,28 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 mod multi;
 mod pair_state;
 mod session_expiry;
+
+fn resume_source_finalization(
+    registry: &Registry,
+    key: &str,
+    checkpoint: Option<&StreamCheckpoint>,
+    recovered: Option<&ProgressSignal>,
+) -> Result<(), Error> {
+    if !registry.source_requires_finalization(key) {
+        return Ok(());
+    }
+    if checkpoint.is_none() {
+        return Err(Error::unsupported(
+            key,
+            "direct",
+            "source-finalization-checkpoint",
+        ));
+    }
+    if let Some(signal) = recovered.filter(|signal| signal.checkpoint_position.is_some()) {
+        registry.finalize_source_progress(key, signal)?;
+    }
+    Ok(())
+}
 use multi::{
     start_dual_side_stream, start_multi_grouped_stream_sink, start_multi_stream_sink,
     start_multi_wait_stream_sink,
@@ -1163,6 +1185,12 @@ impl DirectRunner {
             } else {
                 recovered
             };
+        resume_source_finalization(
+            &registry,
+            source_key,
+            checkpoint.as_ref(),
+            recovered.as_ref(),
+        )?;
         #[allow(unused_mut)] // Metrics feature installs a collector before the worker starts.
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
@@ -1395,6 +1423,12 @@ impl DirectRunner {
                 .transpose()?
                 .flatten()
         };
+        resume_source_finalization(
+            &registry,
+            &plan.source_key,
+            checkpoint.as_ref(),
+            recovered.as_ref(),
+        )?;
         #[allow(unused_mut)]
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
@@ -1837,6 +1871,9 @@ fn run_bounded_side_stream(
                 config.memory_budget_bytes,
             )?;
             checkpoint.save_state(&next_progress, &state, config.memory_budget_bytes)?;
+        }
+        if next_progress.checkpoint_position.is_some() {
+            registry.finalize_source_progress(&route.source_key, &next_progress)?;
         }
         let total = handle
             .metrics
@@ -2458,6 +2495,9 @@ fn run_grouped_stream(
             let state = encode_grouped_folds(&folds, config.memory_budget_bytes, &route.group_key)?;
             checkpoint.save_state(&next_progress, &state, config.memory_budget_bytes)?;
         }
+        if next_progress.checkpoint_position.is_some() {
+            registry.finalize_source_progress(&route.source_key, &next_progress)?;
+        }
         let total = handle
             .metrics
             .output_elements
@@ -2821,6 +2861,9 @@ fn run_stream(
                 checkpoint.save(&next_progress)?;
             }
         }
+        if next_progress.checkpoint_position.is_some() {
+            registry.finalize_source_progress(&route.source_key, &next_progress)?;
+        }
         let total = handle
             .metrics
             .output_elements
@@ -3167,6 +3210,9 @@ fn run_stream_pair(
             } else {
                 checkpoint.save(&next_progress)?;
             }
+        }
+        if next_progress.checkpoint_position.is_some() {
+            registry.finalize_source_progress(&plan.source_key, &next_progress)?;
         }
         let total = handle
             .metrics

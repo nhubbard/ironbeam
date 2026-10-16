@@ -69,6 +69,11 @@ impl<'a> SourcePoller<'a> {
         {
             return Err(Error::unsupported(key, "dataflow-v5", "resumable-coded-source").into());
         }
+        if registry.source_requires_finalization(key) {
+            return Err(
+                Error::unsupported(key, "dataflow-v5", "source-bundle-finalization").into(),
+            );
+        }
         let reader = catch_unwind(AssertUnwindSafe(|| {
             registry.open_unbounded_source(key, restriction.progress.clone())
         }))

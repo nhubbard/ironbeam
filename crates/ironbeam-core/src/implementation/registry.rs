@@ -309,6 +309,34 @@ impl Registry {
             .get(key)
             .is_some_and(|source| source.unbounded_factory.is_some())
     }
+    #[must_use]
+    /// Report whether an unbounded source needs a post-commit callback.
+    pub fn source_requires_finalization(&self, key: &str) -> bool {
+        self.sources.get(key).is_some_and(|source| source.finalizer.is_some())
+    }
+
+    /// Finalize one committed source position. A runner calls this only after
+    /// the output bundle and its own checkpoint have been committed.
+    ///
+    /// # Errors
+    /// Returns an error for invalid progress or a failed callback.
+    pub fn finalize_source_progress(
+        &self,
+        key: &str,
+        progress: &ProgressSignal,
+    ) -> Result<(), Error> {
+        let source = self.sources.get(key).ok_or_else(|| Error::graph(key, "source missing"))?;
+        let Some(finalizer) = &source.finalizer else { return Ok(()); };
+        if progress.source_key != key
+            || progress.split_id.is_empty()
+            || progress.checkpoint_position.as_ref().is_none_or(Vec::is_empty)
+            || progress.checkpoint_position.as_ref().is_some_and(|position| position.len() > 1024 * 1024)
+        {
+            return Err(Error::recovery(key, "invalid source finalization progress"));
+        }
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| finalizer(progress)))
+            .unwrap_or_else(|_| Err(Error::execution(key, "source", "source finalizer panicked")))
+    }
     /// Open a source directly as `T` when its registration retains a typed factory.
     ///
     /// `None` means that the backend should use the regular envelope source.
