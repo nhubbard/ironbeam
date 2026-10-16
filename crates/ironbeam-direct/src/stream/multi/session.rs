@@ -59,7 +59,7 @@ pub(super) fn close_ready_sessions(
         let mut component = Vec::new();
         let mut end = i64::MIN;
         for row in rows.drain(..) {
-            if !component.is_empty() && row.interval.0 > end {
+            if !component.is_empty() && row.interval.0 >= end {
                 settle(
                     component,
                     end,
@@ -152,7 +152,7 @@ pub(super) fn close_ready_group_sessions(
         let mut component = Vec::new();
         let mut end = i64::MIN;
         for row in rows.drain(..) {
-            if !component.is_empty() && row.interval.0 > end {
+            if !component.is_empty() && row.interval.0 >= end {
                 settle_group(component, end, watermark, &mut open, &mut closed);
                 component = Vec::new();
             }

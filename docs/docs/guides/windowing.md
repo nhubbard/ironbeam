@@ -401,7 +401,8 @@ runners. For two unbounded inputs, session joins and co-groups wait for both
 source watermarks before closing a keyed session. Direct and local Prism agree
 on a bridge formed by the other input and on the merged interval. Direct can
 restore the open rows and both source cursors from a checkpoint. Sessions
-across more than two unbounded inputs have not been tested.
+across three independent unbounded inputs have one tested bridge schedule;
+other watermark orders remain unproved.
 Portable session gaps must be positive whole milliseconds.
 
 The worker's runner-issued `MergeWindows` function and Direct use the Beam

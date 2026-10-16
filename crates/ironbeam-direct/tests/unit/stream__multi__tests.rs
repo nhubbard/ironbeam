@@ -3,6 +3,102 @@ use super::*;
 use crate::CheckpointConfig;
 use ironbeam_core::{Boundedness, Pipeline, SinkSpec, SourceProgress, TestStreamEvent, TypedSink};
 
+#[test]
+fn multi_source_session_closure_keeps_touching_windows_separate() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let windows_for = |rows: &[(i64, i32)]| {
+        let mut windows = WindowRows::new();
+        for &(time, value) in rows {
+            windows.entry((time, time + 5)).or_default().push(Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
+                value: Box::new((1_i32, value)),
+                timestamp_ns: time,
+                window: ironbeam_core::Window::Session { gap_ns: 5 },
+                assigned_window: Some(ironbeam_core::WindowInterval {
+                    start_ns: time,
+                    end_ns: time + 5,
+                }),
+            });
+        }
+        windows
+    };
+    let mut touching = windows_for(&[(0, 1), (5, 2)]);
+    let first = session::close_ready_group_sessions(&registry, "source", "group", &mut touching, 5)
+        .unwrap();
+    assert_eq!(first.len(), 1);
+    assert!(touching.contains_key(&(5, 10)));
+    let second =
+        session::close_ready_group_sessions(&registry, "source", "group", &mut touching, 10)
+            .unwrap();
+    assert_eq!(second.len(), 1);
+    assert!(touching.is_empty());
+
+    let mut bridged = windows_for(&[(0, 1), (5, 2), (4, 3)]);
+    let merged =
+        session::close_ready_group_sessions(&registry, "source", "group", &mut bridged, 10)
+            .unwrap();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].len(), 3);
+    assert!(bridged.is_empty());
+}
+
+#[test]
+fn joined_session_closure_keeps_touching_inputs_separate() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![(1_i32, 1_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 2_i32)]).unwrap();
+    left.join_full_named("join", &right).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let route = BoundedSideStreamRoute {
+        wait_on_signal: false,
+        window: ironbeam_core::Window::Session { gap_ns: 5 },
+        source_key: "left".into(),
+        main_stages: Vec::new(),
+        main_input_key: "left".into(),
+        side_source_key: "right".into(),
+        side_stages: Vec::new(),
+        side_input_key: "right".into(),
+        aggregate_key: "join".into(),
+        after_aggregate: Vec::new(),
+        other_aggregates: Vec::new(),
+        after_fanout: Vec::new(),
+    };
+    let event = |time, value| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, value)),
+        timestamp_ns: time,
+        window: ironbeam_core::Window::Session { gap_ns: 5 },
+        assigned_window: Some(ironbeam_core::WindowInterval {
+            start_ns: time,
+            end_ns: time + 5,
+        }),
+    };
+    let mut main = WindowRows::from([((0, 5), vec![event(0, 1)])]);
+    let mut side = WindowRows::from([((5, 10), vec![event(5, 2)])]);
+    let first = session::close_ready_sessions(&registry, &route, &mut main, &mut side, 5).unwrap();
+    assert_eq!(first.len(), 1);
+    assert!(main.is_empty());
+    assert!(side.contains_key(&(5, 10)));
+    let second =
+        session::close_ready_sessions(&registry, &route, &mut main, &mut side, 10).unwrap();
+    assert_eq!(second.len(), 1);
+    assert!(main.is_empty() && side.is_empty());
+
+    let mut main = WindowRows::from([((0, 5), vec![event(0, 1)])]);
+    let mut side = WindowRows::from([((4, 9), vec![event(4, 3)]), ((5, 10), vec![event(5, 2)])]);
+    let merged =
+        session::close_ready_sessions(&registry, &route, &mut main, &mut side, 10).unwrap();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].0.len(), 1);
+    assert_eq!(merged[0].1.len(), 2);
+}
+
 struct NullSink;
 impl TypedSink<i32> for NullSink {
     fn write(&mut self, _: i32) -> Result<(), Error> {
