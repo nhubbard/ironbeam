@@ -146,12 +146,18 @@ where
             });
             timers.insert(family_id, UserTimerFamily { domain, coder_id });
         }
+        let mut states = BTreeMap::from([("value".into(), UserStateKind::Value { coder_id: "v5_lp_bytes".into() })]);
+        if timers.values().any(|family| family.domain == UserTimerDomain::ProcessingTime) {
+            states.insert("v5_processing_timer_ledger".into(), UserStateKind::Value {
+                coder_id: "v5_lp_bytes".into(),
+            });
+        }
         let contract = StatefulParDoContract {
             semantic_id: semantic_id.into(),
             version,
             key_coder_id: "v5_lp_bytes".into(),
             window_coder_id: if parent.time.window == Window::Global { "c_gw" } else { "c_iw" }.into(),
-            states: BTreeMap::from([("value".into(), UserStateKind::Value { coder_id: "v5_lp_bytes".into() })]),
+            states,
             timers,
             on_window_expiration_timer: expiration_family_id,
         };

@@ -134,7 +134,6 @@ async fn prism_matches_direct_processing_timer_replacement() {
 }
 
 #[tokio::test]
-#[ignore = "pinned Prism delivers a cancelled processing timer as a firing at time zero"]
 async fn prism_omits_cleared_processing_timer() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

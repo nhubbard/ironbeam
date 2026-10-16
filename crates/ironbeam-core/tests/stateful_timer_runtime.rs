@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use ironbeam_core::{
-    Element, ElementMetadata, Envelope, PCollection, PaneInfo, Pipeline, TestStreamEvent,
-    TimedStateResult, TimerFiring, TimerMutation, UserTimerDomain, UserTimerRequest, Version,
-    Window,
+    Element, ElementMetadata, Envelope, Operation, PCollection, PaneInfo, Pipeline,
+    TestStreamEvent, TimedStateResult, TimerFiring, TimerMutation, UserStateKind, UserTimerDomain,
+    UserTimerRequest, Version, Window,
 };
 
 fn input(value: i32) -> Envelope {
@@ -14,6 +14,53 @@ fn input(value: i32) -> Envelope {
         window: Window::Global,
         assigned_window: None,
         pane: PaneInfo::NO_FIRING,
+    }
+}
+
+#[test]
+fn processing_timers_declare_runner_backed_ledger() {
+    for (domain, expects_ledger) in [
+        (UserTimerDomain::ProcessingTime, true),
+        (UserTimerDomain::EventTime, false),
+    ] {
+        let pipeline = Pipeline::default();
+        pipeline
+            .test_stream_source(
+                "source",
+                vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+            )
+            .unwrap()
+            .stateful_timer_map_named::<i32, i32>(
+                "timer",
+                "tests/timer-ledger-declaration",
+                Version { major: 1, minor: 0 },
+                BTreeMap::from([("clock".into(), domain)]),
+                |_, value, _, _| {
+                    Ok(TimedStateResult {
+                        state: Some(value),
+                        outputs: Vec::new(),
+                        timers: Vec::new(),
+                    })
+                },
+                |_, _, _| unreachable!(),
+            )
+            .unwrap();
+        let (graph, _) = pipeline.snapshot().unwrap();
+        let Operation::StatefulParDo { contract, .. } = &graph.node("timer").unwrap().operation
+        else {
+            panic!("timer node lacks stateful contract");
+        };
+        assert!(matches!(
+            contract.states.get("value"),
+            Some(UserStateKind::Value { .. })
+        ));
+        assert_eq!(
+            matches!(
+                contract.states.get("v5_processing_timer_ledger"),
+                Some(UserStateKind::Value { .. })
+            ),
+            expects_ledger
+        );
     }
 }
 

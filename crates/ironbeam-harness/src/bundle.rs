@@ -124,7 +124,17 @@ fn value_state_payload(
                                 })
                     })
         });
-    let valid = payload.state_specs.len() == 1
+    let has_processing_timers = payload.timer_family_specs.values().any(|family| {
+        time_domain::Enum::try_from(family.time_domain) == Ok(time_domain::Enum::ProcessingTime)
+    });
+    let has_processing_ledger = payload
+        .state_specs
+        .contains_key("v5_processing_timer_ledger");
+    let valid = (payload.state_specs.len() == 1
+        || (payload.state_specs.len() == 2
+            && has_processing_timers
+            && has_processing_ledger
+            && payload.state_specs.contains_key("value")))
         && timers_valid
         && (payload.on_window_expiration_timer_family_spec.is_empty()
             || payload
@@ -134,71 +144,73 @@ fn value_state_payload(
                     time_domain::Enum::try_from(family.time_domain)
                         == Ok(time_domain::Enum::EventTime)
                 }))
-        && payload
-            .state_specs
-            .iter()
-            .next()
-            .is_some_and(|(name, spec)| {
-                let (coder_ids, protocol_urn) = match (name.as_str(), &spec.spec) {
-                    ("value", Some(state_spec::Spec::ReadModifyWriteSpec(cell))) => {
-                        (vec![&cell.coder_id], "beam:user_state:bag:v1")
-                    }
-                    ("bag", Some(state_spec::Spec::BagSpec(cell))) => {
-                        (vec![&cell.element_coder_id], "beam:user_state:bag:v1")
-                    }
-                    ("combining", Some(state_spec::Spec::CombiningSpec(cell)))
-                        if cell.combine_fn.as_ref().is_some_and(|combine| {
-                            combine.urn.contains('/')
-                                && serde_json::from_slice::<ironbeam_core::Version>(
-                                    &combine.payload,
-                                )
-                                .is_ok_and(|version| version.major > 0)
-                        }) =>
-                    {
-                        (vec![&cell.accumulator_coder_id], "beam:user_state:bag:v1")
-                    }
-                    ("set", Some(state_spec::Spec::SetSpec(cell))) => {
-                        (vec![&cell.element_coder_id], "beam:user_state:multimap:v1")
-                    }
-                    ("map", Some(state_spec::Spec::MapSpec(cell))) => (
-                        vec![&cell.key_coder_id, &cell.value_coder_id],
-                        "beam:user_state:multimap:v1",
-                    ),
-                    ("multimap", Some(state_spec::Spec::MultimapSpec(cell))) => (
-                        vec![&cell.key_coder_id, &cell.value_coder_id],
-                        "beam:user_state:multimap:v1",
-                    ),
-                    ("ordered_list", Some(state_spec::Spec::OrderedListSpec(cell))) => (
-                        vec![&cell.element_coder_id],
-                        "beam:user_state:ordered_list:v1",
-                    ),
-                    _ => return false,
-                };
-                if !payload.timer_family_specs.is_empty() && name != "value" {
-                    return false;
+        && payload.state_specs.iter().all(|(name, spec)| {
+            let (coder_ids, protocol_urn) = match (name.as_str(), &spec.spec) {
+                ("value", Some(state_spec::Spec::ReadModifyWriteSpec(cell))) => {
+                    (vec![&cell.coder_id], "beam:user_state:bag:v1")
                 }
-                coder_ids.into_iter().all(|coder_id| {
-                    pbd.coders.get(coder_id).is_some_and(|coder| {
-                        coder.spec.as_ref().is_some_and(|spec| {
-                            spec.urn == urns::CODER_LENGTH_PREFIX && spec.payload.is_empty()
-                        }) && coder.component_coder_ids.len() == 1
-                            && pbd
-                                .coders
-                                .get(&coder.component_coder_ids[0])
-                                .is_some_and(|child| {
-                                    child.spec.as_ref().is_some_and(|spec| {
-                                        spec.urn == urns::CODER_BYTES && spec.payload.is_empty()
-                                    }) && child.component_coder_ids.is_empty()
-                                })
-                    })
-                }) && spec.protocol.as_ref().is_some_and(|protocol| {
-                    protocol.urn == protocol_urn && protocol.payload.is_empty()
+                (
+                    "v5_processing_timer_ledger",
+                    Some(state_spec::Spec::ReadModifyWriteSpec(cell)),
+                ) if has_processing_timers => (vec![&cell.coder_id], "beam:user_state:bag:v1"),
+                ("bag", Some(state_spec::Spec::BagSpec(cell))) => {
+                    (vec![&cell.element_coder_id], "beam:user_state:bag:v1")
+                }
+                ("combining", Some(state_spec::Spec::CombiningSpec(cell)))
+                    if cell.combine_fn.as_ref().is_some_and(|combine| {
+                        combine.urn.contains('/')
+                            && serde_json::from_slice::<ironbeam_core::Version>(&combine.payload)
+                                .is_ok_and(|version| version.major > 0)
+                    }) =>
+                {
+                    (vec![&cell.accumulator_coder_id], "beam:user_state:bag:v1")
+                }
+                ("set", Some(state_spec::Spec::SetSpec(cell))) => {
+                    (vec![&cell.element_coder_id], "beam:user_state:multimap:v1")
+                }
+                ("map", Some(state_spec::Spec::MapSpec(cell))) => (
+                    vec![&cell.key_coder_id, &cell.value_coder_id],
+                    "beam:user_state:multimap:v1",
+                ),
+                ("multimap", Some(state_spec::Spec::MultimapSpec(cell))) => (
+                    vec![&cell.key_coder_id, &cell.value_coder_id],
+                    "beam:user_state:multimap:v1",
+                ),
+                ("ordered_list", Some(state_spec::Spec::OrderedListSpec(cell))) => (
+                    vec![&cell.element_coder_id],
+                    "beam:user_state:ordered_list:v1",
+                ),
+                _ => return false,
+            };
+            if !payload.timer_family_specs.is_empty()
+                && name != "value"
+                && name != "v5_processing_timer_ledger"
+            {
+                return false;
+            }
+            coder_ids.into_iter().all(|coder_id| {
+                pbd.coders.get(coder_id).is_some_and(|coder| {
+                    coder.spec.as_ref().is_some_and(|spec| {
+                        spec.urn == urns::CODER_LENGTH_PREFIX && spec.payload.is_empty()
+                    }) && coder.component_coder_ids.len() == 1
+                        && pbd
+                            .coders
+                            .get(&coder.component_coder_ids[0])
+                            .is_some_and(|child| {
+                                child.spec.as_ref().is_some_and(|spec| {
+                                    spec.urn == urns::CODER_BYTES && spec.payload.is_empty()
+                                }) && child.component_coder_ids.is_empty()
+                            })
                 })
-            });
+            }) && spec
+                .protocol
+                .as_ref()
+                .is_some_and(|protocol| protocol.urn == protocol_urn && protocol.payload.is_empty())
+        });
     if !valid {
         return Err(PlanError::BadPayload {
             id: id.into(),
-            err: "v5 ParDo requires one supported state cell and valid timer-family coders (timers require the value cell)"
+            err: "v5 ParDo requires supported state cells and valid timer-family coders (timers require the value cell)"
                 .into(),
         });
     }

@@ -63,6 +63,7 @@ impl V5BundleExecutor {
                 Ok(((outputs, change.timers), Self::timed_state_mutation(change.state)?))
             })
             .await?;
+        Self::update_processing_timer_ledger(&access, contract, None, &timers).await?;
         Self::send_timer_mutations(data, instruction_id, transform_id, contract, timers)?;
         Ok(outputs)
     }
@@ -88,6 +89,12 @@ impl V5BundleExecutor {
             Self::timer_state_window(firing.identity.window)?,
             firing.identity.encoded_key.clone(),
         )?;
+        if firing.domain == UserTimerDomain::ProcessingTime
+            && contract.states.contains_key(PROCESSING_TIMER_LEDGER_STATE_ID)
+            && !Self::processing_timer_is_armed(&access, firing).await?
+        {
+            return Ok(Vec::new());
+        }
         let (outputs, timers) = access
             .apply_value_state("value", |encoded| {
                 let prior = Self::decode_single_value_cell(encoded)?;
@@ -108,6 +115,7 @@ impl V5BundleExecutor {
                 Ok(((outputs, change.timers), Self::timed_state_mutation(change.state)?))
             })
             .await?;
+        Self::update_processing_timer_ledger(&access, contract, Some(firing), &timers).await?;
         Self::send_timer_mutations(data, instruction_id, transform_id, contract, timers)?;
         Ok(outputs)
     }

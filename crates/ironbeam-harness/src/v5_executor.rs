@@ -13,6 +13,7 @@ include!("v5_executor/v5_executor_offset_sdf.rs");
 include!("v5_executor/v5_executor_validate.rs");
 include!("v5_executor/v5_executor_apply.rs");
 include!("v5_executor/stateful_cell.rs");
+include!("v5_executor/processing_timer_ledger.rs");
 include!("v5_executor/timed_cell.rs");
 include!("v5_executor/v5_executor_records.rs");
 include!("v5_executor/bundle_runner.rs");
