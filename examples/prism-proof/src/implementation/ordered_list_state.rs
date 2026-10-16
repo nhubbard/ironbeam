@@ -242,6 +242,56 @@ pub fn streaming_windowed_ordered_list_fixture(
         )
 }
 
+/// Ordered-list cells remain separate in overlapping sliding windows.
+pub fn streaming_sliding_ordered_list_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "sliding-ordered-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 20_i32), 6_000_000), ((1, 10), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(8_000_000),
+                TestStreamEvent::Elements(vec![((1, 15), 12_000_000)]),
+                TestStreamEvent::AdvanceWatermark(16_000_000),
+                TestStreamEvent::Elements(vec![((1, 5), 18_000_000)]),
+                TestStreamEvent::AdvanceWatermark(26_000_000),
+            ],
+        )?
+        .sliding_windows("sliding-ordered-window", 10_000_000, 5_000_000, 0)?
+        .stateful_ordered_list_map_named::<i32, (i32, Vec<i32>)>(
+            "sliding-ordered-list",
+            "prism-proof/sliding-ordered-list-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                Ok((
+                    OrderedListStateMutation::Append(i64::from(value), value),
+                    (value, prior.iter().map(|(_, item)| *item).collect()),
+                ))
+            },
+        )?
+        .map_named("sliding-ordered-label", |(key, (value, prior))| {
+            format!("{key}:{value}:{prior:?}")
+        })?
+        .sink_named_with_config(
+            "sliding-ordered-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("sliding-ordered-state:{}", directory.display()),
+            move || {
+                Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                })))
+            },
+        )
+}
+
 /// Production source with an ordered-list cell and idempotent output.
 pub fn production_ordered_list_fixture(
     pipeline: &Pipeline,

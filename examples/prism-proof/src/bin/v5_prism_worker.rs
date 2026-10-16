@@ -494,6 +494,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_SLIDING_ORDERED_LIST") {
+        return ironbeam_prism_proof::streaming_sliding_ordered_list_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_ORDERED_LIST") {
         return ironbeam_prism_proof::production_ordered_list_fixture(pipeline, path.into())
             .map(|_| ())
