@@ -351,6 +351,11 @@ fn streaming_branch_value_state_fixture_impl(
             "prism-proof/branch-value-state",
             Version { major: 1, minor: 0 },
             |_, value, prior| {
+                if value == 2
+                    && std::env::var_os("IRONBEAM_V5_PRISM_KILL_TWO_BRANCH_STATE").is_some()
+                {
+                    await_supervised_source_replacement(Some(&[1]))?;
+                }
                 let next = prior.unwrap_or(0) + value;
                 Ok((Some(next), next))
             },

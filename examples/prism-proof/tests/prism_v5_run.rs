@@ -2493,6 +2493,68 @@ async fn prism_matches_direct_two_independent_stateful_stream_branches() {
 }
 
 #[tokio::test]
+async fn prism_replays_two_stateful_branches_after_execution_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let left_path = directory.path().join("replayed-two-state-left");
+    let right_path = directory.path().join("replayed-two-state-right");
+    let trigger = directory.path().join("two-state-child-trigger");
+    let killed = directory.path().join("killed-two-state-child");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::streaming_two_branch_value_state_fixture(
+        &pipeline,
+        left_path.clone(),
+        right_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "replayed-two-branch-value-state",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_TWO_BRANCH_LEFT_STATE".into(),
+                left_path.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_TWO_BRANCH_RIGHT_STATE".into(),
+                right_path.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            ("IRONBEAM_V5_PRISM_KILL_TWO_BRANCH_STATE".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism branch replay failed: {terminal:?}");
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap(),
+        "execution child was not replaced"
+    );
+    let rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    assert_eq!(rows(&left_path), ["1:2", "1:7"]);
+    assert_eq!(rows(&right_path), ["1:20", "1:70"]);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_unbounded_windowed_value_state() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
