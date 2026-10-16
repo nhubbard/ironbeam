@@ -413,8 +413,9 @@ row whose original `[0, 5_000_000)` ns interval has passed that watermark.
 Direct also accepts an expired original interval when it merges into a live keyed session
 from either input; its join and co-group fixtures drop a later row after
 closure. This intermediate-watermark schedule still needs a local Prism
-comparison. Sessions
-across three independent unbounded inputs have one tested bridge schedule;
+comparison. Sessions across three independent unbounded inputs have a recovery test in which a
+second-source row joins an open merged session after its own interval has
+expired. The three source cursors and buffered rows survive a checkpoint;
 other watermark orders remain unproved.
 Portable session gaps must be positive whole milliseconds.
 

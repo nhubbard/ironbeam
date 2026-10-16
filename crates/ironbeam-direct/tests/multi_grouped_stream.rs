@@ -1183,7 +1183,7 @@ fn bounded_side_is_materialized_once_and_restored_with_unbounded_group() {
 }
 
 #[test]
-fn three_source_session_bridge_arrives_after_checkpoint_restart() {
+fn three_source_session_expired_bridge_arrives_after_checkpoint_restart() {
     let directory = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
     let hold = Arc::new(AtomicBool::new(true));
@@ -1210,15 +1210,15 @@ fn three_source_session_bridge_arrives_after_checkpoint_restart() {
                     let (rows, position, watermark, completed) = match cursor.as_deref() {
                         None => {
                             let rows = match index {
-                                0 => vec![(1, 1, 0), (1, 2, 8_000_000)],
+                                0 => vec![(1, 1, 0), (1, 2, 4_000_000)],
                                 1 => Vec::new(),
-                                _ => vec![(2, 99, 0)],
+                                _ => vec![(2, 99, 6_000_000)],
                             };
-                            (rows, 1, 0, false)
+                            (rows, 1, 6_000_000, false)
                         }
                         Some([1]) if !hold.load(Ordering::SeqCst) => {
                             let rows = if index == 1 {
-                                vec![(1, 10, 4_000_000)]
+                                vec![(1, 10, 0)]
                             } else {
                                 Vec::new()
                             };
@@ -1329,8 +1329,8 @@ fn three_source_session_bridge_arrives_after_checkpoint_restart() {
     assert_eq!(
         rows,
         [
-            "0..13000000:1:[[1, 2], [10], []]".to_owned(),
-            "0..5000000:2:[[], [], [99]]".to_owned(),
+            "0..9000000:1:[[1, 2], [10], []]".to_owned(),
+            "6000000..11000000:2:[[], [], [99]]".to_owned(),
         ]
     );
     let opens = opens.lock().unwrap();
