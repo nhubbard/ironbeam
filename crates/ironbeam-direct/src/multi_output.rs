@@ -133,13 +133,6 @@ fn prepare_routes(
         .chain(&right)
         .filter(|key| registry.has_stateful_value(key))
         .collect::<std::collections::BTreeSet<_>>();
-    if stateful.len() > 2 {
-        return Err(Error::unsupported(
-            left_key,
-            "direct",
-            "multiple-stream-value-state",
-        ));
-    }
     let stateful_keys: Vec<String> = stateful.into_iter().cloned().collect();
     for key in &stateful_keys {
         let Some(Operation::StatefulParDo { .. }) = graph.node(key).map(|node| &node.operation)

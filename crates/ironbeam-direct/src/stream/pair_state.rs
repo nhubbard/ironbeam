@@ -16,12 +16,15 @@ pub(super) fn snapshot(
     let state = match states.len() {
         0 => return Ok(None),
         1 => states.remove(0),
-        2 => {
-            let size = MAGIC
-                .len()
-                .checked_add(16)
-                .and_then(|size| size.checked_add(states[0].len()))
-                .and_then(|size| size.checked_add(states[1].len()))
+        count => {
+            let size = count
+                .checked_mul(8)
+                .and_then(|headers| MAGIC.len().checked_add(headers))
+                .and_then(|headers| {
+                    states
+                        .iter()
+                        .try_fold(headers, |size, state| size.checked_add(state.len()))
+                })
                 .ok_or_else(|| Error::resource("stateful-value", "pair state size overflow"))?;
             if size > budget {
                 return Err(Error::resource(
@@ -37,7 +40,6 @@ pub(super) fn snapshot(
             }
             encoded
         }
-        _ => return Err(Error::graph("stateful-value", "too many pair states")),
     };
     if state.len() > budget {
         return Err(Error::resource(
@@ -52,12 +54,12 @@ pub(super) fn restore(plan: &PairPlan, registry: &Registry, bytes: &[u8]) -> Res
     match plan.stateful_keys.as_slice() {
         [] => Err(Error::incompatible("checkpoint has no stateful pair stage")),
         [key] => registry.restore_stateful_value(key, bytes),
-        [left, right] => {
+        keys => {
             let mut remaining = bytes
                 .strip_prefix(MAGIC)
                 .ok_or_else(|| Error::incompatible("pair state checkpoint magic mismatch"))?;
-            let mut states = Vec::with_capacity(2);
-            for _ in 0..2 {
+            let mut states = Vec::with_capacity(keys.len());
+            for _ in keys {
                 let length = remaining
                     .get(..8)
                     .ok_or_else(|| Error::incompatible("truncated pair state length"))?;
@@ -73,10 +75,11 @@ pub(super) fn restore(plan: &PairPlan, registry: &Registry, bytes: &[u8]) -> Res
             if !remaining.is_empty() {
                 return Err(Error::incompatible("trailing pair state bytes"));
             }
-            registry.restore_stateful_value(left, states[0])?;
-            registry.restore_stateful_value(right, states[1])
+            for (key, state) in keys.iter().zip(states) {
+                registry.restore_stateful_value(key, state)?;
+            }
+            Ok(())
         }
-        _ => Err(Error::graph("stateful-value", "too many pair states")),
     }
 }
 
