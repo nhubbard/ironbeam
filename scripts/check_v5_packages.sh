@@ -14,6 +14,7 @@ while IFS= read -r package; do
 done <<< "$release_order"
 compression_patch=(--config "patch.crates-io.ironbeam-compression.path=\"$root/crates/ironbeam-compression\"")
 cloud_objects_patch=(--config "patch.crates-io.ironbeam-cloud-objects.path=\"$root/crates/ironbeam-cloud-objects\"")
+cloud_object_store_patch=(--config "patch.crates-io.ironbeam-cloud-object-store.path=\"$root/crates/ironbeam-cloud-object-store\"")
 cloud_service_api_patch=(--config "patch.crates-io.ironbeam-cloud-service-api.path=\"$root/crates/ironbeam-cloud-service-api\"")
 cloud_fakes_patch=(--config "patch.crates-io.ironbeam-cloud-fakes.path=\"$root/crates/ironbeam-cloud-fakes\"")
 core_patch=(--config "patch.crates-io.ironbeam-core.path=\"$root/crates/ironbeam-core\"")
@@ -134,7 +135,7 @@ for package in "${packages[@]}"; do
     ironbeam-io-sql|ironbeam-io-mongodb)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io)
-      patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
+      patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${cloud_object_store_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io-jsonl|ironbeam-io-protobuf|ironbeam-io-tfrecord|ironbeam-io-csv|ironbeam-io-xml|ironbeam-io-msgpack|ironbeam-io-cbor|ironbeam-io-avro)
       patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${cloud_service_api_patch[@]}" "${cloud_fakes_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-io-parquet)
