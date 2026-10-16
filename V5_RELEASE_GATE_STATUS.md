@@ -28,6 +28,7 @@ the open cases in this report lack runner proofs.
 | Representative Distinct | A native shuffle selects the smallest encoded representative per derived key and window on both runners. | Deterministic coders and more stream schedules. |
 | Streaming Count.PerElement | The streaming path uses checkpointable GroupByKey and matches Prism in fixed windows. | An incremental accumulator for heavily used keys. |
 | Two-source sessions | Direct restores merged open sessions across two source cursors. Selected Prism schedules agree. | Intermediate-watermark and late-pane agreement. |
+| Session allowed lateness | Core currently rejects nonzero lateness on session windows. In Direct, an open session shares one fold across intervals, but input expiry is checked against each original interval before merging; pane indices and retained state are keyed by interval. | Reconcile expiry and pane state when sessions merge, then prove late bridges and checkpoint recovery on Direct and Prism before lifting the API guard. |
 | Intermediate session watermarks | A pinned Prism case splits a session that Direct merges. | Runner agreement is unproved for this schedule. |
 | Three-input bounded sessions | A pinned Prism case splits a connected session that Direct merges. | Independent-source session resolution. |
 | Coverage after session work | The unchanged core and Direct coverage floors passed. | Destructive Prism cases were excluded from that measurement. |
