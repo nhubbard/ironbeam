@@ -186,6 +186,7 @@ jobs:
           cargo test -p ironbeam-compression --all-features
           cargo test -p ironbeam-cloud-object-store --all-features
           cargo test -p ironbeam-io-jsonl --all-features
+          cargo test -p ironbeam-io-jsonl --features cloud --test cloud_streaming
           cargo test -p ironbeam-io-protobuf --all-features
           cargo test -p ironbeam-io-tfrecord --all-features
           cargo test -p ironbeam-compat --test tfrecord_wire

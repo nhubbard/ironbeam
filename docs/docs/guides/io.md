@@ -48,6 +48,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The source key identifies the graph node; the file path identifies the data. A relative path is resolved from the program's working directory.
 
+### JSONL in object storage
+
+`cloud_jsonl_streaming_uri_source` reads a JSONL object through a registered
+provider. The `cloud` feature of `ironbeam-io-jsonl` enables this source.
+`cloud_jsonl_streaming_uri_glob_source` selects matching objects in sorted key
+order when the graph is built. For example:
+
+```rust
+use ironbeam_cloud_object_store::object_stores_from_env;
+use ironbeam_core::Pipeline;
+use ironbeam_io_jsonl::cloud_jsonl_streaming_uri_source;
+
+let stores = object_stores_from_env()?;
+let pipeline = Pipeline::default();
+let values = cloud_jsonl_streaming_uri_source::<i64>(
+    &pipeline, "input", &stores, "gs://example-bucket/values.jsonl",
+)?;
+```
+
+The object-store crate needs its `gcp` feature for `gs://` URIs. The source
+hashes the object when building the graph and checks it again before emitting
+records. It streams the second read into a temporary file, then decodes lines
+as requested. Temporary disk use grows with the object size; the provider
+reader and decoder do not hold the whole object in memory. A changed object
+fails recovery. A portable worker needs access to the same provider and
+credentials as the submitting process.
+
 ## Reading TFRecord frames
 
 `tfrecord_streaming_source` reads frames incrementally and checks their length

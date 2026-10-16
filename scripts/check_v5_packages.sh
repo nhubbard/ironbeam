@@ -105,6 +105,7 @@ fi
 "$cargo_bin" test -p ironbeam-metrics
 "$cargo_bin" test -p ironbeam-direct --features metrics --test custom_metrics
 "$cargo_bin" test -p ironbeam-io-jsonl --all-features
+"$cargo_bin" test -p ironbeam-io-jsonl --features cloud --test cloud_streaming
 "$cargo_bin" test -p ironbeam-io-jsonl --features cloud --test cloud_eager
 "$cargo_bin" test -p ironbeam-io-protobuf --all-features
 "$cargo_bin" test -p ironbeam-io-tfrecord --all-features

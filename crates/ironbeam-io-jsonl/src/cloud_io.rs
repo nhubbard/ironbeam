@@ -11,6 +11,9 @@ use sha2::{Digest, Sha256};
 use std::io::BufRead;
 use std::{fmt::Write as _, sync::Arc};
 
+mod streaming;
+pub use streaming::{cloud_jsonl_streaming_uri_glob_source, cloud_jsonl_streaming_uri_source};
+
 fn cloud_error(key: &str, error: impl std::fmt::Display) -> Error {
     Error::io(key, "cloud", error.to_string())
 }
