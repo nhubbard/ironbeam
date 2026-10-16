@@ -87,16 +87,19 @@ position, including when the previous run completed. The callback must
 therefore tolerate duplicate calls. A Direct job using this source requires
 `JobConfig::checkpoint` with `interval_batches: 1`.
 
-A portable worker records the source position with any sink finalizers. The
-runner then calls Beam's `FinalizeBundle` after accepting the bundle; sink
-finalizers run before the source callback. Supervised workers require a
-durable file or object journal so a replacement child can recover the
-callback. Bundle finalization is best effort: if the callback is lost, the
-external source must be able to redeliver the record, even when its reader is
-reopened at the saved cursor. A provider should acknowledge a delivery ID,
-not merely mark a message ID as seen. Ironbeam does not yet include a
-Pub/Sub pipeline source; the [GCP guide](gcp.md#pubsub) describes the
-separate client.
+A portable worker records the source position for Beam's `FinalizeBundle`.
+The runner calls it after committing that bundle's output. When a source and
+sink share a bundle, Ironbeam runs its sink finalizers before the source
+callback. A shuffle or other stage boundary can place the downstream sink in
+a later bundle, so source finalization does not wait for that sink's commit.
+The runner must retain the committed output for downstream retries.
+Supervised workers require a durable file or object journal so a replacement
+child can recover the callback. Bundle finalization is best effort: if the
+callback is lost, the external source must be able to redeliver the record,
+even when its reader is reopened at the saved cursor. A provider should
+acknowledge a delivery ID, not merely mark a message ID as seen. Ironbeam does
+not yet include a Pub/Sub pipeline source; the [GCP guide](gcp.md#pubsub)
+describes the separate client.
 
 ## Runner boundaries
 

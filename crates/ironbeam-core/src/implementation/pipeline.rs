@@ -475,7 +475,9 @@ impl Pipeline {
     /// position on restart, so the callback must be idempotent. The source
     /// must redeliver unacknowledged records even when reopened at that saved
     /// position. Portable workers invoke the callback from Beam's
-    /// `FinalizeBundle`; supervised workers require a durable journal.
+    /// `FinalizeBundle` after the runner commits that source bundle's output.
+    /// A downstream stage may still be running. Supervised workers require a
+    /// durable journal.
     ///
     /// # Errors
     /// Returns an error for missing replay support or an invalid source digest.
