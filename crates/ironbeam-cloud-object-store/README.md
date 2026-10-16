@@ -24,9 +24,11 @@ first use and cached. `RemoteObjectIO::new`
 accepts any `object_store` client factory, including local emulators and
 custom S3-compatible endpoints.
 
-This is a bounded object interface. Reads, writes, and cross-bucket copies
-buffer a complete object in memory. The v5 JSONL graph adapters still commit a
-whole final result, so they are not yet safe as independently committed output
-bundles on remote Fn API workers. Hosted-provider credentials and live service
-behavior require separate integration tests; the package's local tests use
-Apache `object_store`'s in-memory implementation.
+`read`, `write`, and cross-bucket copies buffer a complete object in memory.
+`ObjectIO::open_object` streams reads, and
+`ObjectIO::put_object_if_absent_from` streams a conditional write through a
+temporary object. The latter copies to the final name only when that name is
+absent. A process lost before cleanup may leave a temporary object under
+`__ironbeam_uploads/`; it cannot expose a partial final result. Hosted-provider
+credentials and live service behavior require separate integration tests; the
+package's local tests use Apache `object_store`'s in-memory implementation.

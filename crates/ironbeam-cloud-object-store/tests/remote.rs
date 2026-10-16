@@ -98,6 +98,118 @@ fn sequential_remote_read_survives_provider_drop_and_short_reads() {
 }
 
 #[test]
+fn streaming_conditional_create_bounds_upload_and_preserves_existing_object() {
+    let memory = Arc::new(InMemory::new());
+    let store = Arc::clone(&memory);
+    let adapter =
+        RemoteObjectIO::new(move |_| Ok(Arc::clone(&store) as Arc<dyn ObjectStore>)).unwrap();
+    let bytes = vec![0x5a; 6 * 1024 * 1024 + 17];
+    adapter
+        .put_object_if_absent_from("bucket", "results/final.bin", &mut bytes.as_slice())
+        .unwrap();
+    assert_eq!(
+        adapter.get_object("bucket", "results/final.bin").unwrap(),
+        bytes
+    );
+    adapter
+        .put_object_if_absent_from("bucket", "results/empty.bin", &mut b"".as_slice())
+        .unwrap();
+    assert_eq!(
+        adapter.get_object("bucket", "results/empty.bin").unwrap(),
+        Vec::<u8>::new()
+    );
+    assert_eq!(
+        adapter
+            .put_object_if_absent_from("bucket", "results/final.bin", &mut b"changed".as_slice())
+            .unwrap_err()
+            .kind,
+        ErrorKind::AlreadyExists,
+    );
+    assert_eq!(
+        adapter.get_object("bucket", "results/final.bin").unwrap(),
+        bytes
+    );
+    assert!(
+        adapter
+            .list_objects("bucket", Some("__ironbeam_uploads/"))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn streaming_conditional_create_aborts_after_reader_failure() {
+    struct FailingReader(usize);
+    impl Read for FailingReader {
+        fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+            if self.0 == 0 {
+                return Err(std::io::Error::other("injected reader failure"));
+            }
+            let count = output.len().min(self.0);
+            output[..count].fill(7);
+            self.0 -= count;
+            Ok(count)
+        }
+    }
+    let memory = Arc::new(InMemory::new());
+    let store = Arc::clone(&memory);
+    let adapter =
+        RemoteObjectIO::new(move |_| Ok(Arc::clone(&store) as Arc<dyn ObjectStore>)).unwrap();
+    let error = adapter
+        .put_object_if_absent_from(
+            "bucket",
+            "results/incomplete.bin",
+            &mut FailingReader(6 * 1024 * 1024),
+        )
+        .unwrap_err();
+    assert!(error.message.contains("injected reader failure"));
+    assert!(
+        !adapter
+            .object_exists("bucket", "results/incomplete.bin")
+            .unwrap()
+    );
+    assert!(
+        adapter
+            .list_objects("bucket", Some("__ironbeam_uploads/"))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn concurrent_streaming_creates_publish_one_complete_object() {
+    let memory = Arc::new(InMemory::new());
+    let store = Arc::clone(&memory);
+    let adapter = Arc::new(
+        RemoteObjectIO::new(move |_| Ok(Arc::clone(&store) as Arc<dyn ObjectStore>)).unwrap(),
+    );
+    let gate = Arc::new(std::sync::Barrier::new(2));
+    let workers = [0x11_u8, 0x22_u8].map(|byte| {
+        let adapter = Arc::clone(&adapter);
+        let gate = Arc::clone(&gate);
+        std::thread::spawn(move || {
+            let bytes = vec![byte; 6 * 1024 * 1024];
+            gate.wait();
+            adapter.put_object_if_absent_from("bucket", "results/raced.bin", &mut bytes.as_slice())
+        })
+    });
+    let outcomes = workers.map(|worker| worker.join().unwrap());
+    assert_eq!(outcomes.iter().filter(|outcome| outcome.is_ok()).count(), 1);
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| outcome
+                .as_ref()
+                .is_err_and(|error| error.kind == ErrorKind::AlreadyExists))
+            .count(),
+        1
+    );
+    let published = adapter.get_object("bucket", "results/raced.bin").unwrap();
+    assert_eq!(published.len(), 6 * 1024 * 1024);
+    assert!(published.iter().all(|byte| *byte == published[0]));
+}
+
+#[test]
 fn environment_router_registers_each_enabled_provider_lazily() {
     let stores = object_stores_from_env().unwrap();
     assert_eq!(stores.provider("s3").is_ok(), cfg!(feature = "aws"));

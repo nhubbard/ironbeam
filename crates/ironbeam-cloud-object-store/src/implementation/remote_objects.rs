@@ -204,7 +204,7 @@ impl RemoteObjectIO {
 }
 
 #[allow(clippy::needless_pass_by_value)] // map_err passes the owned provider error.
-fn store_error(error: object_store::Error) -> CloudIOError {
+pub(super) fn store_error(error: object_store::Error) -> CloudIOError {
     let kind = match error {
         object_store::Error::NotFound { .. } => ErrorKind::NotFound,
         object_store::Error::AlreadyExists { .. } => ErrorKind::AlreadyExists,
@@ -247,6 +247,16 @@ impl ObjectIO for RemoteObjectIO {
                 .await
                 .map(|_| ())
         })
+    }
+
+    fn put_object_if_absent_from(
+        &self,
+        bucket: &str,
+        key: &str,
+        reader: &mut dyn Read,
+    ) -> CloudResult<()> {
+        let store = self.store(bucket)?;
+        super::stream_upload::conditional_create_from(store, &self.runtime, key, reader)
     }
 
     fn get_object(&self, bucket: &str, key: &str) -> CloudResult<Vec<u8>> {

@@ -2817,6 +2817,7 @@ dependencies = [
  "ironbeam-cloud-objects",
  "object_store",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
