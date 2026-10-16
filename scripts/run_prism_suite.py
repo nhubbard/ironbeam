@@ -21,6 +21,11 @@ EXCLUDED = {
     # The workflow repeats this residual-scheduling case eight times first.
     "prism_runs_production_unbounded_source_with_residual_resume",
 }
+RESTART_AFTER = {
+    # This case deliberately starts a worker with a different execution
+    # identity. Subsequent open-main watermark checks need a fresh service.
+    "prism_rejects_worker_semantic_version_drift",
+}
 
 
 def test_binary() -> Path:
@@ -57,7 +62,7 @@ def suite_names(binary: Path) -> list[str]:
         for line in ignored_output.stdout.splitlines()
         if line.endswith(": test")
     }
-    if len(names) != len(set(names)) or not EXCLUDED.issubset(names):
+    if len(names) != len(set(names)) or not (EXCLUDED | RESTART_AFTER).issubset(names):
         raise RuntimeError("Prism fixture listing has duplicate or missing expected test names")
     if not ignored.issubset(names):
         raise RuntimeError("ignored Prism fixtures are missing from the full listing")
@@ -115,12 +120,14 @@ def run_suite(prism: Path, pid_file: Path, log_dir: Path, port: int, shard_size:
     stop_prior(pid_file, port)
     shard = 0
     log_path: Path | None = None
+    restart_next = False
     for number, name in enumerate(names):
-        if number % shard_size == 0:
+        if number % shard_size == 0 or restart_next:
             if log_path is not None:
                 stop_prior(pid_file, port)
             shard += 1
             log_path = start_prism(prism, pid_file, log_dir, port, shard)
+            restart_next = False
         command = [str(binary), name, "--exact", "--test-threads=1"]
         result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if result.returncode and log_path is not None and PANIC in log_path.read_text(errors="replace"):
@@ -135,6 +142,7 @@ def run_suite(prism: Path, pid_file: Path, log_dir: Path, port: int, shard_size:
                 print(log_path.read_text(errors="replace"), file=sys.stderr)
             raise RuntimeError(f"Prism fixture failed: {name}")
         print(f"[{number + 1}/{len(names)}] {name}: ok", flush=True)
+        restart_next = name in RESTART_AFTER
     print(f"All {len(names)} listed nondestructive Prism fixtures passed", flush=True)
 
 

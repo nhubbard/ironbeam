@@ -108,7 +108,8 @@ pub(crate) fn start_multi_wait_stream_sink<T: Element>(
     } else {
         (0, vec![None; route.sources.len()], WindowRows::new(), 0)
     };
-    let handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
+    #[allow(unused_mut)]
+    let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
     #[cfg(feature = "metrics")]
     {
         handle

@@ -76,8 +76,9 @@ use ironbeam_prism_proof::{
     dual_unbounded_session_cogroup_collection, dual_unbounded_session_cogroup_fixture,
     dual_unbounded_session_join_collection, dual_unbounded_session_join_fixture,
     early_multi_windowed_wait_fixture, early_sliding_windowed_wait_fixture,
-    early_windowed_wait_fixture, explicit_custom_batches_fixture, failing_wait_on_fixture,
-    finalization_failure_fixture, finalization_probe_sink, finalization_probe_store,
+    early_value_windowed_wait_fixture, early_windowed_wait_fixture,
+    explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
+    finalization_probe_sink, finalization_probe_store,
     global_accumulating_early_cogroup_collection, global_accumulating_early_cogroup_fixture,
     global_count_collection, global_count_fixture, global_count_output_time_fixture,
     global_fold_fixture, global_group_output_time_fixture, global_keyed_batches_fixture,
@@ -5532,6 +5533,21 @@ async fn prism_releases_windowed_wait_while_main_source_remains_open() {
         "early-fixed-wait",
         "IRONBEAM_V5_PRISM_EARLY_WINDOWED_WAIT",
         early_windowed_wait_fixture,
+        &["0..10000000:7"],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prism_releases_value_signal_wait_while_main_source_remains_open() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    run_open_sink_fixture(
+        &endpoint,
+        "early-value-signal-wait",
+        "IRONBEAM_V5_PRISM_EARLY_VALUE_WINDOWED_WAIT",
+        early_value_windowed_wait_fixture,
         &["0..10000000:7"],
     )
     .await;

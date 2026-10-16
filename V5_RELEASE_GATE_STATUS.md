@@ -339,6 +339,15 @@ also commits the row while its main source remains open. Shared-source
 branches retain the keyed co-group route; broader trigger, lateness, and
 sliding-window partial-watermark schedules remain open.
 
+A local Prism probe of two signal branches from the same source did not
+release the main value while the main source stayed open when the signal
+source emitted a value before completing. The otherwise identical empty
+shared signal released, as did a single value-bearing signal. Direct released
+the shared value-bearing case. The shared-source early route was not enabled;
+the co-group fallback remains the supported behavior until this runner
+discrepancy is resolved. A passing pinned-Prism fixture now keeps the
+value-bearing single-signal case under test.
+
 ### Timer callback boundary
 
 The pinned Beam proto and Python worker were checked for the timer work. A

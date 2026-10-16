@@ -92,6 +92,55 @@ fn independent_unbounded_signals_use_a_window_barrier() {
 }
 
 #[test]
+fn windowed_wait_uses_the_barrier_only_for_linear_signal_branches() {
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .test_stream_source::<i32>("linear-main", vec![TestStreamEvent::AdvanceWatermark(10)])
+        .unwrap()
+        .fixed_windows("linear-main-window", 10)
+        .unwrap();
+    let signal = pipeline
+        .test_stream_source::<i32>("linear-signal", vec![TestStreamEvent::AdvanceWatermark(10)])
+        .unwrap()
+        .assign_timestamps_named("linear-time", |value| i64::from(*value))
+        .unwrap()
+        .map_named("linear-map", |value| value + 1)
+        .unwrap()
+        .filter_named("linear-filter", |value| *value > 0)
+        .unwrap()
+        .flat_map_named("linear-flat-map", |value| vec![value])
+        .unwrap()
+        .fixed_windows("linear-signal-window", 10)
+        .unwrap();
+    let other = pipeline
+        .test_stream_source::<i32>("linear-other", vec![TestStreamEvent::AdvanceWatermark(10)])
+        .unwrap()
+        .fixed_windows("linear-other-window", 10)
+        .unwrap();
+    main.wait_on_all_windowed_named("linear-wait", &[signal.clone(), other.clone()])
+        .unwrap();
+    let reshuffled = signal.reshuffle_named("nonlinear-reshuffle").unwrap();
+    main.wait_on_all_windowed_named("reshuffle-wait", &[reshuffled, other.clone()])
+        .unwrap();
+    let merged = signal.flatten_named("nonlinear-signal", &[other]).unwrap();
+    main.wait_on_all_windowed_named("nonlinear-wait", &[signal, merged])
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert!(matches!(
+        graph.node("linear-wait").unwrap().operation,
+        Operation::WaitOnWindowed
+    ));
+    assert!(matches!(
+        graph.node("reshuffle-wait/group/group").unwrap().operation,
+        Operation::GroupByKey
+    ));
+    assert!(matches!(
+        graph.node("nonlinear-wait/group/group").unwrap().operation,
+        Operation::GroupByKey
+    ));
+}
+
+#[test]
 fn heterogeneous_windowed_signals_build_one_group_boundary() {
     let pipeline = Pipeline::default();
     let main = pipeline

@@ -261,7 +261,7 @@ pub fn early_windowed_wait_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    early_windowed_wait_fixture_for(pipeline, path, false, false)
+    early_windowed_wait_fixture_for(pipeline, path, false, false, false)
 }
 
 /// Keep the main source open while a completed signal closes two overlapping
@@ -270,7 +270,7 @@ pub fn early_sliding_windowed_wait_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    early_windowed_wait_fixture_for(pipeline, path, true, false)
+    early_windowed_wait_fixture_for(pipeline, path, true, false, false)
 }
 
 /// Keep the main source open until two independent signal watermarks close its window.
@@ -278,7 +278,15 @@ pub fn early_multi_windowed_wait_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    early_windowed_wait_fixture_for(pipeline, path, false, true)
+    early_windowed_wait_fixture_for(pipeline, path, false, true, false)
+}
+
+/// Keep the main source open while a signal emits a value and completes.
+pub fn early_value_windowed_wait_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    early_windowed_wait_fixture_for(pipeline, path, false, false, true)
 }
 
 fn early_windowed_wait_fixture_for(
@@ -286,6 +294,7 @@ fn early_windowed_wait_fixture_for(
     path: PathBuf,
     sliding: bool,
     multi: bool,
+    signal_value: bool,
 ) -> Result<Sink<String>, Error> {
     let main_timestamp = if sliding { 7_000_000 } else { 1_000_000 };
     let main = pipeline
@@ -337,7 +346,14 @@ fn early_windowed_wait_fixture_for(
             move |cursor| {
                 let batch = match cursor.as_deref() {
                     None => Some(UnboundedBatch {
-                        elements: Vec::new(),
+                        elements: if signal_value {
+                            vec![Timestamped {
+                                value: 99,
+                                timestamp_ns: 1_000_000,
+                            }]
+                        } else {
+                            Vec::new()
+                        },
                         progress: ProgressSignal {
                             source_key: "early-wait-signal".into(),
                             split_id: "signal-split".into(),
