@@ -115,22 +115,23 @@ use ironbeam_prism_proof::{
     shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
     side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
     sliding_window_group_fixture, streaming_count_per_element_fixture,
-    streaming_distinct_window_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_partition_fixture,
-    streaming_representative_distinct_fixture, streaming_session_expiry_fixture,
-    streaming_session_group_fixture, streaming_session_output_time_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
-    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
-    timed_late_keyed_batches_fixture, triple_stream_windowed_wait_collection,
-    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_collection,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
-    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
-    triple_unbounded_session_homogeneous_fixture, triple_unbounded_session_output_time_fixture,
-    unbounded_main_bounded_wait_fixture, unbounded_main_grouped_wait_fixture,
-    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
-    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
-    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
-    PRODUCTION_AVRO_SCHEMA,
+    streaming_distinct_window_fixture, streaming_dual_session_lateness_fixture,
+    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_partition_fixture, streaming_representative_distinct_fixture,
+    streaming_session_expiry_fixture, streaming_session_group_fixture,
+    streaming_session_late_bridge_fixture, streaming_session_lateness_fixture,
+    streaming_session_output_time_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
+    timed_keyed_batches_fixture, timed_late_keyed_batches_fixture,
+    triple_stream_windowed_wait_collection, triple_stream_windowed_wait_fixture,
+    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
+    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
+    triple_unbounded_session_output_time_fixture, unbounded_main_bounded_wait_fixture,
+    unbounded_main_grouped_wait_fixture, validation_fail_fixture, validation_skip_fixture,
+    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
+    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -10109,6 +10110,136 @@ async fn prism_matches_direct_live_session_after_original_expiry() {
     )
     .await;
     assert_eq!(terminal.0, 3, "Prism session expiry state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_session_allowed_lateness() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-session-late");
+    let portable_path = directory.path().join("portable-session-late");
+    let direct = Pipeline::default();
+    let sink = streaming_session_lateness_fixture(&direct, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let direct_rows = read_rows(&direct_path);
+    assert_eq!(direct_rows.len(), 3);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    streaming_session_lateness_fixture(&portable, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "stream-session-lateness",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAM_SESSION_LATENESS".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism session lateness state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_two_source_session_allowed_lateness() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-dual-session-late");
+    let portable_path = directory.path().join("portable-dual-session-late");
+    let direct = Pipeline::default();
+    let sink = streaming_dual_session_lateness_fixture(&direct, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let direct_rows = read_rows(&direct_path);
+    assert_eq!(direct_rows.len(), 3);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    streaming_dual_session_lateness_fixture(&portable, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "dual-session-lateness",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_DUAL_SESSION_LATENESS".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism dual session lateness state: {terminal:?}"
+    );
+    assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+#[ignore = "pinned Prism omits the already closed interval from a late session bridge and reports Early instead of OnTime"]
+async fn prism_matches_direct_session_late_bridge_after_first_firing() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-session-bridge");
+    let portable_path = directory.path().join("portable-session-bridge");
+    let direct = Pipeline::default();
+    let sink = streaming_session_late_bridge_fixture(&direct, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let direct_rows = read_rows(&direct_path);
+    assert_eq!(direct_rows.len(), 2);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    streaming_session_late_bridge_fixture(&portable, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "session-late-bridge",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_SESSION_LATE_BRIDGE".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism session bridge state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct_rows);
 }
 

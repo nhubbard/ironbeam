@@ -334,6 +334,85 @@ fn multi_source_group_retains_late_rows_until_expiry() {
 }
 
 #[test]
+fn two_source_session_lateness_keeps_late_and_open_panes_separate() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let make = |name: &str, events| {
+        pipeline
+            .test_stream_source(name, events)
+            .unwrap()
+            .session_windows_named(&format!("{name}-session"), 5_000_000)
+            .unwrap()
+            .allowed_lateness_named(&format!("{name}-lateness"), 10_000_000)
+            .unwrap()
+    };
+    let first = make(
+        "first",
+        vec![
+            TestStreamEvent::Elements(vec![((1_i32, 10_i32), 0)]),
+            TestStreamEvent::AdvanceWatermark(5_000_000),
+            TestStreamEvent::Elements(vec![((1, 30), 0)]),
+            TestStreamEvent::AdvanceWatermark(25_000_000),
+        ],
+    );
+    let second = make(
+        "second",
+        vec![
+            TestStreamEvent::Elements(vec![((1_i32, 20_i32), 20_000_000)]),
+            TestStreamEvent::AdvanceWatermark(5_000_000),
+            TestStreamEvent::AdvanceWatermark(25_000_000),
+        ],
+    );
+    let sink = first
+        .co_group_homogeneous_named("group", &[second])
+        .unwrap()
+        .with_window_named("bounds")
+        .unwrap()
+        .map_named("format", |(window, (key, buckets))| {
+            format!("{key}:{}:{}:{buckets:?}", window.start_ns, window.end_ns)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "two-source-session-late-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        staged: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort();
+    assert_eq!(
+        rows,
+        [
+            "1:0:5000000:[[10], []]",
+            "1:0:5000000:[[30], []]",
+            "1:20000000:25000000:[[], [20]]",
+        ]
+    );
+}
+
+#[test]
 fn multi_source_late_count_waits_for_threshold_and_flushes_at_expiry() {
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));

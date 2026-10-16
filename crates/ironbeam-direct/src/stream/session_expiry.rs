@@ -4,6 +4,8 @@ use super::{GroupedStreamRoute, WindowFolds};
 use ironbeam_core::{Envelope, Error, FoldSession, Window, WindowInterval};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+pub(super) const SESSION_SCOPE: (i64, i64) = (i64::MIN, i64::MAX);
+
 pub(super) fn resolved_group_interval(
     route: &GroupedStreamRoute,
     folds: &WindowFolds,
@@ -13,7 +15,7 @@ pub(super) fn resolved_group_interval(
     if !matches!(route.window, Window::Session { .. }) {
         return Ok(assigned);
     }
-    let Some((fold, _)) = folds.get(&(i64::MIN, i64::MAX)) else {
+    let Some((fold, _)) = folds.get(&SESSION_SCOPE) else {
         return Ok(assigned);
     };
     // Beam merges an incoming window with active keyed sessions first, then

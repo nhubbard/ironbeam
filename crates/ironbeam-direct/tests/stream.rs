@@ -413,6 +413,65 @@ fn live_merged_session_accepts_a_bridge_past_its_original_expiry() {
 }
 
 #[test]
+fn session_lateness_keeps_late_and_distant_panes_separate() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "events",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 0), ((1, 20), 20_000_000)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+                TestStreamEvent::Elements(vec![((1, 30), 0)]),
+                TestStreamEvent::AdvanceWatermark(25_000_000),
+            ],
+        )
+        .unwrap()
+        .session_windows_named("sessions", 5_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 10_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .with_window_named("bounds")
+        .unwrap()
+        .map_named("score", |(window, (_, values))| {
+            i32::try_from(window.start_ns / 1_000_000).unwrap() * 1_000
+                + i32::try_from(window.end_ns / 1_000_000).unwrap() * 10
+                + values.iter().sum::<i32>()
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "session-lateness-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        staged: Vec::new(),
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut actual = committed.lock().unwrap().clone();
+    actual.sort_unstable();
+    assert_eq!(actual, [60, 80, 20_270]);
+}
+
+#[test]
 fn unbounded_session_bridge_merges_after_checkpoint_restart() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let opens = Arc::new(Mutex::new(Vec::new()));

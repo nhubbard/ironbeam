@@ -359,8 +359,9 @@ open-window rows with each source cursor.
 ## Keyed sessions
 
 A session starts with an event and extends for a chosen inactivity gap. Two
-sessions for the same key merge when their intervals overlap or touch on Direct
-and the pinned local Prism runner. A later
+sessions for the same key merge when their intervals overlap. Direct keeps
+intervals that only touch separate; pinned local Prism has merged such a pair
+in one test. A later
 event can bridge sessions that were separate when they first arrived. Sessions
 for different keys remain separate.
 
@@ -398,10 +399,16 @@ including after a checkpoint restore. In the pinned local Prism comparison,
 Direct groups values `[1, 2, 3]` into `[0, 9_000_000)` ns after a six-millisecond
 watermark. Prism instead emits `[1]` in `[0, 5_000_000)` ns and `[2, 3]` in
 `[0, 9_000_000)` ns. The comparison remains an ignored diagnostic test while
-this portable mismatch is unresolved. Bounded session joins and co-groups
-merge intervals across their inputs before matching keyed values. Direct and
-local Prism agree when another input bridges two sessions;
-Direct also checks inner, left, right, and full join results. A three-input
+this portable mismatch is unresolved. Positive allowed lateness works for
+tested one- and two-source session groups. In those fixtures, both runners
+emit the same late pane metadata. A late bridge after a closed session has
+already fired still differs: Direct includes the closed interval in the new
+window, while pinned Prism omits it.
+
+Bounded session joins and co-groups merge intervals across their inputs
+before matching keyed values. Direct and local Prism agree when another input
+bridges two sessions; Direct also checks inner, left, right, and full join
+results. A three-input
 co-group fixture verifies an empty side and an isolated session on both
 runners. For two unbounded inputs, session joins and co-groups wait for both
 source watermarks before closing a keyed session. Direct and local Prism agree

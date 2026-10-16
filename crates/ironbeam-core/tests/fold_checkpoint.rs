@@ -424,8 +424,7 @@ fn closed_session_lineage_survives_checkpoint_for_late_bridge() {
         .group_by_key_named("group")
         .unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
-    // The graph guard remains until runner semantics are complete. Exercise
-    // the fold's session state through a configured positive-lateness fold.
+    // Exercise the fold's session state through a configured positive-lateness fold.
     let window = Window::Session { gap_ns: 5_000_000 };
     let event = |time, value| Envelope {
         pane: ironbeam_core::PaneInfo::NO_FIRING,
@@ -470,7 +469,8 @@ fn closed_session_lineage_survives_checkpoint_for_late_bridge() {
     assert_eq!(late.len(), 1);
     assert_eq!(late[0].assigned_window.unwrap().start_ns, 0);
     assert_eq!(late[0].pane.timing, PaneTiming::Late);
-    assert_eq!(late[0].pane.index, 1);
+    assert_eq!(late[0].pane.index, 0);
+    assert!(late[0].pane.is_first);
     assert!(resumed.drain_closed(19_000_000).unwrap().0.is_empty());
     assert_eq!(
         resumed.resolved_interval(&event(4_000_000, 4)).unwrap(),
@@ -517,6 +517,8 @@ fn closed_session_does_not_suppress_open_session_after_bridge_restore() {
     let (closed, released) = resumed.drain_closed(13_000_000).unwrap();
     assert_eq!(released, 2);
     assert_eq!(closed.len(), 1);
+    assert_eq!(closed[0].pane.index, 0);
+    assert!(closed[0].pane.is_first);
     assert_eq!(
         closed[0].assigned_window,
         Some(WindowInterval {

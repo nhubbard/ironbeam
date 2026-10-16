@@ -341,49 +341,18 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
             }
         });
         active.push(interval);
-        let absorbed_closed = absorbed.iter().any(|prior| {
-            self.nonspeculative_base.contains_key(&(key.clone(), *prior))
-        });
         for prior in absorbed {
             if prior == interval {
                 continue;
             }
             let old = (key.clone(), prior);
-            let new = (key.clone(), interval);
-            if let Some(index) = self.fired_panes.remove(&old) {
-                self.fired_panes
-                    .entry(new.clone())
-                    .and_modify(|next| *next = (*next).max(index))
-                    .or_insert(index);
-            }
-            if let Some(base) = self.nonspeculative_base.remove(&old) {
-                self.nonspeculative_base
-                    .entry(new.clone())
-                    .and_modify(|current| *current = (*current).min(base))
-                    .or_insert(base);
-            }
-            if let Some(count) = self.fired_value_counts.remove(&old) {
-                self.fired_value_counts
-                    .entry(new.clone())
-                    .and_modify(|current| *current = current.saturating_add(count))
-                    .or_insert(count);
-            }
-            if let Some(deadline) = self.processing_deadlines.remove(&old) {
-                self.processing_deadlines
-                    .entry(new.clone())
-                    .and_modify(|current| *current = (*current).min(deadline))
-                    .or_insert(deadline);
-            }
-            if self.processing_ready.remove(&old) {
-                self.processing_ready.insert(new);
-            }
-        }
-        if absorbed_closed
-            && self
-                .last_watermark_ns
-                .is_some_and(|watermark| interval.end_ns > watermark)
-        {
-            self.nonspeculative_base.remove(&(key.clone(), interval));
+            // A new merge result has its own pane history. Only an existing
+            // result window keeps the pane state already stored under it.
+            self.fired_panes.remove(&old);
+            self.nonspeculative_base.remove(&old);
+            self.fired_value_counts.remove(&old);
+            self.processing_deadlines.remove(&old);
+            self.processing_ready.remove(&old);
         }
         interval
     }

@@ -473,9 +473,9 @@ fn grouped_start_rejects_combined_count_and_late_count_without_lateness() {
 }
 
 #[test]
-fn grouped_session_lateness_is_rejected_at_graph_construction() {
+fn grouped_session_lateness_has_a_valid_graph_contract() {
     let pipeline = Pipeline::default();
-    let error = pipeline
+    let late = pipeline
         .test_stream_source(
             "first",
             vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)])],
@@ -484,10 +484,136 @@ fn grouped_session_lateness_is_rejected_at_graph_construction() {
         .session_windows_named("first-sessions", 5_000_000)
         .unwrap()
         .allowed_lateness_named("first-lateness", 5_000_000)
-        .err()
         .unwrap();
-    assert_eq!(error.kind, ErrorKind::Graph);
-    assert!(error.message.contains("fixed or sliding windows"));
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node(late.key()).unwrap().time.allowed_lateness_ns,
+        5_000_000
+    );
+}
+
+#[test]
+fn multi_source_session_late_state_restores_closed_and_open_bridge() {
+    let (_, registry, _, mut route, _) = fixture();
+    route.window = Window::Session { gap_ns: 5_000_000 };
+    let window = route.window.clone();
+    let event = |time, tag, value| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, (tag, value))),
+        timestamp_ns: time,
+        window: window.clone(),
+        assigned_window: window.assign(time).unwrap(),
+    };
+    let progress = |watermark| ProgressSignal {
+        source_key: MULTI_SOURCE_KEY.into(),
+        split_id: "test".into(),
+        checkpoint_position: None,
+        event_time_ns: Some(watermark),
+        completed: false,
+    };
+    let mut state = MultiWindowState::empty(5_000_000);
+    state
+        .add(&registry, &route, event(0, 0_u32, 10), None, 100)
+        .unwrap();
+    state
+        .add(&registry, &route, event(8_000_000, 1_u32, 20), None, 100)
+        .unwrap();
+    assert_eq!(
+        state
+            .drain(&registry, &route, None, &progress(5_000_000))
+            .unwrap()
+            .len(),
+        1
+    );
+    let saved = state.encode(&registry, &route, 4096).unwrap();
+    let mut resumed =
+        MultiWindowState::restore(&registry, &route, &saved, 2, 5_000_000, 100).unwrap();
+    resumed
+        .add(
+            &registry,
+            &route,
+            event(4_000_000, 0_u32, 30),
+            Some(5_000_000),
+            100,
+        )
+        .unwrap();
+    assert!(
+        resumed
+            .drain(&registry, &route, Some(5_000_000), &progress(5_000_000))
+            .unwrap()
+            .is_empty()
+    );
+    let closed = resumed
+        .drain(&registry, &route, Some(5_000_000), &progress(13_000_000))
+        .unwrap();
+    assert_eq!(closed.len(), 1);
+    assert_eq!(
+        closed[0].assigned_window,
+        Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 13_000_000
+        })
+    );
+    let (_, mut values) = *closed
+        .into_iter()
+        .next()
+        .unwrap()
+        .value
+        .downcast::<(i32, Vec<(u32, i32)>)>()
+        .unwrap();
+    values.sort_unstable();
+    assert_eq!(values, [(0, 30), (1, 20)]);
+}
+
+#[test]
+fn multi_source_late_session_keeps_distant_window_open() {
+    let (_, registry, _, mut route, _) = fixture();
+    route.window = Window::Session { gap_ns: 5_000_000 };
+    let window = route.window.clone();
+    let event = |time, tag, value| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, (tag, value))),
+        timestamp_ns: time,
+        window: window.clone(),
+        assigned_window: window.assign(time).unwrap(),
+    };
+    let progress = |watermark| ProgressSignal {
+        source_key: MULTI_SOURCE_KEY.into(),
+        split_id: "test".into(),
+        checkpoint_position: None,
+        event_time_ns: Some(watermark),
+        completed: false,
+    };
+    let mut state = MultiWindowState::empty(5_000_000);
+    state
+        .add(&registry, &route, event(0, 0_u32, 10), None, 100)
+        .unwrap();
+    state
+        .add(&registry, &route, event(20_000_000, 1_u32, 20), None, 100)
+        .unwrap();
+    assert_eq!(
+        state
+            .drain(&registry, &route, None, &progress(5_000_000))
+            .unwrap()
+            .len(),
+        1
+    );
+    let saved = state.encode(&registry, &route, 4096).unwrap();
+    let mut resumed =
+        MultiWindowState::restore(&registry, &route, &saved, 2, 5_000_000, 100).unwrap();
+    resumed
+        .add(&registry, &route, event(0, 0_u32, 30), Some(5_000_000), 100)
+        .unwrap();
+    let late = resumed
+        .drain(&registry, &route, Some(5_000_000), &progress(5_000_000))
+        .unwrap();
+    assert_eq!(late.len(), 1);
+    assert_eq!(late[0].pane.timing, ironbeam_core::PaneTiming::Late);
+    let open = resumed
+        .drain(&registry, &route, Some(5_000_000), &progress(25_000_000))
+        .unwrap();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].assigned_window.unwrap().start_ns, 20_000_000);
 }
 
 #[test]

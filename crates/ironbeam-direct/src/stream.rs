@@ -2085,7 +2085,7 @@ fn run_grouped_stream(
                 // single fold owns every open session so it can see both sides
                 // of a bridge, even when their original intervals differ.
                 let scope = if matches!(route.window, Window::Session { .. }) {
-                    (i64::MIN, i64::MAX)
+                    session_expiry::SESSION_SCOPE
                 } else {
                     (interval.start_ns, interval.end_ns)
                 };

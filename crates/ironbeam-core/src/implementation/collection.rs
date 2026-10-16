@@ -884,17 +884,18 @@ impl<T: Element> PCollection<T> {
         )
     }
 
-    /// Retain fixed or sliding windows after their end for late elements.
+    /// Retain finite windows after their end for late elements.
     /// The duration must be a nonnegative whole number of milliseconds.
     /// Direct and portable runners emit default-trigger late panes for
-    /// single-input keyed grouping. Direct rejects unsupported stateful fan-in.
+    /// keyed grouping, including selected session schedules. Direct rejects
+    /// unsupported stateful fan-in.
     pub fn allowed_lateness_named(&self, key: &str, duration_ns: i64) -> Result<Self, Error> {
         if duration_ns < 0 || duration_ns % 1_000_000 != 0 {
             return Err(Error::graph(key, "allowed lateness must be nonnegative whole milliseconds"));
         }
         let window = self.parent()?.time.window;
-        if !window.is_millisecond_aligned_fixed_or_sliding() {
-            return Err(Error::graph(key, "allowed lateness requires millisecond-aligned fixed or sliding windows"));
+        if !window.is_millisecond_aligned_finite() {
+            return Err(Error::graph(key, "allowed lateness requires a millisecond-aligned finite window"));
         }
         self.next_with_time_policy(
             key,

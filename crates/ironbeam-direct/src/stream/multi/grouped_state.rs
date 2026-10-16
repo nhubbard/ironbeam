@@ -283,8 +283,31 @@ impl MultiWindowState {
                 late_windows,
                 allowed_lateness_ns,
             } => {
+                let session = matches!(route.window, Window::Session { .. });
+                let scope = if session {
+                    super::super::session_expiry::SESSION_SCOPE
+                } else {
+                    window
+                };
+                let resolved_end = if session {
+                    folds.get(&scope).map_or(Ok(window.1), |(fold, _)| {
+                        catch_group_user(&route.group_key, "session resolution panicked", || {
+                            fold.resolved_interval(&event)?
+                                .map(|interval| interval.end_ns)
+                                .ok_or_else(|| {
+                                    Error::execution(
+                                        &route.group_key,
+                                        "direct",
+                                        "session interval missing",
+                                    )
+                                })
+                        })
+                    })?
+                } else {
+                    window.1
+                };
                 if prior_watermark.is_some_and(|watermark| {
-                    window.1.saturating_add(*allowed_lateness_ns) <= watermark
+                    resolved_end.saturating_add(*allowed_lateness_ns) <= watermark
                 }) {
                     return Ok(());
                 }
@@ -294,10 +317,10 @@ impl MultiWindowState {
                         "stateful stream input exceeds buffer budget",
                     ));
                 }
-                if prior_watermark.is_some_and(|watermark| window.1 <= watermark) {
+                if !session && prior_watermark.is_some_and(|watermark| window.1 <= watermark) {
                     late_windows.insert(window);
                 }
-                let (fold, count) = match folds.entry(window) {
+                let (fold, count) = match folds.entry(scope) {
                     std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::btree_map::Entry::Vacant(entry) => {
                         let fold = catch_group_user(
@@ -402,6 +425,53 @@ impl MultiWindowState {
                 } else {
                     progress.event_time_ns
                 };
+                if matches!(route.window, Window::Session { .. }) {
+                    let Some(watermark) = watermark else {
+                        return Ok(Vec::new());
+                    };
+                    let scope = super::super::session_expiry::SESSION_SCOPE;
+                    if progress.completed {
+                        let Some((mut fold, count)) = folds.remove(&scope) else {
+                            return Ok(Vec::new());
+                        };
+                        let (panes, released) =
+                            catch_group_user(&route.group_key, "session fold panicked", || {
+                                super::super::session_expiry::drain_grouped_session(
+                                    fold.as_mut(),
+                                    watermark,
+                                    true,
+                                )
+                            })?;
+                        if released > count {
+                            return Err(Error::recovery(
+                                &route.group_key,
+                                "session fold released too many rows",
+                            ));
+                        }
+                        *buffered = buffered.checked_sub(count).ok_or_else(|| {
+                            Error::recovery(&route.group_key, "group buffer count underflow")
+                        })?;
+                        return Ok(panes);
+                    }
+                    let Some((fold, count)) = folds.get_mut(&scope) else {
+                        return Ok(Vec::new());
+                    };
+                    let (panes, released) =
+                        catch_group_user(&route.group_key, "session fold panicked", || {
+                            super::super::session_expiry::drain_grouped_session(
+                                fold.as_mut(),
+                                watermark,
+                                false,
+                            )
+                        })?;
+                    *count = count.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "session fold released too many rows")
+                    })?;
+                    *buffered = buffered.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    return Ok(panes);
+                }
                 let mut panes = Vec::new();
                 let closing = folds
                     .keys()

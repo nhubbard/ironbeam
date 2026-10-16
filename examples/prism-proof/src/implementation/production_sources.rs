@@ -259,6 +259,149 @@ pub fn streaming_session_expiry_fixture(
         )
 }
 
+/// Run two keyed sessions with one late pane and a separate open window.
+pub fn streaming_session_lateness_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "session-late-events",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 0), ((1, 20), 20_000_000)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+                TestStreamEvent::Elements(vec![((1, 30), 0)]),
+                TestStreamEvent::AdvanceWatermark(25_000_000),
+            ],
+        )?
+        .session_windows_named("session-late-window", 5_000_000)?
+        .allowed_lateness_named("session-late-policy", 10_000_000)?
+        .group_by_key_named("session-late-group")?
+        .reify_panes_named("session-late-pane")?
+        .with_window_named("session-late-bounds")?
+        .map_named("session-late-row", |(window, (pane, (key, mut values)))| {
+            values.sort_unstable();
+            format!(
+                "{key}|{values:?}|{}|{}|{:?}|{}|{}|{}",
+                window.start_ns,
+                window.end_ns,
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+            )
+        })?
+        .sink_named_with_config(
+            "session-late-capture",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("session-late-capture:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink {
+                directory: sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )
+}
+
+/// Co-group two independently watermarked sessions with one late input.
+pub fn streaming_dual_session_lateness_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    let make = |name: &str, events| {
+        pipeline
+            .test_stream_source(name, events)?
+            .session_windows_named(&format!("{name}-late-session"), 5_000_000)?
+            .allowed_lateness_named(&format!("{name}-late-policy"), 10_000_000)
+    };
+    let first = make(
+        "first-late-session",
+        vec![
+            TestStreamEvent::Elements(vec![((1_i32, 10_i32), 0)]),
+            TestStreamEvent::AdvanceWatermark(5_000_000),
+            TestStreamEvent::Elements(vec![((1, 30), 0)]),
+            TestStreamEvent::AdvanceWatermark(25_000_000),
+        ],
+    )?;
+    let second = make(
+        "second-late-session",
+        vec![
+            TestStreamEvent::Elements(vec![((1_i32, 20_i32), 20_000_000)]),
+            TestStreamEvent::AdvanceWatermark(5_000_000),
+            TestStreamEvent::AdvanceWatermark(25_000_000),
+        ],
+    )?;
+    first
+        .co_group_homogeneous_named("dual-late-session-group", &[second])?
+        .reify_panes_named("dual-late-session-pane")?
+        .with_window_named("dual-late-session-bounds")?
+        .map_named("dual-late-session-row", |(window, (pane, (key, buckets)))| {
+            format!(
+                "{key}|{buckets:?}|{}|{}|{:?}|{}|{}|{}",
+                window.start_ns,
+                window.end_ns,
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+            )
+        })?
+        .sink_named_with_config(
+            "dual-late-session-capture",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("dual-late-session-capture:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink {
+                directory: sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )
+}
+
+/// Merge a fired session with an open session after an intermediate watermark.
+pub fn streaming_session_late_bridge_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "session-late-bridge-events",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 0), ((1, 20), 8_000_000)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+                TestStreamEvent::Elements(vec![((1, 30), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(13_000_000),
+            ],
+        )?
+        .session_windows_named("session-late-bridge-window", 5_000_000)?
+        .allowed_lateness_named("session-late-bridge-policy", 10_000_000)?
+        .group_by_key_named("session-late-bridge-group")?
+        .reify_panes_named("session-late-bridge-pane")?
+        .with_window_named("session-late-bridge-bounds")?
+        .map_named("session-late-bridge-row", |(window, (pane, (key, mut values)))| {
+            values.sort_unstable();
+            format!(
+                "{key}|{values:?}|{}|{}|{:?}|{}|{}|{}",
+                window.start_ns,
+                window.end_ns,
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+            )
+        })?
+        .sink_named_with_config(
+            "session-late-bridge-capture",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("session-late-bridge-capture:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink {
+                directory: sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )
+}
+
 /// Compare output-time policies after a late bridge joins two open sessions.
 pub fn streaming_session_output_time_fixture(
     pipeline: &Pipeline,
