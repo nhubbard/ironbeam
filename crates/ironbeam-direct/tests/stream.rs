@@ -956,14 +956,10 @@ fn dual_join_recovers_open_window(session: bool, cogroup: bool) {
                                 .into_iter()
                                 .map(|value| Timestamped {
                                     value,
-                                    timestamp_ns: if session {
-                                        match value {
-                                            11 => 4,
-                                            20 => 0,
-                                            _ => 0,
-                                        }
+                                    timestamp_ns: if session && value == 11 {
+                                        4
                                     } else {
-                                        1
+                                        i64::from(!session)
                                     },
                                 })
                                 .collect(),
