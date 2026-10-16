@@ -13,6 +13,7 @@ use crate::artifact::StagedArtifact;
 use crate::auth::TokenSource;
 
 #[async_trait::async_trait]
+/// Uploads worker and pipeline artifacts for a Dataflow job.
 pub trait Stager: Send + Sync {
     /// Upload bytes under `key` and return their staged artifact location.
     async fn put(&self, key: &str, bytes: Vec<u8>) -> anyhow::Result<StagedArtifact>;
@@ -27,6 +28,7 @@ pub trait Stager: Send + Sync {
 }
 
 #[derive(Debug)]
+/// Uploads Dataflow artifacts to a Cloud Storage bucket.
 pub struct GcsStager<T: TokenSource> {
     base_url: String,
     bucket: String,
@@ -130,6 +132,7 @@ impl<T: TokenSource> Stager for GcsStager<T> {
 type StoredUpload = (String, Vec<u8>);
 
 #[derive(Debug, Default, Clone)]
+/// Keeps staged artifacts in memory for tests.
 pub struct MemoryStager {
     bucket: String,
     inner: Arc<Mutex<Vec<StoredUpload>>>,

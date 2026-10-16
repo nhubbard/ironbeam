@@ -7,6 +7,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+/// Debug callbacks that inspect elements as a local job executes.
 pub trait PCollectionDebugExt<T: Element> {
     /// # Errors
     /// Returns a graph construction error for an invalid debug node.

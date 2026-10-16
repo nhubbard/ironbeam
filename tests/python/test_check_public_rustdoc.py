@@ -16,6 +16,7 @@ class PublicRustdocTests(unittest.TestCase):
                     "visibility": "public",
                     "name": "Runner",
                     "inner": {"trait": {"items": [2]}},
+                    "docs": "Runs bundles.",
                 },
                 "2": {
                     "crate_id": 0,
@@ -27,16 +28,17 @@ class PublicRustdocTests(unittest.TestCase):
                 },
             }
         }
-        failures, functions, methods = inspect_crate(data, "fixture")
+        failures, functions, methods, types = inspect_crate(data, "fixture")
         self.assertEqual(functions, 0)
         self.assertEqual(methods, 1)
+        self.assertEqual(types, 1)
         self.assertEqual(
             failures,
             ["fixture: src/lib.rs:12 Runner::run lacks Rustdoc"],
         )
 
         data["index"]["2"]["docs"] = "Run one bundle."
-        self.assertEqual(inspect_crate(data, "fixture"), ([], 0, 1))
+        self.assertEqual(inspect_crate(data, "fixture"), ([], 0, 1, 1))
 
     def test_public_function_needs_docs_but_foreign_function_is_ignored(self):
         data = {
@@ -56,9 +58,22 @@ class PublicRustdocTests(unittest.TestCase):
                 },
             }
         }
-        failures, functions, methods = inspect_crate(data, "fixture")
-        self.assertEqual((functions, methods), (1, 0))
+        failures, functions, methods, types = inspect_crate(data, "fixture")
+        self.assertEqual((functions, methods, types), (1, 0, 0))
         self.assertEqual(failures, ["fixture: ?:? build lacks Rustdoc"])
+
+    def test_public_type_needs_direct_docs(self):
+        data = {"index": {"1": {
+            "crate_id": 0,
+            "visibility": "public",
+            "name": "Pipeline",
+            "inner": {"struct": {}},
+            "docs": None,
+        }}}
+        self.assertEqual(
+            inspect_crate(data, "fixture"),
+            (["fixture: ?:? Pipeline lacks Rustdoc"], 0, 0, 1),
+        )
 
 
 if __name__ == "__main__":

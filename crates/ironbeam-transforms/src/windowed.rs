@@ -6,6 +6,7 @@ use std::ops::Add;
 
 pub type KeyedWindowedGroups<K, V> = ((K, WindowInterval), Vec<V>);
 
+/// Fixed-window grouping and aggregates that expose their interval.
 pub trait WindowedExt<T: Element> {
     /// Pair each value with its assigned fixed-window interval.
     fn key_by_window_named(
@@ -173,6 +174,7 @@ impl<T: Element> WindowedExt<T> for PCollection<T> {
     }
 }
 
+/// Fixed-window grouping and aggregates for keyed values.
 pub trait KeyedWindowedExt<K: Element, V: Element> {
     /// Pair each keyed value with its assigned fixed-window interval.
     fn key_by_key_and_window_named(

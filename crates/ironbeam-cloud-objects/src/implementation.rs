@@ -14,6 +14,7 @@ pub struct CloudIOError {
     pub source: Option<String>,
 }
 
+/// Category of a provider-neutral cloud I/O failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ErrorKind {
     Authentication,
@@ -55,6 +56,7 @@ impl CloudIOError {
     }
 }
 
+/// Result returned by provider-neutral cloud operations.
 pub type CloudResult<T> = Result<T, CloudIOError>;
 
 // ============================================================================

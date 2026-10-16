@@ -1,15 +1,18 @@
+/// Major and minor version for a graph, coder, handler, or checkpoint contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Version {
     pub major: u16,
     pub minor: u16,
 }
 
+/// Whether a source has a finite input snapshot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Boundedness {
     Bounded,
     Unbounded,
 }
 
+/// Window assignment declared for a collection's event time.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Window {
     Global,
@@ -172,6 +175,7 @@ impl WindowOutputTime {
     }
 }
 
+/// Half-open event-time interval `[start_ns, end_ns)`.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct WindowInterval {
     pub start_ns: i64,
@@ -444,6 +448,7 @@ impl Element for WindowInterval {
     }
 }
 
+/// Timestamp, window, firing, output-time, and lateness policy for a node.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Time {
     pub initial_timestamp_ns: i64,
@@ -473,6 +478,7 @@ impl Default for Time {
     }
 }
 
+/// Replay guarantee declared by a source or sink.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Replay {
     None,
@@ -480,6 +486,7 @@ pub enum Replay {
     Idempotent,
 }
 
+/// Resume and event-time properties declared by a source.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SourceProgress {
     pub stable_split_id: bool,
@@ -506,6 +513,7 @@ pub enum TestStreamEvent<T> {
     AdvanceProcessingTime(i64),
 }
 
+/// Wire-encoded value, watermark, or clock step in a test stream.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum EncodedTestStreamEvent {
     Elements(Vec<(Vec<u8>, i64)>),
@@ -513,6 +521,7 @@ pub enum EncodedTestStreamEvent {
     AdvanceProcessingTime(i64),
 }
 
+/// Write and publication behavior of a sink terminal.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SinkMode {
     Append,
@@ -520,6 +529,7 @@ pub enum SinkMode {
     FinalResult,
 }
 
+/// Replay, commit, and publication contract for a sink.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SinkSpec {
     pub mode: SinkMode,
@@ -527,6 +537,7 @@ pub struct SinkSpec {
     pub commit: bool,
 }
 
+/// Runner-neutral operation recorded by one graph node.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Operation {
     Source {
@@ -572,6 +583,7 @@ pub enum Operation {
     },
 }
 
+/// Semantic element type and its wire coder declaration.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ElementDescriptor {
     pub type_id: String,
@@ -581,12 +593,14 @@ pub struct ElementDescriptor {
     pub coder_version: Version,
 }
 
+/// An additional input edge and its expected element type.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct InputEdge {
     pub key: String,
     pub element: ElementDescriptor,
 }
 
+/// One named operation and its contracts in the logical graph.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Node {
     pub key: String,
@@ -609,6 +623,7 @@ pub struct Node {
     pub local_id: usize,
 }
 
+/// Versioned logical nodes submitted to a runner.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Graph {
     pub version: Version,
@@ -638,6 +653,7 @@ impl ExecutionIdentity {
     }
 }
 
+/// Whether an error is safe to retry automatically.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RetryClass {
     Permanent,
@@ -645,6 +661,7 @@ pub enum RetryClass {
     Unknown,
 }
 
+/// Category used to classify a graph, execution, or recovery error.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ErrorKind {
     Graph,
@@ -657,6 +674,7 @@ pub enum ErrorKind {
     Cancelled,
 }
 
+/// Structured Ironbeam failure with node, backend, and retry context.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Error {
     pub kind: ErrorKind,
@@ -768,6 +786,7 @@ impl fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
+/// Operations supported by a runner or execution backend.
 #[derive(Clone, Debug, Default)]
 pub struct Capabilities {
     pub external_bounded_source: bool,

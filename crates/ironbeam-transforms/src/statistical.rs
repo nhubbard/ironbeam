@@ -260,6 +260,7 @@ impl<T: Element + Into<f64>> CombineFn<T, TDigest, f64> for Median {
     }
 }
 
+/// Approximate global quantiles and medians using a t-digest.
 pub trait StatisticalExt<T: Element + Into<f64>> {
     /// Estimate selected global quantiles with a t-digest.
     fn approx_quantiles_named(
@@ -295,6 +296,7 @@ impl<T: Element + Into<f64>> StatisticalExt<T> for PCollection<T> {
     }
 }
 
+/// Approximate quantiles and medians within each key using a t-digest.
 pub trait KeyedStatisticalExt<K: Element + Eq + Hash + Clone, V: Element + Into<f64>> {
     /// Estimate selected value quantiles per key with a t-digest.
     fn approx_quantiles_per_key_named(

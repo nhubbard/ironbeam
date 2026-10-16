@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory database operations for tests.
 pub struct FakeDatabaseIO {
     tables: Arc<Mutex<HashMap<String, Vec<Row>>>>,
     schemas: SchemaMap,

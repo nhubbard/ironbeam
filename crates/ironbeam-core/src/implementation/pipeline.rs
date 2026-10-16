@@ -12,11 +12,13 @@ impl Default for Graph {
         }
     }
 }
+/// Owner of a logical graph and its local handler registrations.
 #[derive(Clone, Default)]
 pub struct Pipeline {
     inner: Arc<Mutex<Builder>>,
 }
 
+/// Typed handle to a graph node; values appear only when a runner executes it.
 pub struct PCollection<T> {
     pipeline: Pipeline,
     key: String,

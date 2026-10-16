@@ -31,6 +31,7 @@ pub fn is_terminal(state: &str) -> bool {
 }
 
 #[derive(Debug, Clone)]
+/// Polling interval and timeout for a submitted Dataflow job.
 pub struct PollConfig {
     pub interval: Duration,
     /// Hard timeout. `None` means no bound — poll until terminal.

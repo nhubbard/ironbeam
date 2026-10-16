@@ -139,6 +139,7 @@ impl InboundState {
 }
 
 #[derive(Clone)]
+/// Transfers coded bundle elements over Beam Fn Data.
 pub struct DataClient {
     /// Tx into the outbound gRPC request stream (SDK → runner).
     outbound_tx: mpsc::UnboundedSender<Elements>,

@@ -21,6 +21,7 @@ pub use user::ValueStateMutation;
 pub use user::{UserStateAccess, UserStateScope};
 
 #[derive(Clone)]
+/// Client for Beam Fn State requests from a worker bundle.
 pub struct StateClient {
     outbound: mpsc::UnboundedSender<StateRequest>,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<StateResponse>>>>,

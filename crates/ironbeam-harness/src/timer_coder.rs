@@ -11,6 +11,7 @@ pub use partial::{try_decode_timer_record, try_interval_window_len, try_nested_b
 mod schedule;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Decoded Beam timer and its firing metadata.
 pub struct TimerRecord {
     /// Exactly one nested key coder value, including its framing.
     pub encoded_key: Vec<u8>,

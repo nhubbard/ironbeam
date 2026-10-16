@@ -50,6 +50,7 @@ fn valid_object_component(value: &str) -> bool {
             .all(|part| !part.is_empty() && part != "." && part != ".." && !part.contains('\\'))
 }
 
+/// Object-store fragment journal and conditional final-result publisher.
 #[derive(Clone)]
 pub struct ObjectFinalResult {
     storage: Arc<dyn ObjectIO>,
@@ -61,6 +62,7 @@ pub struct ObjectFinalResult {
     expected_attempts: Option<BTreeSet<String>>,
 }
 
+/// Row, fragment, and byte counts in a published object result.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ObjectPublishedResult {
     pub rows: u64,

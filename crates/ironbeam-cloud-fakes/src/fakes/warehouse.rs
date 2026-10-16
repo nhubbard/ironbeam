@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory warehouse service for tests.
 pub struct FakeWarehouseIO {
     tables: Arc<Mutex<HashMap<String, Vec<Vec<String>>>>>,
     schemas: SchemaMap,

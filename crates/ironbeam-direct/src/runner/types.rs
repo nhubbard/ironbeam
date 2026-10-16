@@ -1,3 +1,4 @@
+/// Parallelism, memory, cancellation, spilling, and checkpoint settings for Direct.
 #[derive(Clone, Debug)]
 pub struct JobConfig {
     pub parallelism: usize,
@@ -31,6 +32,7 @@ impl Default for JobConfig {
     }
 }
 
+/// Lifecycle state of one Direct job.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum JobStatus {
     Submitted,
@@ -41,6 +43,7 @@ pub enum JobStatus {
     Cancelled,
 }
 
+/// Shared handle for status, cancellation, and metrics of one Direct job.
 #[derive(Clone)]
 pub struct JobHandle {
     pub(crate) id: u64,
@@ -138,9 +141,11 @@ impl JobHandle {
     }
 }
 
+/// Runner that executes a logical graph in the local process.
 #[derive(Clone, Debug, Default)]
 pub struct DirectRunner;
 
+/// Convenience terminals for collecting bounded outputs with Direct.
 pub trait DirectCollectExt<T: Element> {
     /// Runs this output with explicit local resources.
     ///

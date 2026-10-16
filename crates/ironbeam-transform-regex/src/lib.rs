@@ -8,6 +8,7 @@ fn compile(key: &str, pattern: &str) -> Result<Regex, Error> {
         .map_err(|error| Error::graph(key, format!("invalid regex pattern: {error}")))
 }
 
+/// Regular-expression filters, capture extraction, replacement, and splitting.
 pub trait RegexExt {
     /// Keep strings containing a match for the pattern.
     fn regex_matches_named(&self, key: &str, pattern: &str) -> Result<PCollection<String>, Error>;

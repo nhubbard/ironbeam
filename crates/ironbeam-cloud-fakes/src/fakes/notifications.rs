@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory notification service for tests.
 pub struct FakeNotificationIO {
     topics: Arc<Mutex<HashMap<String, Vec<Notification>>>>,
     subscriptions: Arc<Mutex<HashMap<String, String>>>,

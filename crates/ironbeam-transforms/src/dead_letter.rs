@@ -3,11 +3,13 @@ use ironbeam_core::{Element, Error, PCollection};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
+/// Rejected input paired with a human-readable error.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DeadLetter<T> {
     pub element: T,
     pub error: String,
 }
+/// Successful output or a rejected input with its error.
 pub type Classified<T, O> = Result<O, DeadLetter<T>>;
 impl<T> DeadLetter<T> {
     /// Pair a rejected input element with its error message.
@@ -74,6 +76,7 @@ impl<T: Element> Element for DeadLetter<T> {
     }
 }
 
+/// Fallible transforms with separately addressable success and error branches.
 pub trait DeadLetterExt<T: Element> {
     /// Keep a fallible mapping's success or rejected input as a `Result` value.
     fn classify_catching_named<O: Element, E: Display>(

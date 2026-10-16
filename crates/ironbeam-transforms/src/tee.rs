@@ -1,6 +1,7 @@
 //! Graph handle fan-out for independently constructed branches.
 use ironbeam_core::{Element, PCollection};
 
+/// Clone a graph handle for independently built downstream branches.
 pub trait TeeExt<T: Element> {
     /// Clone this graph handle for two independently built branches.
     fn tee(&self) -> (PCollection<T>, PCollection<T>);

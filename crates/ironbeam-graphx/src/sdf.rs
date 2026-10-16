@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub const RESTRICTION_VERSION: u32 = 1;
 pub const MAX_RESTRICTION_BYTES: usize = 1024 * 1024;
 
+/// Versioned source restriction carried between portable source bundles.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SourceRestriction {
     pub version: u32,
@@ -18,6 +19,7 @@ pub struct SourceRestriction {
     pub progress: Option<ProgressSignal>,
 }
 
+/// Invalid encoding, identity, or progress in a source restriction.
 #[derive(Debug, thiserror::Error)]
 pub enum RestrictionError {
     #[error("source restriction encoding failed: {0}")]

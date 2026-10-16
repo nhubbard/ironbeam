@@ -1,6 +1,7 @@
 //! Predicate conveniences composed over the core filter node.
 use ironbeam_core::{Element, Error, PCollection};
 
+/// Comparisons and extracted-field predicates for collection filtering.
 pub trait PredicateExt<T: Element> {
     /// Keep values equal to `value`.
     fn filter_eq_named(&self, key: &str, value: &T) -> Result<PCollection<T>, Error>

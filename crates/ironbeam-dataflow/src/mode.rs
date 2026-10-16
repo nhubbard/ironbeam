@@ -6,6 +6,7 @@
 //! our gate. Mirrors the Go SDK's `sdks/go/container/boot.go` invocation.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Whether the executable submits a job or serves the portable worker.
 pub enum Mode {
     /// Submit the pipeline to Dataflow.
     Driver,

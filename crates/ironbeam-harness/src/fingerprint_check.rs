@@ -25,6 +25,7 @@ pub fn fingerprint_from_pipeline_display_data(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Result of comparing driver and worker graph fingerprints.
 pub enum FingerprintStatus {
     /// Driver fingerprint wasn't embedded in the pipeline — can't compare.
     Missing,

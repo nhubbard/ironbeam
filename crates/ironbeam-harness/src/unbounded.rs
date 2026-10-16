@@ -8,6 +8,7 @@ use ironbeam_graphx::sdf::{RestrictionError, SourceRestriction};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[derive(Debug, thiserror::Error)]
+/// Failure while opening or polling a restricted source.
 pub enum SourcePollError {
     #[error(transparent)]
     Core(#[from] Error),
@@ -16,12 +17,14 @@ pub enum SourcePollError {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// One coded source element with its event timestamp.
 pub struct EncodedSourceElement {
     pub bytes: Vec<u8>,
     pub timestamp_ns: i64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Pending or ready result of one unbounded-source poll.
 pub enum SourcePoll {
     Pending,
     Ready {
@@ -32,6 +35,7 @@ pub enum SourcePoll {
     },
 }
 
+/// Reads a replayable source from a validated restriction cursor.
 pub struct SourcePoller<'a> {
     key: String,
     registry: &'a Registry,

@@ -233,6 +233,7 @@ struct BundleOutputs<'a> {
     output_counts: &'a mut HashMap<String, u64>,
 }
 
+/// Executes a validated v5 bundle with its registered handlers.
 pub struct V5BundleExecutor {
     graph: Graph,
     registry: Registry,

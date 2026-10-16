@@ -28,6 +28,7 @@ pub(crate) fn crash_after(stage: &str) {
     }
 }
 
+/// Directory, retention, and executable identity for Direct checkpoints.
 #[derive(Clone, Debug)]
 pub struct CheckpointConfig {
     pub directory: PathBuf,

@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory inference service for tests.
 pub struct FakeIntelligenceIO {
     models: FunctionMap,
 }

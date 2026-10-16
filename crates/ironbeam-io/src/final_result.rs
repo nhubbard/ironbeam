@@ -51,6 +51,7 @@ fn crash_after(stage: &str) {
     }
 }
 
+/// Local fragment journal and atomic final-result publisher for one sink.
 #[derive(Debug, Clone)]
 pub struct LocalFinalResult {
     staging: PathBuf,
@@ -58,6 +59,7 @@ pub struct LocalFinalResult {
     expected_attempts: Option<BTreeSet<String>>,
 }
 
+/// Verified staged fragment accepted for a bundle attempt.
 #[derive(Debug, Clone)]
 pub struct AcceptedFragment {
     path: PathBuf,
@@ -90,6 +92,7 @@ impl AcceptedFragment {
     }
 }
 
+/// Row, fragment, and byte counts in a published local result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublishedResult {
     pub rows: u64,

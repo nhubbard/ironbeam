@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use anyhow::{bail, Context, Result};
 
 #[derive(Debug, Clone)]
+/// Beam Fn service addresses supplied to the worker.
 pub struct Endpoints {
     /// Worker id assigned by the runner (`--id`). Becomes `WorkerId` in
     /// gRPC request metadata.

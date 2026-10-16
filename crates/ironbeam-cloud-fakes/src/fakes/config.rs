@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory configuration service for tests.
 pub struct FakeConfigIO {
     config: Arc<Mutex<HashMap<String, ConfigValue>>>,
 }

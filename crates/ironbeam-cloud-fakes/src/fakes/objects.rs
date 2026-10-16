@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory object storage service for tests.
 pub struct FakeObjectIO {
     storage: BucketStorage,
 }

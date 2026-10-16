@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory key-value service for tests.
 pub struct FakeKeyValueIO {
     collections: CollectionStorage,
 }

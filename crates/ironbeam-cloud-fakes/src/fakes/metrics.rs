@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory metric service for tests.
 pub struct FakeMetricIO {
     metrics: Arc<Mutex<HashMap<String, Vec<MetricPoint>>>>,
 }

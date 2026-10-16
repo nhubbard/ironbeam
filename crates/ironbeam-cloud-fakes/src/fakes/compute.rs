@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory compute invocation service for tests.
 pub struct FakeComputeIO {
     functions: FunctionMap,
     invocation_counter: Arc<Mutex<u64>>,

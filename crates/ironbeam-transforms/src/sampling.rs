@@ -82,6 +82,7 @@ impl<T: Element> OrderedFoldFn<T, Reservoir<T>, Vec<T>> for PriorityReservoir {
     }
 }
 
+/// Seeded reservoir sampling for an entire finite collection.
 pub trait SamplingExt<T: Element> {
     /// Collect up to `k` seeded reservoir samples in one vector.
     fn sample_reservoir_vec_named(
@@ -140,6 +141,7 @@ impl<T: Element> SamplingExt<T> for PCollection<T> {
     }
 }
 
+/// Seeded reservoir sampling of values within each key.
 pub trait KeyedSamplingExt<K: Element + Eq + Hash + Clone, V: Element> {
     /// Collect up to `k` seeded reservoir samples per key.
     fn sample_values_reservoir_vec_named(

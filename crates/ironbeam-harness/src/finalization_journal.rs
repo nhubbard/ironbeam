@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Recorded sinks and completion state for one bundle attempt.
 pub struct JournalEntry {
     pub sinks: Vec<String>,
     pub completed: bool,

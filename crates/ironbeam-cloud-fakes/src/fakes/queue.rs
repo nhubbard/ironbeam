@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory queue service for tests.
 pub struct FakeQueueIO {
     queues: Arc<Mutex<HashMap<String, Vec<QueueMessage>>>>,
     message_counter: Arc<Mutex<u64>>,

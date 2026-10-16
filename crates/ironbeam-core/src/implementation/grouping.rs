@@ -1411,10 +1411,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFol
         Ok(())
     }
 }
+/// Keyed pair emitted by an inner join.
 pub type Joined<K, V, W> = (K, (V, W));
+/// Keyed pair emitted by a left join; the right value may be absent.
 pub type LeftJoined<K, V, W> = (K, (V, Option<W>));
+/// Keyed pair emitted by a right join; the left value may be absent.
 pub type RightJoined<K, V, W> = (K, (Option<V>, W));
+/// Keyed pair emitted by a full join; either side may be absent.
 pub type FullJoined<K, V, W> = (K, (Option<V>, Option<W>));
+/// A value paired with its key and assigned window interval.
 pub type KeyedWindowed<K, V> = ((K, WindowInterval), V);
 
 macro_rules! collect_cogroup_input {

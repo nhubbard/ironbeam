@@ -1,6 +1,7 @@
 //! Per-job counters; no process-global metrics collector.
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Snapshot of counters recorded by one Direct job.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct JobMetrics {
     pub source_elements: u64,

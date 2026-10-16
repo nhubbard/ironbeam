@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Debug, Clone)]
+/// Fixed credential identity for testing provider authentication.
 pub struct FakeCredentials {
     pub identifier: String,
     pub credential_type: String,
@@ -31,6 +32,7 @@ impl CloudCredentials for FakeCredentials {
 }
 
 #[derive(Debug, Clone)]
+/// Configurable region, endpoint, timeout, and retry values for tests.
 pub struct FakeConfig {
     pub region: Option<String>,
     pub endpoint: Option<String>,

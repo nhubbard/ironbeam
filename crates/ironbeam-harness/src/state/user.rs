@@ -14,6 +14,7 @@ mod value_transition;
 pub use value_transition::ValueStateMutation;
 
 #[derive(Clone)]
+/// Key and window addressing a user-state cell.
 pub struct UserStateScope {
     transform_id: String,
     state_id: String,

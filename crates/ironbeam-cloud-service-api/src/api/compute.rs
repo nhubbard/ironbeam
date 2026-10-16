@@ -44,6 +44,7 @@ pub trait ComputeIO: Send + Sync {
     fn list_functions(&self) -> CloudResult<Vec<String>>;
 }
 
+/// Current state of a remote compute invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InvocationStatus {
     Pending,

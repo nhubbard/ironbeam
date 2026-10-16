@@ -328,6 +328,7 @@ pub fn encode_interval_windowed_value_with_metadata<W: Write>(
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A decoded Beam value with its event time, windows, and pane.
 pub struct WindowedValue<'a> {
     pub timestamp_millis: i64,
     pub interval_millis: Option<(i64, i64)>,

@@ -20,6 +20,7 @@ pub struct NotificationResult {
     pub status: NotificationStatus,
 }
 
+/// Delivery state reported for a notification.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotificationStatus {
     Sent,

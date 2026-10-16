@@ -23,6 +23,7 @@ pub struct TimerSchedule {
     pub pane: PaneInfo,
 }
 
+/// Timer identity and schedule delivered to a stateful callback.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TimerFiring {
     pub identity: TimerIdentity,

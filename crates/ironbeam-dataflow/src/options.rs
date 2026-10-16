@@ -5,6 +5,7 @@
 pub use ironbeam_graphx::DEFAULT_SDK_CONTAINER_IMAGE;
 
 #[derive(Debug, Clone)]
+/// Project, staging, worker, and network settings for a Dataflow job.
 pub struct DataflowOptions {
     pub project: String,
     pub region: String,

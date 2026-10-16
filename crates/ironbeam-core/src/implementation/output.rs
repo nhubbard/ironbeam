@@ -1,9 +1,11 @@
+/// Named terminal for a runner to collect or publish typed values.
 #[derive(Clone)]
 pub struct Output<T> {
     pipeline: Pipeline,
     key: String,
     marker: PhantomData<T>,
 }
+/// Named terminal that delegates writes to a registered sink.
 #[derive(Clone)]
 pub struct Sink<T> {
     pipeline: Pipeline,

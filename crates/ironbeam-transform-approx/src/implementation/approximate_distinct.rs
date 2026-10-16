@@ -76,6 +76,7 @@ impl<T: Element + Hash> CombineFn<T, HllSketch<T>, u64> for Hll {
     }
 }
 
+/// Approximate global distinct counts using mergeable sketches.
 pub trait ApproxDistinctExt<T: Element + Hash> {
     /// Estimate global distinct count with a KMV sketch of at least four samples.
     fn approx_distinct_count_named(&self, key: &str, k: usize) -> Result<PCollection<f64>, Error>;
@@ -105,6 +106,7 @@ impl<T: Element + Hash> ApproxDistinctExt<T> for PCollection<T> {
     }
 }
 
+/// Approximate distinct value counts within each key.
 pub trait KeyedApproxDistinctExt<K: Element + Eq + Hash + Clone, V: Element + Hash> {
     /// Estimate distinct values per key with a KMV sketch of at least four samples.
     fn approx_distinct_count_per_key_named(

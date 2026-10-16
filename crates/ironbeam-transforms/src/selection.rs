@@ -63,6 +63,7 @@ impl<T: Element + Ord> CombineFn<T, BinaryHeap<T>, Vec<T>> for BottomK {
     }
 }
 
+/// Select the greatest or least values from a finite collection.
 pub trait SelectionExt<T: Element + Ord> {
     /// Return up to `k` greatest values from the collection.
     fn top_k_globally_named(&self, key: &str, k: usize) -> Result<PCollection<Vec<T>>, Error>;
@@ -78,6 +79,7 @@ impl<T: Element + Ord> SelectionExt<T> for PCollection<T> {
     }
 }
 
+/// Select the greatest or least values within each key.
 pub trait KeyedSelectionExt<K: Element + Eq + Hash + Clone, V: Element + Ord> {
     /// Return up to `k` greatest values for each key.
     fn top_k_per_key_named(

@@ -2,6 +2,7 @@
 use ironbeam_core::{Element, Error, PCollection};
 use std::fmt::Debug;
 
+/// Pass values through while printing a representation at execution time.
 pub trait LogElementsExt<T: Element> {
     /// Print each value with its `Debug` representation and pass it through.
     fn log_elements_named(&self, key: &str) -> Result<PCollection<T>, Error>

@@ -8,6 +8,7 @@ use crate::basic_fold::{
     Average, Count, Distinct, DistinctBy, DistinctCount, Maximum, Mean, Minimum, Sum, Take,
 };
 use crate::collections::CollectVec;
+/// Numeric output that can divide an accumulated sum by its count.
 pub trait MeanOutput: Element + Default + Add<Output = Self> {
     /// Divide an accumulated total by its input count.
     fn divide_count(total: Self, count: usize) -> Self;
@@ -29,6 +30,7 @@ impl MeanOutput for f64 {
     }
 }
 
+/// Elementwise selection, keying, finite collection, and aggregate helpers.
 pub trait ElementwiseExt<T: Element> {
     /// Pair each input with a key derived from it.
     fn key_by_named<K: Element>(
@@ -273,6 +275,7 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
     }
 }
 
+/// Keyed mapping, selection, distinctness, and aggregate helpers.
 pub trait KeyedExt<K: Element, V: Element> {
     /// Drop values and retain each pair's key.
     fn keys_named(&self, key: &str) -> Result<PCollection<K>, Error>;

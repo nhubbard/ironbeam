@@ -47,6 +47,7 @@ impl<K: Element + Eq + Hash, V: Element> OrderedFoldFn<(K, V), HashMap<K, V>, Ha
     }
 }
 
+/// Helpers that collect a finite collection into a set.
 pub trait CollectionExt<T: Element + Eq + Hash> {
     /// Combine all values into one set, discarding duplicates.
     fn to_set_globally_named(&self, key: &str) -> Result<PCollection<HashSet<T>>, Error>;
@@ -57,6 +58,7 @@ impl<T: Element + Eq + Hash> CollectionExt<T> for PCollection<T> {
     }
 }
 
+/// Helpers that collect keyed values into lists, sets, or a map.
 pub trait KeyedCollectionExt<K: Element + Eq + Hash + Clone, V: Element> {
     /// Collect values per key in Direct encounter order.
     fn to_list_per_key_named(&self, key: &str) -> Result<PCollection<(K, Vec<V>)>, Error>;

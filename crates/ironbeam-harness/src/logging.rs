@@ -70,6 +70,7 @@ pub fn install_tracing_sink(client: LoggingClient) {
 }
 
 #[derive(Clone)]
+/// Sends worker log entries to the Beam Fn Logging service.
 pub struct LoggingClient {
     tx: mpsc::UnboundedSender<LogEntry>,
 }

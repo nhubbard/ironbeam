@@ -14,6 +14,7 @@ pub use mock_io::*;
 use ironbeam_core::{Error, Pipeline};
 use std::ops::Deref;
 
+/// Pipeline wrapper with graph inspection helpers for tests.
 #[derive(Clone, Default)]
 pub struct TestPipeline {
     pipeline: Pipeline,

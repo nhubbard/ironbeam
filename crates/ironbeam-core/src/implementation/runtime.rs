@@ -1,4 +1,6 @@
+/// Owned value passed through the local runner registry.
 pub type Payload = Box<dyn Any + Send>;
+/// Event time, window, and pane supplied to a typed sink.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ElementMetadata {
     pub timestamp_ns: i64,
@@ -6,6 +8,7 @@ pub struct ElementMetadata {
     pub assigned_window: Option<WindowInterval>,
     pub pane: PaneInfo,
 }
+/// Runtime value with its event-time and window context.
 pub struct Envelope {
     pub value: Payload,
     pub timestamp_ns: i64,
@@ -13,7 +16,9 @@ pub struct Envelope {
     pub assigned_window: Option<WindowInterval>,
     pub pane: PaneInfo,
 }
+/// Iterator of runtime envelopes from a bounded source.
 pub type SourceIterator = Box<dyn Iterator<Item = Result<Envelope, Error>> + Send>;
+/// Iterator of typed values from a bounded source.
 pub type TypedSourceIterator<T> = Box<dyn Iterator<Item = Result<T, Error>> + Send>;
 /// One nonblocking poll result from an unbounded source split.
 #[derive(Clone, Debug)]
@@ -50,7 +55,9 @@ pub trait UnboundedSource<T>: Send {
     }
 }
 
+/// Boxed reader of runtime envelopes from one unbounded source split.
 pub type UnboundedSourceReader = Box<dyn UnboundedSource<Envelope>>;
+/// Boxed reader of timestamped typed values from one unbounded source split.
 pub type TypedUnboundedSourceReader<T> = Box<dyn UnboundedSource<Timestamped<T>>>;
 type UnboundedSourceFactory =
     Arc<dyn Fn(Option<Vec<u8>>) -> Result<UnboundedSourceReader, Error> + Send + Sync>;
@@ -215,6 +222,7 @@ type Aggregate = Arc<dyn Fn(Vec<Vec<Envelope>>) -> Result<Vec<Envelope>, Error> 
 type OrderedGlobalGroups<Q, T> =
     BTreeMap<Option<i64>, (BTreeMap<Q, (T, i64)>, Option<WindowInterval>)>;
 type LatestTieGlobalGroups<Q> = BTreeMap<Option<i64>, (BTreeSet<(i64, Q)>, Envelope)>;
+/// Mergeable accumulator used by keyed or global combines.
 pub trait CombineFn<V, A, O>: Send + Sync + 'static {
     /// Create the accumulator for a new key or window.
     fn create(&self) -> A;
@@ -225,6 +233,7 @@ pub trait CombineFn<V, A, O>: Send + Sync + 'static {
     /// Convert the completed accumulator to an output value.
     fn finish(&self, accumulator: A) -> O;
 }
+/// Accumulator that consumes values in an explicitly defined order.
 pub trait OrderedFoldFn<V, A, O>: Send + Sync + 'static {
     /// Create the accumulator for an ordered fold.
     fn create(&self) -> A;
@@ -262,6 +271,7 @@ impl<V, A, O, C: OrderedFoldFn<V, A, O>> FoldLogic<V, A, O> for OrderedAdapter<C
         self.0.finish(accumulator)
     }
 }
+/// Open runner fold that receives windowed inputs and emits completed panes.
 pub trait FoldSession: Send {
     /// Add one windowed input to the open fold.
     fn add(&mut self, event: Envelope) -> Result<(), Error>;
@@ -511,6 +521,7 @@ impl<
         Ok(())
     }
 }
+/// Bundle-scoped writes and commit protocol for a runtime sink.
 pub trait SinkSession: Send {
     /// Bind a portable runner's stable bundle-attempt ID before the first write.
     /// Direct streaming binds this to the source cursor; bounded Direct jobs
@@ -544,6 +555,7 @@ pub trait SinkSession: Send {
         ))
     }
 }
+/// Bundle-scoped writes and commit protocol for a typed sink.
 pub trait TypedSink<T: Element>: Send {
     /// Bind a stable bundle-attempt ID before writing any values.
     fn begin_bundle(&mut self, _instruction_id: &str) -> Result<(), Error> {
@@ -963,6 +975,7 @@ fn vector_source_digest<T: Element>(values: &[T]) -> Result<String, Error> {
     Ok(result)
 }
 
+/// Build-local implementations of sources, transforms, coders, folds, and sinks.
 #[derive(Clone, Default)]
 pub struct Registry {
     sources: BTreeMap<String, SourceRegistration>,

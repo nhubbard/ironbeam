@@ -38,6 +38,7 @@ pub const URN_RUNNER_SOURCE: &str = "beam:runner:source:v1";
 pub const URN_RUNNER_SINK: &str = "beam:runner:sink:v1";
 
 #[derive(Debug, thiserror::Error)]
+/// Reason a Beam process-bundle descriptor cannot be executed.
 pub enum PlanError {
     #[error("PTransform {0}: missing FunctionSpec")]
     MissingSpec(String),
@@ -300,12 +301,14 @@ pub enum Step {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Window representation accepted at a bundle boundary.
 pub enum WindowCoder {
     Global,
     Interval,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Window assignment used by a portable window-mapping step.
 pub enum WindowMapping {
     Global,
     Identity,
@@ -321,6 +324,7 @@ pub enum WindowMapping {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Portable stage of a splittable source operation.
 pub enum SdfStage {
     PairWithRestriction,
     SplitAndSizeRestrictions,
@@ -329,6 +333,7 @@ pub enum SdfStage {
 }
 
 #[derive(Debug, Clone)]
+/// Validated execution steps for one Beam process bundle.
 pub struct BundlePlan {
     /// Steps in the order the executor should run them.
     pub steps: Vec<Step>,

@@ -1,6 +1,7 @@
 //! Per-element failures carried as graph values until a terminal decides policy.
 use ironbeam_core::{Element, Error, PCollection};
 
+/// Preserve per-element failures as `Result` values in a collection.
 pub trait TryProcessExt<T: Element> {
     /// Map each input to a `Result` retained as a collection element.
     fn try_map_named<O: Element, E: Element>(

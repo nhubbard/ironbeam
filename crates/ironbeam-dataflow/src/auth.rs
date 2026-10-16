@@ -19,6 +19,7 @@
 use std::sync::Arc;
 
 #[async_trait::async_trait]
+/// Supplies bearer tokens for Dataflow and staging requests.
 pub trait TokenSource: Send + Sync + std::fmt::Debug {
     /// Return a bearer token for an authenticated Dataflow request.
     async fn token(&self) -> anyhow::Result<String>;
@@ -39,6 +40,7 @@ impl<T: TokenSource + ?Sized> TokenSource for &T {
 }
 
 #[derive(Debug, Clone)]
+/// Returns a fixed bearer token, chiefly for tests.
 pub struct StaticTokenSource {
     token: String,
 }
@@ -60,6 +62,7 @@ impl TokenSource for StaticTokenSource {
 }
 
 #[derive(Debug, Default, Clone)]
+/// Obtains a bearer token from the local `gcloud` command.
 pub struct GcloudCliTokenSource;
 
 #[async_trait::async_trait]

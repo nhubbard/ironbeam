@@ -103,6 +103,7 @@ pub trait GraphIO: Send + Sync {
     -> CloudResult<Vec<GraphNode>>;
 }
 
+/// Direction used when fetching neighboring graph nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeDirection {
     Outgoing,

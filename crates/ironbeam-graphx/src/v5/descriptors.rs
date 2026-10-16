@@ -188,6 +188,7 @@ fn cogroup_inputs(node: &Node) -> Vec<&str> {
         .collect()
 }
 
+/// Graph or wire-contract failure during v5 Beam lowering.
 #[derive(Debug, thiserror::Error)]
 pub enum V5Error {
     #[error(transparent)]
@@ -200,6 +201,7 @@ pub enum V5Error {
     Wire(String),
 }
 
+/// Stable graph node and execution identity embedded in a portable transform.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct V5NodeRef {
     pub key: String,
@@ -220,6 +222,7 @@ impl V5NodeRef {
     }
 }
 
+/// Portable Beam pipeline and contracts produced from one v5 graph.
 pub struct TranslatedV5 {
     pub pipeline: BeamPipeline,
     pub identity: ExecutionIdentity,

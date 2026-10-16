@@ -141,6 +141,7 @@ pub fn build_job_request(
 }
 
 #[derive(Debug, Clone)]
+/// Job identity and state returned by a Dataflow submission.
 pub struct SubmittedJob {
     pub id: String,
     pub current_state: String,

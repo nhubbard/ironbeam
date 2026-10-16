@@ -61,6 +61,7 @@ pub enum UserTimerDomain {
     ProcessingTime,
 }
 
+/// Timer family declaration with its domain and encoded tag coder.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct UserTimerFamily {
     pub domain: UserTimerDomain,

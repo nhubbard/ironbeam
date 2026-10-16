@@ -18,6 +18,7 @@ pub enum PlanDecision {
     },
 }
 
+/// Direct execution plan, resource estimates, and fusion decisions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlanSummary {
     pub source_key: String,

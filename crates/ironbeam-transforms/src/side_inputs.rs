@@ -4,12 +4,16 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
 
+/// Shared immutable vector for local side-input callbacks.
 #[derive(Clone)]
 pub struct SideVec<T>(Arc<Vec<T>>);
+/// Shared immutable lookup map for local side-input callbacks.
 #[derive(Clone)]
 pub struct SideMap<K, V>(Arc<HashMap<K, V>>);
+/// Shared immutable value for local side-input callbacks.
 #[derive(Clone)]
 pub struct SideSingleton<T>(Arc<T>);
+/// Shared immutable key-to-values map for local side-input callbacks.
 #[derive(Clone)]
 pub struct SideMultimap<K, V>(Arc<HashMap<K, Vec<V>>>);
 
@@ -45,6 +49,7 @@ pub fn side_multimap<K: Element + Eq + Hash + Sync, V: Element + Sync>(
     SideMultimap(Arc::new(map))
 }
 
+/// Map or filter values with an immutable side input supplied by the caller.
 pub trait ConstantSideInputExt<T: Element> {
     /// Map each value using the supplied immutable side vector.
     fn map_with_side_vec_named<S: Element + Sync, U: Element>(

@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory cache service for deterministic tests.
 pub struct FakeCacheIO {
     cache: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }

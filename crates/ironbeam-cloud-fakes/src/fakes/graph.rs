@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory graph service for tests.
 pub struct FakeGraphIO {
     nodes: Arc<Mutex<HashMap<String, GraphNode>>>,
     edges: Arc<Mutex<HashMap<String, GraphEdge>>>,

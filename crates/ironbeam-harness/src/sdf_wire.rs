@@ -10,12 +10,14 @@ use ironbeam_graphx::sdf::{SourceRestriction, MAX_RESTRICTION_BYTES};
 use crate::coders::{decode_length_prefix, encode_length_prefix};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A source restriction paired with its encoded element.
 pub struct SourcePair {
     pub element: Vec<u8>,
     pub restriction: SourceRestriction,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// A source restriction paired with its estimated size.
 pub struct SizedSourcePair {
     pub pair: SourcePair,
     pub size: f64,

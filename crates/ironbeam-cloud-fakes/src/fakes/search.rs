@@ -5,6 +5,7 @@ use super::*;
 // ============================================================================
 
 #[derive(Clone)]
+/// In-memory search index for tests.
 pub struct FakeSearchIO {
     indices: IndexStorage,
 }

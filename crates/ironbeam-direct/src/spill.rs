@@ -10,6 +10,7 @@ use tempfile::{Builder, TempDir};
 
 const MAX_FRAME_BYTES: u64 = 256 * 1024 * 1024;
 
+/// Directory and size threshold for spilling bounded Direct output.
 #[derive(Clone, Debug)]
 pub struct SpillConfig {
     pub directory: PathBuf,

@@ -7,6 +7,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+/// Success or all validation errors found for one value.
 pub type ValidationResult = Result<(), Vec<ValidationError>>;
 
 /// Combine validation results, retaining every error in check order.
@@ -110,11 +111,13 @@ pub mod validators {
     }
 }
 
+/// Application validation contract for one value.
 pub trait Validate {
     /// Return validation errors for this value, or success when it is valid.
     fn validate(&self) -> ValidationResult;
 }
 
+/// One field or record validation failure.
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ValidationError {
     pub field: Option<String>,
@@ -159,6 +162,7 @@ impl fmt::Display for ValidationError {
 }
 impl std::error::Error for ValidationError {}
 
+/// Whether invalid records are dropped, reported, or fail execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidationMode {
     SkipInvalid,
@@ -177,12 +181,14 @@ const fn validation_semantic_id(mode: ValidationMode, keyed: bool) -> &'static s
     }
 }
 
+/// Record identifier and every validation error found for it.
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct RecordError {
     pub record_id: Option<String>,
     pub errors: Vec<ValidationError>,
 }
 
+/// Local collection of validation errors across processed records.
 #[derive(Clone, Debug, Default)]
 pub struct ErrorCollector {
     errors: Vec<RecordError>,
@@ -282,6 +288,7 @@ fn accepted(
     }
 }
 
+/// Validation filters for unkeyed collections.
 pub trait ValidationExt<T: Element + Validate> {
     /// Validate each value using `mode` and optionally collect errors.
     fn validate_with_mode_named(
@@ -325,6 +332,7 @@ impl<T: Element + Validate> ValidationExt<T> for PCollection<T> {
     }
 }
 
+/// Validation filters that retain keys of accepted values.
 pub trait KeyedValidationExt<K: Element, V: Element + Validate> {
     /// Validate each pair's value using `mode` and optionally collect errors.
     fn validate_values_with_mode_named(

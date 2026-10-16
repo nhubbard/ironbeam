@@ -168,6 +168,7 @@ pub fn arrow_ipc_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>
     })
 }
 
+/// Serializable Arrow record batch used as an Ironbeam element.
 #[derive(Clone, Debug)]
 pub struct ArrowBatch(pub arrow::record_batch::RecordBatch);
 
