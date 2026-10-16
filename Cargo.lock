@@ -3199,11 +3199,13 @@ dependencies = [
 name = "ironbeam-io-xml"
 version = "5.0.0"
 dependencies = [
+ "ironbeam-cloud-objects",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
  "quick-xml",
  "serde",
+ "sha2 0.10.9",
  "tempfile",
 ]
 

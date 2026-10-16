@@ -104,6 +104,36 @@ enabled. A portable worker needs the same provider and credentials as the
 submitting process. A local Prism job reopened a two-object prefix after an
 execution child was replaced and committed both messages once.
 
+## XML in object storage
+
+`cloud_xml_uri_source` reads one XML document through a registered object
+provider. `cloud_xml_uri_prefix_source` reads a sorted set of documents under
+one URI prefix. Both functions bind each object's bytes to the graph and check
+them again when the source opens. A changed object fails recovery. The XML
+decoder loads one complete document into memory, so memory use grows with the
+size of the largest object. The `cloud` feature of `ironbeam-io-xml` enables
+these functions; the root `cloud` feature forwards to it when `v5-io-xml` is
+enabled. In the following example, `Record` implements `Element` and
+`serde::Deserialize`.
+
+```rust
+use ironbeam_cloud_object_store::object_stores_from_env;
+use ironbeam_io_xml::cloud_xml_uri_prefix_source;
+
+let stores = object_stores_from_env()?;
+let rows = cloud_xml_uri_prefix_source::<Record>(
+    &pipeline,
+    "records",
+    &stores,
+    "gs://data-bucket/records/",
+)?;
+```
+
+`gs://` requires the `gcp` feature of `ironbeam-cloud-object-store`. The worker
+must register a provider for the same URI scheme. A local Prism
+job reopened a two-object XML prefix after execution-child replacement and
+committed each row once.
+
 ## Reading TFRecord frames
 
 `tfrecord_streaming_source` reads frames incrementally and checks their length
