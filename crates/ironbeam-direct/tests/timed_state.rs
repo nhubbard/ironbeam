@@ -935,6 +935,168 @@ fn shared_event_timer_and_both_sinks_resume_from_checkpoint() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Recovery must observe each branch's own armed timer and sink.
+fn independent_branch_timers_resume_from_one_checkpoint() {
+    let directory = tempfile::tempdir().unwrap();
+    let left_rows = Arc::new(Mutex::new(Vec::new()));
+    let right_rows = Arc::new(Mutex::new(Vec::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "independent-timers-source-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |cursor| {
+                    opens.lock().unwrap().push(cursor.clone());
+                    Ok(Box::new(RecoverySource {
+                        cursor,
+                        emitted: false,
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                }
+            },
+        )
+        .unwrap();
+    let families = BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]);
+    let left_capture = Arc::clone(&left_rows);
+    let left = source
+        .stateful_timer_map_named::<i32, i32>(
+            "left-timer",
+            "tests/independent-left-timer-v1",
+            Version { major: 1, minor: 0 },
+            families.clone(),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("left-label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named_with_config(
+            "left",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "independent-left-sink-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&left_capture),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let right_capture = Arc::clone(&right_rows);
+    let right = source
+        .stateful_timer_map_named::<i32, i32>(
+            "right-timer",
+            "tests/independent-right-timer-v1",
+            Version { major: 1, minor: 0 },
+            families,
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value * 10),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("right-label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named_with_config(
+            "right",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "independent-right-sink-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&right_capture),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 2,
+            recover: true,
+            binary_build_id: "independent-timers-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let first = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config())
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while first
+        .progress()
+        .and_then(|progress| progress.checkpoint_position)
+        != Some(vec![1])
+    {
+        assert_ne!(first.handle().status(), JobStatus::Failed);
+        assert!(
+            Instant::now() < deadline,
+            "both timers were not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    first.cancel();
+    assert!(first.wait().is_err());
+    DirectRunner
+        .start_stream_sink_pair(&left, &right, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
+    assert_eq!(*left_rows.lock().unwrap(), ["7:3"]);
+    assert_eq!(*right_rows.lock().unwrap(), ["7:30"]);
+}
+
+#[test]
 fn failed_timer_sink_commit_retries_from_armed_checkpoint() {
     let directory = tempfile::tempdir().unwrap();
     let committed = Arc::new(Mutex::new(Vec::new()));
