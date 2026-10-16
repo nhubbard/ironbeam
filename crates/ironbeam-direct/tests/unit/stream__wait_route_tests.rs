@@ -27,7 +27,7 @@ fn wait_graph() -> Graph {
 }
 
 #[test]
-fn independent_wait_route_keeps_each_source_and_rejects_unsafe_shapes() {
+fn independent_wait_route_keeps_each_source_and_downstream_stage() {
     let graph = wait_graph();
     let route = multi_wait_stream_route(&graph, "result").unwrap();
     assert_eq!(
@@ -84,7 +84,11 @@ fn independent_wait_route_keeps_each_source_and_rejects_unsafe_shapes() {
             .after_wait,
         ["after-map"]
     );
+}
 
+#[test]
+fn independent_wait_route_rejects_unsafe_shapes() {
+    let graph = wait_graph();
     let mut extra_downstream_input = graph.clone();
     let extra_edge = extra_downstream_input
         .nodes
