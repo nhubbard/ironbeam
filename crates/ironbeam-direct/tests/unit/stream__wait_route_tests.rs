@@ -62,7 +62,7 @@ fn independent_wait_route_keeps_each_source_and_downstream_stage() {
         );
     }
 
-    let mut two_downstream_stages = graph.clone();
+    let mut two_downstream_stages = graph;
     let mut stage = two_downstream_stages
         .nodes
         .iter()

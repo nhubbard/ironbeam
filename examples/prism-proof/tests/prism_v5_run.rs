@@ -125,11 +125,12 @@ use ironbeam_prism_proof::{
     triple_stream_windowed_wait_fixture, triple_unbounded_flatten_collection,
     triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
     triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
-    triple_unbounded_session_homogeneous_fixture, unbounded_main_bounded_wait_fixture,
-    unbounded_main_grouped_wait_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    triple_unbounded_session_homogeneous_fixture, triple_unbounded_session_output_time_fixture,
+    unbounded_main_bounded_wait_fixture, unbounded_main_grouped_wait_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
+    PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -3355,6 +3356,91 @@ async fn prism_matches_direct_two_source_session_output_times() {
             read_rows(&portable_path),
             direct_rows,
             "two-source session {label}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_three_source_session_output_times() {
+    let directory = tempfile::tempdir().unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    for (policy, env_name, expected_time) in [
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            "IRONBEAM_V5_PRISM_TRIPLE_SESSION_END_TIME",
+            16_000_000,
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            "IRONBEAM_V5_PRISM_TRIPLE_SESSION_LATEST_TIME",
+            12_000_000,
+        ),
+    ] {
+        let label = match policy {
+            ironbeam_core::WindowOutputTime::EndOfWindow => "end",
+            ironbeam_core::WindowOutputTime::LatestInPane => "latest",
+            ironbeam_core::WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let direct_path = directory
+            .path()
+            .join(format!("direct-triple-session-{label}"));
+        let portable_path = directory
+            .path()
+            .join(format!("portable-triple-session-{label}"));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = triple_unbounded_session_output_time_fixture(
+            &direct_pipeline,
+            direct_path.clone(),
+            policy,
+        )
+        .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let direct_rows = read_rows(&direct_path);
+        assert_eq!(
+            direct_rows,
+            [format!("a|[[1, 2], [10], [20]]|{expected_time}|0|17000000")],
+            "Direct three-source session {label}"
+        );
+        let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+            continue;
+        };
+        let _prism_job = prism_job_lock().lock().await;
+        let portable_pipeline = Pipeline::default();
+        triple_unbounded_session_output_time_fixture(
+            &portable_pipeline,
+            portable_path.clone(),
+            policy,
+        )
+        .unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &portable_pipeline,
+            "triple-session-output-time",
+            HashMap::from([(
+                env_name.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(
+            terminal.0, 3,
+            "Prism three-source session {label}: {terminal:?}"
+        );
+        assert_eq!(
+            read_rows(&portable_path),
+            direct_rows,
+            "three-source session {label}"
         );
     }
 }

@@ -259,6 +259,70 @@ pub fn dual_unbounded_session_join_output_time_fixture(
         )
 }
 
+/// Compare output timestamps when three independent streams merge a session.
+pub fn triple_unbounded_session_output_time_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    let source = |key: &str, rows: Vec<((String, i32), i64)>| -> Result<KeyedStream, Error> {
+        pipeline
+            .test_stream_source(
+                key,
+                vec![
+                    TestStreamEvent::Elements(rows),
+                    TestStreamEvent::AdvanceWatermark(20_000_000),
+                ],
+            )?
+            .session_windows_named(&format!("{key}-window"), 5_000_000)
+    };
+    let first = source(
+        "triple-session-time-first",
+        vec![
+            (("a".to_owned(), 1), 0),
+            (("a".to_owned(), 2), 8_000_000),
+        ],
+    )?;
+    let second = source(
+        "triple-session-time-second",
+        vec![(("a".to_owned(), 10), 4_000_000)],
+    )?;
+    let third = source(
+        "triple-session-time-third",
+        vec![(("a".to_owned(), 20), 12_000_000)],
+    )?;
+    let apply = |values: KeyedStream, key| match policy {
+        ironbeam_core::WindowOutputTime::EndOfWindow => values.end_of_window_output_time_named(key),
+        ironbeam_core::WindowOutputTime::LatestInPane => {
+            values.latest_in_pane_output_time_named(key)
+        }
+        ironbeam_core::WindowOutputTime::EarliestInPane => Ok(values),
+    };
+    let first = apply(first, "triple-session-time-first-policy")?;
+    let second = apply(second, "triple-session-time-second-policy")?;
+    let third = apply(third, "triple-session-time-third-policy")?;
+    first
+        .co_group_homogeneous_named("triple-session-time-group", &[second, third])?
+        .reify_timestamps_named("triple-session-time-reify")?
+        .with_window_named("triple-session-time-window")?
+        .map_named("triple-session-time-row", |(window, (time, (key, mut buckets)))| {
+            for bucket in &mut buckets {
+                bucket.sort_unstable();
+            }
+            format!("{key}|{buckets:?}|{time}|{}|{}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "triple-session-time-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("triple-session-time-result:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink {
+                directory: sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )
+}
+
 pub fn dual_unbounded_cogroup_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
