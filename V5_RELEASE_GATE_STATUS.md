@@ -34,11 +34,16 @@ The remaining release tasks concern Rustdoc quality, user documentation,
 package verification, source cleanup, and green CI. Publication is a separate
 decision; it remains staged.
 
+The [crates.io Trusted Publishing guidance](https://blog.rust-lang.org/2025/07/11/crates-io-development-update-2025-07/)
+requires an initial manual release of each new crate before that crate can use
+the workflow's short-lived token. This registry bootstrap is separate from
+the local Semantic Release simulation.
+
 ## Release snapshot
 
 | Area | Verified scope | Open boundary |
 | --- | --- | --- |
-| Workspace | V5-only root and 33 publishable crates are staged at 5.0.0. | Publication is held. |
+| Workspace | All 35 publishable packages, including `beam-proto` and the root facade, are staged at 5.0.0. | New crate names need an initial manual crates.io publication before Trusted Publishing can be configured. Publication is held. |
 | Direct | V4 reference behavior and v5 helpers pass. Checkpointed unbounded fan-in, joins, session groups, and two independent post-split value-state branches have tested schedules. Distinct branch event timers route to their own sinks. | General stateful DAG fanout, broader timer failure schedules, and complete multi-source session pane agreement. |
 | Portable | The 217 supported nondestructive Prism fixtures passed on Linux; they cover Beam rows, streams, state, timers, grouping, side inputs, I/O, and worker-child replay. | Hosted Dataflow, some session panes, and remote provider replay. |
 | Early count | Fixed and sliding window panes match on Direct and Prism; Direct restores a partial pane after restart. | Wider fan-in and trigger combinations. |
@@ -770,7 +775,7 @@ The separate checkout was not changed.
 | --- | --- |
 | ☑ Core and Direct coverage on current branch; ☑ local workspace and expanded CI verification | The unchanged local Direct package gate passes at **6,463/7,092 lines (91.13%)** and **1,838/2,040 branches (90.10%)**. The local core gate passes at **6,689/6,964 lines (96.05%)** and **1,390/1,610 branches (86.34%)**. On `986a6c4a`, all required PR checks pass, including Clippy, documentation, release configuration, Beam worker and Prism, facade tests, package verification, package coverage, and the v4/v5 feature matrix. The opt-in database proof compiled earlier but was not rerun against live database services after the import. Coverage is a release floor, not a claim that every branch is exercised. |
 | ☑ Performance | The paired million-row corpus matches outputs and passes explicit v5 latency and peak-memory limits. |
-| ☑ Versioning configuration; ☐ registry publication | The public facade and 33 implementation/helper crates are unpublished `5.0.0` candidates. Semantic Release uses the previous Git tag and conventional commits to select the next version; a `major:` commit selects 5.0.0 after v4.1.1. Its workspace adapter synchronizes package versions and local dependency versions, including inherited workspace dependencies, validates dependency order, and publishes every crate before the GitHub release. The release workflow obtains a temporary crates.io token through Trusted Publishing. The four imported crates and root package pass local package verification; publication remains held at the user's request. Registry authorization cannot be exercised before the workflow runs. |
+| ☑ Versioning configuration; ☐ registry publication | All 35 publishable packages are `5.0.0` candidates. Semantic Release selects a major release after v4.1.1 and prepares one changelog entry containing the reviewed summary and generated commit history. A local simulation of its analyzer, notes generator, workspace adapter, and changelog plugin selected 5.0.0 and validated the dependency order. New crate names cannot be introduced through crates.io Trusted Publishing: each needs an initial manual publication, followed by its Trusted Publisher configuration. The manual release workflow must remain undispatched until that bootstrap is complete. Registry authorization and publication are not covered by the local simulation. |
 | ☑ Day-one GCP resource clients | `ironbeam-cloud-gcp` 5.0.0 packages the official Google Rust clients for Storage, Pub/Sub, BigQuery, and Secret Manager. Each service has its own feature; the root facade offers matching features and an aggregate. The client crate's unit tests, isolated feature builds, strict lint, local package verification, all-feature workspace tests, and Zensical guide pass. At the user's direction, no live GCP integration test was run; successful operations, IAM, and hosted Dataflow behavior are not claimed by this gate. |
 
 ### Paired performance gate
