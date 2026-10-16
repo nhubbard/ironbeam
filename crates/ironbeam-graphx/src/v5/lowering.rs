@@ -649,7 +649,9 @@ fn lower(
                 }),
                 side_inputs: side_input_specs(node),
                 requests_finalization: finalization_sinks.contains(key),
-                restriction_coder_id: if is_production_source(node) {
+                restriction_coder_id: if is_production_source(node)
+                    || matches!(node.operation, Operation::SplittableParDo)
+                {
                     ids::CODER_BYTES.into()
                 } else {
                     String::new()
@@ -766,9 +768,8 @@ fn lower(
             }],
             requirements: {
                 if graph.nodes.iter().any(|node| {
-                matches!(node.operation, Operation::Source { .. })
-                    && node.boundedness == Boundedness::Unbounded
-                    && node.semantic_id != "ironbeam/test-stream"
+                is_production_source(node)
+                    || matches!(node.operation, Operation::SplittableParDo)
                 }) {
                     requirements.push(urns::REQUIREMENT_SDF.into());
                 }

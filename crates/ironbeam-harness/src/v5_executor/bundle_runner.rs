@@ -39,6 +39,15 @@ impl BundleRunner for V5BundleExecutor {
             .iter()
             .any(|step| matches!(step, Step::Sdf { .. }))
         {
+            if plan.steps.iter().find_map(|step| match step {
+                Step::Sdf { node_ref, .. } => self.graph.node(&node_ref.key),
+                _ => None,
+            }).is_some_and(|node| matches!(node.operation, Operation::SplittableParDo)) {
+                if plan.steps.iter().any(|step| matches!(step, Step::Sdf { stage: SdfStage::ProcessSizedElements, .. })) {
+                    return self.run_sdf_process(instruction_id, plan).await;
+                }
+                return self.run_offset_sdf_preparation(instruction_id, plan).await;
+            }
             if plan.steps.iter().any(|step| {
                 matches!(
                     step,

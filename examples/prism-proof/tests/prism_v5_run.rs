@@ -397,6 +397,46 @@ async fn run_shared_fixture(
     panic!("Prism {name} job did not reach a terminal state");
 }
 
+#[tokio::test]
+async fn prism_executes_registered_bounded_offset_sdf() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-offsets.txt");
+    let portable_path = directory.path().join("portable-offsets.txt");
+    let direct = Pipeline::default();
+    let sink =
+        ironbeam_prism_proof::bounded_offset_sdf_fixture(&direct, direct_path.clone()).unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    let rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    assert_eq!(rows(&direct_path), ["1", "10", "11", "12", "2", "3"]);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::bounded_offset_sdf_fixture(&portable, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "offset-sdf",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_OFFSET_SDF".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism offset SDF state: {terminal:?}");
+    assert_eq!(rows(&portable_path), rows(&direct_path));
+}
+
 #[cfg(feature = "database-proofs")]
 #[tokio::test]
 async fn prism_reads_and_writes_sqlite_through_the_v5_worker() {

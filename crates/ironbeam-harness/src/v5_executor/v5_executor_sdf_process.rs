@@ -31,17 +31,19 @@ impl V5BundleExecutor {
             .graph
             .node(source_key)
             .ok_or_else(|| anyhow!("v5 SDF source {source_key} is absent from worker"))?;
-        let Operation::Source { progress } = &node.operation else {
-            bail!("v5 SDF process does not name a source");
+        let offset_sdf = match &node.operation {
+            Operation::Source { progress }
+                if node.boundedness == Boundedness::Unbounded
+                    && progress.stable_split_id
+                    && progress.replay != Replay::None
+                    && self.registry.has_unbounded_source(source_key)
+                    && self.registry.has_coder(source_key) => false,
+            Operation::SplittableParDo
+                if node.boundedness == Boundedness::Bounded
+                    && self.registry.has_splittable(source_key)
+                    && self.registry.has_coder(source_key) => true,
+            _ => bail!("v5 SDF process has no registered coded source or offset callback"),
         };
-        if node.boundedness != Boundedness::Unbounded
-            || !progress.stable_split_id
-            || progress.replay == Replay::None
-            || !self.registry.has_unbounded_source(source_key)
-            || !self.registry.has_coder(source_key)
-        {
-            bail!("v5 SDF process has no resumable coded source");
-        }
         let mut collections = HashMap::from([(output_pc.clone(), source_key.to_owned())]);
         let mut consumed = HashSet::new();
         let mut seen_nodes = HashSet::new();
@@ -301,11 +303,93 @@ impl V5BundleExecutor {
             pending.extend_from_slice(&chunk);
             let mut consumed = 0;
             while let Some((windowed, header_len)) =
-                try_decode_windowed_value(&pending[consumed..], false)?
+                try_decode_windowed_value(&pending[consumed..], offset_sdf && node.time.window != Window::Global)?
             {
                 let Some(body_len) = try_sized_body_len(windowed.element)? else {
                     break;
                 };
+                if offset_sdf {
+                    let sized = crate::sdf_offset_wire::decode_sized(&windowed.element[..body_len])?;
+                    let original = sized.pair.restriction;
+                    let tracker = ironbeam_core::OffsetRangeTracker::new(original)?;
+                    let estimator = ironbeam_core::OffsetWatermarkEstimator::new(None);
+                    let elements = self.registry.process_splittable_restriction(
+                        source_key,
+                        &sized.pair.element,
+                        tracker.clone(),
+                        estimator.clone(),
+                    )?;
+                    for element in elements {
+                        self.process_record(
+                            instruction_id,
+                            plan,
+                            Some(source_key),
+                            WireValue {
+                                bytes: element.value,
+                                timestamp_ns: element.timestamp_ns,
+                                window: decode_interval_ns(windowed.interval_millis)?,
+                                pane: windowed.pane,
+                                element_metadata: windowed.element_metadata.map(ToOwned::to_owned),
+                            },
+                            BundleInputs {
+                                side_views: &mut HashMap::new(),
+                                state: None,
+                                timer_data: &source_client,
+                                timer_source_key: None,
+                            },
+                            &mut outputs,
+                        ).await?;
+                    }
+                    let primary = tracker.restriction()?;
+                    if primary.stop < original.stop {
+                        let residual = ironbeam_core::OffsetRange::new(primary.stop, original.stop)?;
+                        let body = crate::sdf_offset_wire::encode_sized(
+                            &crate::sdf_offset_wire::SizedOffsetPair {
+                                pair: crate::sdf_offset_wire::OffsetPair {
+                                    element: sized.pair.element,
+                                    restriction: residual,
+                                },
+                                size: (i128::from(residual.stop) - i128::from(residual.start)) as f64,
+                            },
+                        )?;
+                        let mut encoded = Vec::new();
+                        if let Some((start, end)) = windowed.interval_millis {
+                            encode_interval_windowed_value_with_metadata(
+                                windowed.timestamp_millis,
+                                start,
+                                end,
+                                windowed.pane,
+                                windowed.element_metadata,
+                                &body,
+                                &mut encoded,
+                            )?;
+                        } else {
+                            encode_windowed_value_with_metadata(
+                                windowed.timestamp_millis,
+                                windowed.pane,
+                                windowed.element_metadata,
+                                &body,
+                                &mut encoded,
+                            )?;
+                        }
+                        residual_roots.push(DelayedBundleApplication {
+                            application: Some(BundleApplication {
+                                transform_id: process_id.clone(),
+                                input_id: "in".into(),
+                                element: encoded,
+                                output_watermarks: estimator.current()?.map(|watermark| {
+                                    HashMap::from([("out".into(), protobuf_timestamp(watermark))])
+                                }).unwrap_or_default(),
+                                is_bounded: is_bounded::Enum::Bounded as i32,
+                            }),
+                            requested_time_delay: None,
+                        });
+                    }
+                    input_count += 1;
+                    consumed += header_len + body_len;
+                    if consumed == pending.len() { break; }
+                    continue;
+                }
                 let sized = decode_sized(source_key, &windowed.element[..body_len])?;
                 if !sized.pair.element.is_empty() {
                     bail!("v5 SDF process input is not an empty Impulse trigger");

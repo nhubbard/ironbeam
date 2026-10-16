@@ -170,6 +170,14 @@ pub fn translate_v5(
                 reason: "stateful ParDo needs a registered callback and keyed coder".into(),
             });
         }
+        if matches!(node.operation, Operation::SplittableParDo)
+            && !registry.has_splittable(&node.key)
+        {
+            return Err(V5Error::Unsupported {
+                key: node.key.clone(),
+                reason: "splittable ParDo needs a registered offset callback".into(),
+            });
+        }
     }
     for key in chain.iter().filter(|key| {
         graph
@@ -827,7 +835,9 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             {
                 return Err(V5Error::Wire(format!("stateful DoFn contract differs for {key}")));
             }
-            let expected_restriction = if is_production_source(node) {
+            let expected_restriction = if is_production_source(node)
+                || matches!(node.operation, Operation::SplittableParDo)
+            {
                 ids::CODER_BYTES
             } else {
                 ""
@@ -1064,7 +1074,8 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             )?;
         }
     }
-    if graph.nodes.iter().any(is_production_source) {
+    if graph.nodes.iter().any(|node| is_production_source(node)
+        || matches!(node.operation, Operation::SplittableParDo)) {
         expected_requirements.push(urns::REQUIREMENT_SDF.to_string());
     }
     if translated.pipeline.requirements != expected_requirements {

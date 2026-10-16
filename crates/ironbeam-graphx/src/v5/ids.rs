@@ -19,6 +19,7 @@ pub fn portable_order(graph: &Graph) -> Result<Vec<String>, V5Error> {
             assign_timestamp: true,
             append_sink: true,
             stateful_value: true,
+            splittable_pardo: true,
             // A FinalResult sink publishes at job commit, while this worker
             // currently commits each Fn API bundle independently.
             final_result_sink: false,
@@ -102,6 +103,7 @@ pub fn portable_order(graph: &Graph) -> Result<Vec<String>, V5Error> {
             | Operation::WaitOn
             | Operation::WaitOnWindowed
             | Operation::StatefulParDo { .. }
+            | Operation::SplittableParDo
             | Operation::Output
             | Operation::Sink { .. } => {
                 let parent = node

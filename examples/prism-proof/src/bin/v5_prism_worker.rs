@@ -251,6 +251,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_BOUNDED_CONTRACT") {
         return bounded_map_filter_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_OFFSET_SDF") {
+        return ironbeam_prism_proof::bounded_offset_sdf_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_VALUE_STATE") {
         return bounded_value_state_fixture(pipeline, path.into())
             .map(|_| ())
