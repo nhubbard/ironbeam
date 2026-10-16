@@ -117,7 +117,7 @@ fn global_timed_byte_batch_requires_clock_and_flushes_its_processing_timer() {
     };
     let empty = registry.invoke_timed_firing(key, &firing, None).unwrap();
     assert!(empty.outputs.is_empty());
-    assert!(empty.timers.is_empty());
+    assert_eq!(empty.timers, []);
     let mut invalid = firing.clone();
     invalid.identity.dynamic_tag = "wrong".into();
     assert!(

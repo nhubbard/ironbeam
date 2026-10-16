@@ -666,7 +666,12 @@ element, adds a second element after three milliseconds, and emits the combined
 state when the timer fires. Direct and pinned Prism both emit `1:3`. The fixture
 rounds the deadline up to a whole millisecond for Beam's timer wire format.
 The combined batching helper now uses that clock. Its Direct checkpoint
-recovery proof passes; its Prism worker-loss proof remains open. The
+recovery proof passes. A supervised Prism attempt replaced the execution
+child after the first timed batch; the idempotent sink wrote `[a,b]` once, but
+the job did not resume the second source batch or reach a terminal state within
+30 seconds. Killing at the source cursor instead produced `[a,b]` once and
+still did not finish after 120 seconds. This remains an open worker-loss boundary, and neither
+attempt is a passing recovery proof. The
 pinned Java `GroupIntoBatches` uses the timer service's current relative time
 and holds the output watermark at the earliest buffered event time.
 The exact coverage gates pass after this change: core **6,732/7,008 lines

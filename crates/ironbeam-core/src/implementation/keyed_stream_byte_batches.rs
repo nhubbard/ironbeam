@@ -98,7 +98,7 @@ where
         .timestamps_from_pairs_in_window_named(key)
 }
 
-fn byte_batch_windows_are_millisecond_aligned(window: &Window) -> bool {
+const fn byte_batch_windows_are_millisecond_aligned(window: &Window) -> bool {
     match *window {
         Window::Global => true,
         Window::Fixed { size_ns } => size_ns >= 1_000_000 && size_ns % 1_000_000 == 0,

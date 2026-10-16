@@ -390,6 +390,7 @@ fn unbounded_byte_batch_restores_partial_state_with_source_cursor() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Checkpoint, timer, and source-cursor assertions share one pipeline.
 fn timed_byte_batch_restores_armed_timer_and_source_cursor() {
     let directory = tempfile::tempdir().unwrap();
     let hold = Arc::new(AtomicBool::new(true));
