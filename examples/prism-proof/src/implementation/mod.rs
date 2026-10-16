@@ -38,6 +38,7 @@ include!("object_parquet.rs");
 include!("object_protobuf.rs");
 include!("object_tfrecord.rs");
 include!("object_xml.rs");
+include!("object_binary.rs");
 include!("tfrecord_source.rs");
 include!("multiway_and_batches.rs");
 include!("homogeneous_cogroup.rs");

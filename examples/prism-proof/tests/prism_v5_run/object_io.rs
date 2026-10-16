@@ -1,6 +1,139 @@
 use super::*;
 
 #[tokio::test]
+async fn prism_reopens_streaming_cbor_and_msgpack_prefixes_after_execution_child_loss() {
+    let directory = tempfile::tempdir().unwrap();
+    let object_root = directory.path().join("objects");
+    for (format, name, row) in [
+        (
+            "cbor",
+            "b.cbor",
+            ProductionAvroRow {
+                id: 2,
+                label: "two".into(),
+            },
+        ),
+        (
+            "cbor",
+            "a.cbor",
+            ProductionAvroRow {
+                id: 1,
+                label: "one".into(),
+            },
+        ),
+        (
+            "msgpack",
+            "b.msgpack",
+            ProductionAvroRow {
+                id: 4,
+                label: "four".into(),
+            },
+        ),
+        (
+            "msgpack",
+            "a.msgpack",
+            ProductionAvroRow {
+                id: 3,
+                label: "three".into(),
+            },
+        ),
+    ] {
+        let path = object_root.join("bucket").join(format).join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let pipeline = Pipeline::default();
+        let values = pipeline.from_vec("seed", vec![row]).unwrap();
+        let sink = match format {
+            "cbor" => ironbeam_io_cbor::cbor_sink(&values, "write", path),
+            _ => ironbeam_io_msgpack::msgpack_sink(&values, "write", path),
+        }
+        .unwrap();
+        DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    }
+
+    let expected = [
+        "cbor-1:one",
+        "cbor-2:two",
+        "msgpack-3:three",
+        "msgpack-4:four",
+    ];
+    let direct = Pipeline::default();
+    assert_eq!(
+        ironbeam_prism_proof::portable_object_binary_collection(&direct, &object_root)
+            .unwrap()
+            .collect_seq()
+            .unwrap(),
+        expected
+    );
+    let direct_path = directory.path().join("direct-binary-rows");
+    let direct = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::portable_object_binary_replay_fixture(
+        &direct,
+        &object_root,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    assert_eq!(read_rows(&direct_path), expected);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_path = directory.path().join("portable-binary-rows");
+    let trigger = directory.path().join("binary-replay-trigger");
+    let killed = directory.path().join("killed-binary-child");
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::portable_object_binary_replay_fixture(
+        &portable,
+        &object_root,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "replayed-streaming-provider-binary",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_OBJECT_BINARY_REPLAY_ROOT".into(),
+                object_root.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_OBJECT_BINARY_REPLAY_RESULT".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_PRISM_KILL_OBJECT_BINARY".into(), "1".into()),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism binary replay failed: {terminal:?}");
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap()
+    );
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_reopens_streaming_protobuf_prefix_after_execution_child_loss() {
     let directory = tempfile::tempdir().unwrap();
     let object_root = directory.path().join("objects");

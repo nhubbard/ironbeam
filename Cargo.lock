@@ -3069,6 +3069,7 @@ name = "ironbeam-io-cbor"
 version = "5.0.0"
 dependencies = [
  "ciborium",
+ "ironbeam-cloud-objects",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
@@ -3126,6 +3127,7 @@ dependencies = [
 name = "ironbeam-io-msgpack"
 version = "5.0.0"
 dependencies = [
+ "ironbeam-cloud-objects",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",

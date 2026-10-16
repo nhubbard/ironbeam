@@ -104,6 +104,26 @@ enabled. A portable worker needs the same provider and credentials as the
 submitting process. A local Prism job reopened a two-object prefix after an
 execution child was replaced and committed both messages once.
 
+## CBOR and MessagePack in object storage
+
+`ironbeam-io-cbor` and `ironbeam-io-msgpack` each provide a provider-bound
+streaming source. `cloud_cbor_streaming_uri_source` and
+`cloud_msgpack_streaming_uri_source` read one object; their
+`*_uri_prefix_source` variants fix a sorted set of objects when the graph is
+built. The input is a sequence of encoded records, as written by the
+corresponding format sink. The Rust record type implements `Element` and
+`serde::Deserialize`.
+
+Enable the format crate's `cloud` feature. The root `cloud` feature forwards
+to it when `v5-io-cbor` or `v5-io-msgpack` is selected. Each object is hashed
+when the graph is built and verified again when a worker opens it. A changed
+object fails recovery. The worker streams one object to a temporary file and
+decodes records as requested, so temporary disk use grows with the largest
+object in a source split. Portable workers need access to the same provider
+and credentials as the submitting process.
+The local Prism corpus reopens both prefixes after an execution child is
+replaced and commits each record once.
+
 ## XML in object storage
 
 `cloud_xml_uri_source` reads one XML document through a registered object

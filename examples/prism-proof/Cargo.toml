@@ -21,8 +21,8 @@ ironbeam-coder-row = { workspace = true }
 ironbeam-cloud-objects = { workspace = true }
 ironbeam-io-jsonl = { workspace = true }
 ironbeam-io-avro = { workspace = true, features = ["cloud"] }
-ironbeam-io-msgpack = { workspace = true }
-ironbeam-io-cbor = { workspace = true }
+ironbeam-io-msgpack = { workspace = true, features = ["cloud"] }
+ironbeam-io-cbor = { workspace = true, features = ["cloud"] }
 ironbeam-io-csv = { workspace = true, features = ["cloud"] }
 ironbeam-io-xml = { workspace = true, features = ["cloud"] }
 ironbeam-io-parquet = { workspace = true, features = ["cloud"] }
