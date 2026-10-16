@@ -40,6 +40,7 @@ fn linear_route(
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow

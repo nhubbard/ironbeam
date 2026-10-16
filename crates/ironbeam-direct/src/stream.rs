@@ -401,6 +401,7 @@ fn grouped_stream_route(
             | Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow
@@ -438,6 +439,7 @@ fn linear_stream_input(graph: &Graph, input_key: &str) -> Option<(String, Vec<St
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow
@@ -499,6 +501,7 @@ fn bounded_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<BoundedWai
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow
@@ -572,6 +575,7 @@ fn side_stream_route(
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow
@@ -618,6 +622,7 @@ fn multi_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiWaitStr
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow => after_wait.push(key.to_owned()),
@@ -643,6 +648,7 @@ fn stateful_fanout_route(graph: &Graph, sink_key: &str) -> Option<BoundedSideStr
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow
@@ -703,6 +709,7 @@ fn multi_grouped_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiGrou
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow => after_group.push(key.to_owned()),

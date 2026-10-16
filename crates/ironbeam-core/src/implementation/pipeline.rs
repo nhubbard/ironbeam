@@ -65,6 +65,7 @@ impl Pipeline {
             Operation::Map => ("ironbeam/map".into(), BUILTIN_OPERATION_VERSION),
             Operation::Filter => ("ironbeam/filter".into(), BUILTIN_OPERATION_VERSION),
             Operation::FlatMap => ("ironbeam/flat-map".into(), BUILTIN_OPERATION_VERSION),
+            Operation::SplittableParDo => ("ironbeam/splittable-pardo".into(), BUILTIN_OPERATION_VERSION),
             Operation::AssignTimestamp => (
                 "ironbeam/assign-timestamp".into(),
                 BUILTIN_OPERATION_VERSION,

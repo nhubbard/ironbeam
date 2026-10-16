@@ -180,6 +180,16 @@ impl Graph {
                     "custom operation requires a namespaced ID and major version",
                 ));
             }
+            if matches!(node.operation, Operation::SplittableParDo)
+                && (!node.semantic_id.contains('/')
+                    || node.semantic_id.starts_with("ironbeam/")
+                    || node.semantic_version.major == 0)
+            {
+                return Err(Error::graph(
+                    &node.key,
+                    "splittable ParDo requires an application semantic ID and major version",
+                ));
+            }
             let requires_additional = matches!(
                 node.operation,
                 Operation::WaitOn
@@ -285,6 +295,7 @@ impl Graph {
                         Operation::Map
                             | Operation::AssignTimestamp
                             | Operation::FlatMap
+                            | Operation::SplittableParDo
                             | Operation::Filter
                             | Operation::Flatten
                             | Operation::Reshuffle
@@ -544,6 +555,9 @@ impl Graph {
                 }
                 Operation::StatefulParDo { .. } if !capabilities.stateful_value => {
                     Some("stateful-value".to_string())
+                }
+                Operation::SplittableParDo if !capabilities.splittable_pardo => {
+                    Some("splittable-pardo".to_string())
                 }
                 Operation::Sink { spec }
                     if spec.mode == SinkMode::Append && !capabilities.append_sink =>

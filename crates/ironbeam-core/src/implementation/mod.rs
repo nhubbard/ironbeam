@@ -14,6 +14,8 @@ mod restriction;
 pub use restriction::{
     OffsetRange, OffsetRangeChunks, OffsetRangeTracker, RestrictionSplit, RestrictionTracker,
 };
+mod splittable;
+pub use splittable::{OffsetProcessContext, OffsetWatermarkEstimator};
 mod timer_queue;
 pub use timer_queue::{TimerFiring, TimerIdentity, TimerMutation, TimerQueue, TimerSchedule};
 mod sharded_key;
@@ -27,6 +29,7 @@ include!("stateful_timer_runtime.rs");
 include!("registry.rs");
 include!("pipeline.rs");
 include!("collection.rs");
+include!("splittable_collection.rs");
 include!("side_views.rs");
 include!("grouping.rs");
 include!("session_join.rs");

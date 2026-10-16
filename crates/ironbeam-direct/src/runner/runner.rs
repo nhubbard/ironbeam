@@ -37,6 +37,7 @@ const fn supports_trigger(node: &ironbeam_core::Node, unbounded_source: bool) ->
             | Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::GroupByKey
             | Operation::Output
@@ -93,6 +94,7 @@ impl DirectRunner {
                 ordered_fold: true,
                 batch_map_values: true,
                 stateful_value: true,
+                splittable_pardo: true,
                 append_sink: true,
                 final_result_sink: true,
                 ..Capabilities::default()
@@ -122,6 +124,7 @@ impl DirectRunner {
                 | Operation::Map
                 | Operation::Filter
                 | Operation::FlatMap
+            | Operation::SplittableParDo
                 | Operation::AssignTimestamp
                 | Operation::FixedWindow | Operation::SlidingWindow
             | Operation::SessionWindow

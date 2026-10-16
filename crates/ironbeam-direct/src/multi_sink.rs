@@ -82,6 +82,7 @@ pub(crate) fn prepare(graph: &Graph, registry: &Registry, keys: &[&str]) -> Resu
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow

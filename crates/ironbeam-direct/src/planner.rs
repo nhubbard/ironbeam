@@ -197,6 +197,7 @@ fn lower_inner(
                                 Operation::Map
                                     | Operation::Filter
                                     | Operation::FlatMap
+                                    | Operation::SplittableParDo
                                     | Operation::AssignTimestamp
                                     | Operation::FixedWindow
                                     | Operation::SlidingWindow
@@ -356,6 +357,7 @@ fn lower_routes(
         | Operation::Map
         | Operation::Filter
         | Operation::FlatMap
+        | Operation::SplittableParDo
         | Operation::AssignTimestamp
         | Operation::StatefulParDo { .. }
         | Operation::FixedWindow

@@ -180,6 +180,7 @@ fn checkpointed_group_route(
             Operation::Map
                 | Operation::Filter
                 | Operation::FlatMap
+                | Operation::SplittableParDo
                 | Operation::AssignTimestamp
                 | Operation::FixedWindow
                 | Operation::SlidingWindow
@@ -486,6 +487,7 @@ pub(crate) fn eval(
         Operation::Map
         | Operation::Filter
         | Operation::FlatMap
+        | Operation::SplittableParDo
         | Operation::AssignTimestamp
         | Operation::FixedWindow
         | Operation::SlidingWindow
@@ -571,6 +573,7 @@ pub(crate) fn try_drain_fold_sink(
             Operation::Map
                 | Operation::Filter
                 | Operation::FlatMap
+                | Operation::SplittableParDo
                 | Operation::AssignTimestamp
                 | Operation::FixedWindow
                 | Operation::SlidingWindow
@@ -660,6 +663,7 @@ pub(crate) fn try_wait_sink_route(
             Operation::Map
                 | Operation::Filter
                 | Operation::FlatMap
+                | Operation::SplittableParDo
                 | Operation::AssignTimestamp
                 | Operation::FixedWindow
                 | Operation::SlidingWindow
@@ -765,6 +769,7 @@ fn linear_fold_route(graph: &Graph, from: &str) -> Option<(String, Vec<String>)>
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
+            | Operation::SplittableParDo
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow
