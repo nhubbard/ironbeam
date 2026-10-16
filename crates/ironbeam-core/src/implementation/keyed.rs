@@ -506,6 +506,39 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         sharded.group_into_batches_named(key, batch_size)
     }
 
+    /// Assign each keyed value to a stable shard and batch each shard by
+    /// element count or encoded value bytes. The selector must return the
+    /// same shard bytes when a record is replayed after recovery.
+    pub fn group_into_batches_with_limits_and_sharded_key_named(
+        &self,
+        key: &str,
+        max_count: usize,
+        max_encoded_bytes: usize,
+        shard_semantic_id: &str,
+        shard_version: Version,
+        shard_selector: impl Fn(&K, &V) -> Vec<u8> + Send + Sync + 'static,
+    ) -> Result<PCollection<BeamShardedBatch<K, V>>, Error>
+    where
+        K: BeamPortableKey,
+    {
+        Self::validate_semantic_handler(key, shard_semantic_id, shard_version)?;
+        if max_count == 0 || max_encoded_bytes == 0 {
+            return Err(Error::graph(
+                key,
+                "batch count and encoded byte limits must be positive",
+            ));
+        }
+        let sharded = self.flat_map_registered(
+            &format!("{key}/assign-shard"),
+            Some((shard_semantic_id, shard_version)),
+            move |(user_key, value)| {
+                let shard_id = shard_selector(&user_key, &value);
+                Ok(vec![(BeamShardedKey::new(user_key, shard_id), value)])
+            },
+        )?;
+        sharded.group_into_batches_with_limits_named(key, max_count, max_encoded_bytes)
+    }
+
     fn group_into_batches_with_delay(
         &self,
         key: &str,

@@ -171,6 +171,13 @@ independent partial batches. Unbounded event timestamps used as timer output
 holds must fall on whole milliseconds. Session windows and windows whose ends
 are not whole milliseconds are rejected.
 
+`group_into_batches_with_limits_and_sharded_key_named` applies the same count
+and byte limits after a caller supplied selector assigns each value to a
+stable shard. Its output retains the original key and shard ID. Choose a
+selector that returns the same bytes for a value after recovery; changing its
+semantic version changes the graph identity. A Direct fixture confirms that
+two shards of one hot key keep separate byte counts and batches.
+
 `co_group_homogeneous_named` groups collections whose keys and values have
 the same types. The result is a key and one value vector
 per input. The first vector belongs to the collection on which the method is
