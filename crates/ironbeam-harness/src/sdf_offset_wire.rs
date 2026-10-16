@@ -5,7 +5,7 @@
 //! contains Beam's two-VarInt `OffsetRange.Coder` body.
 
 use anyhow::{bail, Context, Result};
-use ironbeam_core::OffsetRange;
+use ironbeam_core::{OffsetRange, OffsetRangeChunks};
 
 use crate::coders::{decode_length_prefix, encode_length_prefix};
 
@@ -33,21 +33,35 @@ pub fn pair_with_restriction(element: &[u8], restriction: OffsetRange) -> Result
 
 /// Split a finite restriction into consecutive ranges with at most
 /// `max_positions` positions each.
-pub fn split_and_size(pair_body: &[u8], max_positions: u64) -> Result<Vec<Vec<u8>>> {
+pub fn split_and_size(pair_body: &[u8], max_positions: u64) -> Result<OffsetSizedChunks> {
     let pair = decode_pair(pair_body)?;
-    pair.restriction
-        .chunks(max_positions)?
-        .map(|restriction| {
+    Ok(OffsetSizedChunks {
+        element: pair.element,
+        ranges: pair.restriction.chunks(max_positions)?,
+    })
+}
+
+/// Lazy sized restrictions for one input element.
+pub struct OffsetSizedChunks {
+    element: Vec<u8>,
+    ranges: OffsetRangeChunks,
+}
+
+impl Iterator for OffsetSizedChunks {
+    type Item = Result<Vec<u8>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.ranges.next().map(|restriction| {
             let size = (i128::from(restriction.stop) - i128::from(restriction.start)) as f64;
             encode_sized(&SizedOffsetPair {
                 pair: OffsetPair {
-                    element: pair.element.clone(),
+                    element: self.element.clone(),
                     restriction,
                 },
                 size,
             })
         })
-        .collect()
+    }
 }
 
 /// Keep a bounded restriction when Beam requests a drain.

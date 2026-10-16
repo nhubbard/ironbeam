@@ -15,7 +15,10 @@ fn round_trip_matches_beam_kv_coder_shape() {
 fn splitting_and_drain_preserve_every_bounded_position() {
     let range = OffsetRange::new(-2, 5).unwrap();
     let pair = pair_with_restriction(b"item", range).unwrap();
-    let chunks = split_and_size(&pair, 3).unwrap();
+    let chunks = split_and_size(&pair, 3)
+        .unwrap()
+        .collect::<Result<Vec<_>>>()
+        .unwrap();
     let restrictions: Vec<_> = chunks
         .iter()
         .map(|chunk| decode_sized(chunk).unwrap().pair.restriction)
@@ -39,14 +42,17 @@ fn splitting_and_drain_preserve_every_bounded_position() {
     }
     assert!(split_and_size(&pair, 0).is_err());
     let empty = pair_with_restriction(b"item", OffsetRange::new(2, 2).unwrap()).unwrap();
-    assert!(split_and_size(&empty, 3).unwrap().is_empty());
+    assert_eq!(split_and_size(&empty, 3).unwrap().count(), 0);
 }
 
 #[test]
 fn full_signed_span_splits_without_overflow() {
     let pair =
         pair_with_restriction(b"item", OffsetRange::new(i64::MIN, i64::MAX).unwrap()).unwrap();
-    let chunks = split_and_size(&pair, u64::MAX - 1).unwrap();
+    let chunks = split_and_size(&pair, u64::MAX - 1)
+        .unwrap()
+        .collect::<Result<Vec<_>>>()
+        .unwrap();
     assert_eq!(chunks.len(), 2);
     assert_eq!(
         decode_sized(&chunks[0]).unwrap().pair.restriction.start,
