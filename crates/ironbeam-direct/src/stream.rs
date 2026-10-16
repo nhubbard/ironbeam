@@ -2089,7 +2089,9 @@ fn run_grouped_stream(
                 } else {
                     (interval.start_ns, interval.end_ns)
                 };
-                if prior_watermark.is_some_and(|watermark| resolved.end_ns <= watermark) {
+                if !matches!(route.window, Window::Session { .. })
+                    && prior_watermark.is_some_and(|watermark| resolved.end_ns <= watermark)
+                {
                     late_windows.insert(scope);
                 }
                 let entry = folds.entry(scope);
@@ -2208,7 +2210,56 @@ fn run_grouped_stream(
                 &mut written,
             )?;
             for window in closing {
-                let grouped = if route.allowed_lateness_ns > 0 && next_progress.completed {
+                let grouped = if route.allowed_lateness_ns > 0
+                    && matches!(route.window, Window::Session { .. })
+                {
+                    let watermark = next_progress.event_time_ns.unwrap_or(i64::MAX);
+                    if next_progress.completed {
+                        let (mut fold, count) = folds
+                            .remove(&window)
+                            .expect("completed session fold exists");
+                        let (panes, released) = catch_unwind(AssertUnwindSafe(|| {
+                            session_expiry::drain_grouped_session(fold.as_mut(), watermark, true)
+                        }))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(
+                                &route.group_key,
+                                "direct",
+                                "session fold panicked",
+                            ))
+                        })?;
+                        if released > count {
+                            return Err(Error::recovery(
+                                &route.group_key,
+                                "session fold released too many rows",
+                            ));
+                        }
+                        buffered = buffered.checked_sub(count).ok_or_else(|| {
+                            Error::recovery(&route.group_key, "group buffer count underflow")
+                        })?;
+                        panes
+                    } else {
+                        let (fold, count) =
+                            folds.get_mut(&window).expect("active session fold exists");
+                        let (panes, released) = catch_unwind(AssertUnwindSafe(|| {
+                            session_expiry::drain_grouped_session(fold.as_mut(), watermark, false)
+                        }))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(
+                                &route.group_key,
+                                "direct",
+                                "session fold panicked",
+                            ))
+                        })?;
+                        *count = count.checked_sub(released).ok_or_else(|| {
+                            Error::recovery(&route.group_key, "session fold released too many rows")
+                        })?;
+                        buffered = buffered.checked_sub(released).ok_or_else(|| {
+                            Error::recovery(&route.group_key, "group buffer count underflow")
+                        })?;
+                        panes
+                    }
+                } else if route.allowed_lateness_ns > 0 && next_progress.completed {
                     let (mut fold, count) =
                         folds.remove(&window).expect("completed window fold exists");
                     let grouped = catch_unwind(AssertUnwindSafe(|| {

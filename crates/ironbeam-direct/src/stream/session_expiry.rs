@@ -1,7 +1,7 @@
 //! Resolve a keyed session before the Direct reader checks expiry.
 
 use super::{GroupedStreamRoute, WindowFolds};
-use ironbeam_core::{Envelope, Error, Window, WindowInterval};
+use ironbeam_core::{Envelope, Error, FoldSession, Window, WindowInterval};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub(super) fn resolved_group_interval(
@@ -22,3 +22,25 @@ pub(super) fn resolved_group_interval(
         .map_err(|_| Error::execution(&route.group_key, "direct", "window resolution panicked"))??
         .ok_or_else(|| Error::execution(&route.group_key, "direct", "session interval missing"))
 }
+
+pub(super) fn drain_grouped_session(
+    fold: &mut dyn FoldSession,
+    watermark_ns: i64,
+    completed: bool,
+) -> Result<(Vec<Envelope>, usize), Error> {
+    // Final late panes must be emitted before expiry removes retained rows.
+    let (mut panes, final_released) = fold.drain_late_at(Some(watermark_ns), true)?;
+    let (mut on_time, closed_released) = fold.drain_closed(watermark_ns)?;
+    panes.append(&mut on_time);
+    let mut released = final_released.saturating_add(closed_released);
+    if !completed {
+        let (mut late, late_released) = fold.drain_late_at(Some(watermark_ns), false)?;
+        panes.append(&mut late);
+        released = released.saturating_add(late_released);
+    }
+    Ok((panes, released))
+}
+
+#[cfg(test)]
+#[path = "../../tests/unit/stream__session_expiry_tests.rs"]
+mod tests;

@@ -536,6 +536,59 @@ fn closed_session_does_not_suppress_open_session_after_bridge_restore() {
 }
 
 #[test]
+fn late_session_drain_keeps_unrelated_open_session_after_restore() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 10_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 10_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let window = Window::Session { gap_ns: 5_000_000 };
+    let event = |time, value| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, value)),
+        timestamp_ns: time,
+        window: window.clone(),
+        assigned_window: window.assign(time).unwrap(),
+    };
+    let mut fold = registry.open_fold("group").unwrap();
+    fold.add(event(0, 10)).unwrap();
+    fold.add(event(20_000_000, 20)).unwrap();
+    assert_eq!(fold.drain_closed(5_000_000).unwrap().0.len(), 1);
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut resumed = registry.open_fold("group").unwrap();
+    resumed.restore_checkpoint_state(&saved).unwrap();
+    resumed.add(event(0, 30)).unwrap();
+    let (late, released) = resumed.drain_late_at(Some(5_000_000), false).unwrap();
+    assert_eq!(released, 1);
+    assert_eq!(late.len(), 1);
+    assert_eq!(late[0].pane.timing, PaneTiming::Late);
+    assert!(
+        resumed
+            .drain_late_at(Some(15_000_000), true)
+            .unwrap()
+            .0
+            .is_empty()
+    );
+    let (closed, released) = resumed.drain_closed(25_000_000).unwrap();
+    assert_eq!(released, 1);
+    assert_eq!(closed.len(), 1);
+    let (_, values) = *closed
+        .into_iter()
+        .next()
+        .unwrap()
+        .value
+        .downcast::<(i32, Vec<i32>)>()
+        .unwrap();
+    assert_eq!(values, [20]);
+}
+
+#[test]
 fn accumulating_late_group_releases_state_at_expiry() {
     let pipeline = Pipeline::default();
     pipeline

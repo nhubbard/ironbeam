@@ -307,6 +307,16 @@ pub trait FoldSession: Send {
     fn drain_late(&mut self, _final_firing: bool) -> Result<(Vec<Envelope>, usize), Error> {
         Err(Error::unsupported("fold", "runner", "late-window-firing"))
     }
+    /// Fire only closed late windows at this watermark. With `final_firing`,
+    /// fire windows whose allowed lateness has expired. `None` keeps the
+    /// legacy whole-fold behavior for runners that own one window per fold.
+    fn drain_late_at(
+        &mut self,
+        _watermark_ns: Option<i64>,
+        _final_firing: bool,
+    ) -> Result<(Vec<Envelope>, usize), Error> {
+        Err(Error::unsupported("fold", "runner", "watermark-scoped-late-firing"))
+    }
     /// Return a versioned snapshot when this fold supports in-progress recovery.
     fn checkpoint_state(&self) -> Result<Option<Vec<u8>>, Error> {
         Ok(None)

@@ -931,6 +931,14 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
     }
 
     fn drain_late(&mut self, final_firing: bool) -> Result<(Vec<Envelope>, usize), Error> {
+        self.drain_late_at(None, final_firing)
+    }
+
+    fn drain_late_at(
+        &mut self,
+        watermark_ns: Option<i64>,
+        final_firing: bool,
+    ) -> Result<(Vec<Envelope>, usize), Error> {
         if self.allowed_lateness_ns == 0
             || (self.trigger != WindowTrigger::Default && self.trigger.late_count().is_none())
         {
@@ -943,6 +951,18 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
             let interval = assigned_window.ok_or_else(|| Error::incompatible("late pane lacks a window"))?;
             let scope = (key.clone(), interval);
+            if watermark_ns.is_some_and(|watermark| {
+                !self.nonspeculative_base.contains_key(&scope)
+                    || if final_firing {
+                        interval.end_ns.saturating_add(self.allowed_lateness_ns) > watermark
+                    } else {
+                        interval.end_ns > watermark
+                            || interval.end_ns.saturating_add(self.allowed_lateness_ns) <= watermark
+                    }
+            }) {
+                remaining.push((key, values, timestamp_ns, window, assigned_window));
+                continue;
+            }
             let prior = if accumulating {
                 self.fired_value_counts.get(&scope).copied().unwrap_or(0)
             } else {
