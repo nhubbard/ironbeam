@@ -112,6 +112,38 @@ pub fn dual_stream_windowed_side_fixture(
     )
 }
 
+/// Rebuild changing per-window side views after execution-child replacement.
+pub fn dual_stream_windowed_side_replay_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    dual_stream_windowed_side_collection(pipeline)?
+        .flat_map_fallible_named("dual-window-side-replay-row", |row| {
+            if row == "0..2000000:1000000:11"
+                && std::env::var_os("IRONBEAM_V5_PRISM_KILL_DUAL_WINDOWED_SIDE").is_some()
+            {
+                await_supervised_source_replacement(Some(&[1]))?;
+            }
+            Ok(vec![row])
+        })?
+        .sink_named_with_config(
+            "dual-window-side-replay-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("dual-window-side-replay:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// A two-stream completion barrier releases each main window at closure.
 pub fn dual_stream_windowed_wait_collection(
     pipeline: &Pipeline,

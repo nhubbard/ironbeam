@@ -20,6 +20,8 @@ mod ordered_list_state;
 mod pane_triggers;
 #[path = "prism_v5_run/set_state.rs"]
 mod set_state;
+#[path = "prism_v5_run/side_input_replay.rs"]
+mod side_input_replay;
 #[path = "prism_v5_run/timer_state.rs"]
 mod timer_state;
 
