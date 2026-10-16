@@ -29,6 +29,12 @@ pub use job_metrics::{get_job_metrics, DataflowJobMetrics, DataflowMetric, Dataf
 pub use mode::Mode;
 pub use options::{DataflowOptions, DEFAULT_SDK_CONTAINER_IMAGE};
 pub use poll::{is_terminal, list_messages, PollConfig, TERMINAL_STATES};
+#[cfg(any(
+    feature = "gcp-objects",
+    feature = "aws-objects",
+    feature = "azure-objects"
+))]
+pub use runtime::run_v5_from_env_with_hosted_objects;
 pub use runtime::{
     prepare_v5, run_v5, run_v5_from_env, run_v5_from_env_with_object_journal,
     run_v5_from_env_with_object_stores, RunOutcome,

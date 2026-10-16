@@ -12,6 +12,13 @@ describes the local Prism proof and its boundaries. Cloud submission code has
 unit and mock-service tests, while a live hosted Dataflow job has not been
 verified.
 
+For object-backed pipelines, enable `gcp-objects`, `aws-objects`, or
+`azure-objects` and call `run_v5_from_env_with_hosted_objects`. It creates an
+`ObjectStores` registry from the process environment in both driver and worker
+mode. `run_v5_from_env_with_object_stores` accepts a registry assembled by the
+application when it uses a local or custom provider. Hosted service behavior
+still requires a deployment test.
+
 This crate and its companion Beam crates were imported from the local
 `codex/ironbeam-v5-dataflow-alignment` branch of
 `vgough/ironbeam-dataflow` at commit `348f0dc`. The source branch was not

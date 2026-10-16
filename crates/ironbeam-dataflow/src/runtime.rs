@@ -197,6 +197,34 @@ where
     .await
 }
 
+/// Build a portable graph with hosted object providers configured from the
+/// process environment. Enable `gcp-objects`, `aws-objects`, or
+/// `azure-objects` for the URI schemes used by the application. The same
+/// features must be present in the driver and worker binaries. Each process
+/// creates its own clients; workers use their own credentials at first use.
+///
+/// `journal_uri` may refer to any enabled provider. Pass `None` when the
+/// graph does not publish objects that need a finalization journal.
+///
+/// # Errors
+/// Returns an error if the provider runtime, graph, or job fails.
+#[cfg(any(
+    feature = "gcp-objects",
+    feature = "aws-objects",
+    feature = "azure-objects"
+))]
+pub async fn run_v5_from_env_with_hosted_objects<F>(
+    build: F,
+    binary_build_id: &str,
+    journal_uri: Option<String>,
+) -> anyhow::Result<RunOutcome>
+where
+    F: Fn(&ironbeam_core::Pipeline, &ObjectStores) -> anyhow::Result<()>,
+{
+    let stores = Arc::new(ironbeam_cloud_object_store::object_stores_from_env()?);
+    run_v5_from_env_with_object_stores(build, binary_build_id, stores, journal_uri).await
+}
+
 /// Outcome of `run_v5`. `Submitted` is the driver-path result; `HarnessExited`
 /// is returned after harness mode terminates (the Control stream has closed).
 #[derive(Debug)]
