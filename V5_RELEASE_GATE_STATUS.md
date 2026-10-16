@@ -29,7 +29,7 @@ the open cases in this report lack runner proofs.
 | Streaming Count.PerElement | The streaming path uses checkpointable GroupByKey and matches Prism in fixed windows. | An incremental accumulator for heavily used keys. |
 | Two-source sessions | Direct restores merged open sessions across two source cursors. Selected Prism schedules agree. | Intermediate-watermark and late-pane agreement. |
 | Session interval adjacency | Core folding, bounded joins, and multi-source Direct closure keep half-open sessions that only meet at an endpoint separate. A later overlapping event merges both; core checkpoint, bounded join, and multi-source closure fixtures cover this rule. | Pinned Prism has merged a touching pair in a pipeline fixture; runner agreement and late panes remain open. |
-| Active-session expiry | Single-source Direct resolves a candidate against the active keyed session before checking expiry. A restored fold and a resumed unbounded source accept an element whose original interval is past the watermark but whose merged interval remains open. Multi-source grouped state resolves expired candidates across rows with the same encoded key; its unit fixture proves a transitive bridge, another key's drop, and a distant session that stays open. Two-source joins and co-groups now accept a cross-input bridge after the candidate's original expiry and drop a row after closure in end-to-end TestStream fixtures. A local Prism comparison of the single-source schedule is preserved as an ignored diagnostic: Direct emits `1|[1, 2, 3]|0|9000000`, while pinned Prism emits separate `1|[1]|0|5000000` and `1|[2, 3]|0|9000000` rows. | Resolve Prism's intermediate-watermark split or supply equivalent portable execution, then prove multi-source checkpoint recovery at the same boundary. |
+| Active-session expiry | Direct resolves an expired candidate against a still-open keyed session in single-source groups, multi-source groups, joins, and co-groups. Single-source and two-source join recovery fixtures pass; the grouped multi-source state codec passes a save/restore bridge test. | Pinned Prism splits the tested intermediate-watermark session. End-to-end grouped multi-source and co-group recovery at this boundary remain open. |
 | Session allowed lateness | Core rejects nonzero lateness on session windows. Direct resolves active intervals at zero lateness across the tested single-source, grouped multi-source, join, and co-group paths, but on-time and late pane state remains keyed by old intervals. | Implement and prove merge-aware pane lineage, positive-lateness expiry, and recovery before lifting the guard. |
 | Intermediate session watermarks | A pinned Prism case splits a session that Direct merges. | Runner agreement is unproved for this schedule. |
 | Three-input bounded sessions | A pinned Prism case splits a connected session that Direct merges. | Independent-source session resolution. |
@@ -59,6 +59,15 @@ co-groups now resolve expired candidates against active rows with the same
 encoded key. `GroupByKeyFoldState` still tracks on-time and late pane indices
 by the premerge interval; positive-lateness merge and recovery schedules are
 unproved. These gaps keep the public session-lateness guard in place.
+
+#### Active-session expiry evidence
+
+| Path | Observed result |
+| --- | --- |
+| Single-source Direct | An event assigned to `[0, 5)` ns joins an active `[0, 9)` ns session after a six-millisecond watermark. The result survives checkpoint restore. |
+| Multi-source Direct group | A keyed transitive bridge is accepted after state save/restore; an unrelated key is dropped and a distant session stays open. The complete multi-source job checkpoint path remains unproved at this boundary. |
+| Two-source Direct join and co-group | TestStream fixtures accept a cross-input bridge and drop a row after the merged window closes. A join fixture also restores `[0, 9)` ns, accepts an expired-original-interval row from the second source, and emits both pairs once. |
+| Pinned local Prism | The same single-source intermediate-watermark fixture emits `1|[1]|0|5000000` and `1|[2, 3]|0|9000000`; Direct emits `1|[1, 2, 3]|0|9000000`. The equality test is retained as an ignored diagnostic. |
 
 | Acceptance schedule | Required evidence |
 | --- | --- |

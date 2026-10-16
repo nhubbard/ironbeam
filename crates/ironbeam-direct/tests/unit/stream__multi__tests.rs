@@ -152,6 +152,8 @@ fn grouped_multi_source_accepts_expired_candidate_only_for_a_live_keyed_merge() 
     state
         .add(&registry, &route, event(1_i32, 4_i32, 20), None, 10)
         .unwrap();
+    let saved = state.encode(&registry, &route, 10_000).unwrap();
+    state = MultiWindowState::restore(&registry, &route, &saved, state.version(), 0, 10).unwrap();
     state
         .add(&registry, &route, event(1_i32, 1_i32, 0), Some(10), 10)
         .unwrap();

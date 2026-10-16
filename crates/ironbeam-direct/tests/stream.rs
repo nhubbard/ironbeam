@@ -915,7 +915,7 @@ fn two_unbounded_join_waits_for_both_watermarks_and_recovers_open_window() {
 }
 
 #[test]
-fn two_unbounded_session_join_recovers_open_window() {
+fn two_unbounded_session_join_resolves_expired_candidate_after_restore() {
     dual_join_recovers_open_window(true);
 }
 
@@ -953,9 +953,9 @@ fn dual_join_recovers_open_window(session: bool) {
                                     value,
                                     timestamp_ns: if session {
                                         match value {
-                                            11 => 9,
-                                            20 => 5,
-                                            _ => 1,
+                                            11 => 4,
+                                            20 => 0,
+                                            _ => 0,
                                         }
                                     } else {
                                         1
@@ -985,7 +985,10 @@ fn dual_join_recovers_open_window(session: bool) {
                     } else {
                         vec![]
                     };
-                    let first = ready(1, 0, false, first_values);
+                    // In the session case the [0, 5) candidate arrives from
+                    // the side after this watermark and after checkpoint
+                    // restore. The main side's merged [0, 9) session is open.
+                    let first = ready(1, if session { 6 } else { 0 }, false, first_values);
                     let last = ready(2, 20, true, last_values);
                     let polls = match (source_key.as_str(), cursor.as_deref()) {
                         ("main", None) => vec![first, last],
