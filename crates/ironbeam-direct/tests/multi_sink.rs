@@ -1,8 +1,10 @@
 use ironbeam_core::{
     BagStateMutation, Element, Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec,
-    SourceProgress, TypedSink, TypedSourceIterator, Version,
+    SourceProgress, TestStreamEvent, TimedStateResult, TypedSink, TypedSourceIterator,
+    UserTimerDomain, UserTimerRequest, Version,
 };
 use ironbeam_direct::{DirectRunner, JobConfig};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -81,6 +83,147 @@ fn shared_stateful_stage_runs_once_before_two_sink_branches() {
         *first.lock().unwrap(),
         ["1:10:0", "1:20:1", "2:30:0", "1:40:2"]
     );
+}
+
+#[test]
+fn one_stream_branch_can_keep_value_state_after_the_split() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .test_stream_source(
+            "source",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)]),
+                TestStreamEvent::Elements(vec![((1_i32, 5_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+            ],
+        )
+        .unwrap();
+    let left_rows = Arc::new(Mutex::new(Vec::new()));
+    let right_rows = Arc::new(Mutex::new(Vec::new()));
+    let left_capture = Arc::clone(&left_rows);
+    let left = source
+        .stateful_value_map_named::<i32, i32>(
+            "left-state",
+            "tests/branch-state-v1",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let next = prior.unwrap_or(0) + value;
+                Ok((Some(next), next))
+            },
+        )
+        .unwrap()
+        .map_named("left-label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named("left", spec(), move || {
+            Ok(Box::new(Capture {
+                rows: Arc::clone(&left_capture),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    let right_capture = Arc::clone(&right_rows);
+    let right = source
+        .map_named("right-label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named("right", spec(), move || {
+            Ok(Box::new(Capture {
+                rows: Arc::clone(&right_capture),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    DirectRunner
+        .start_stream_sink_pair(&left, &right, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*left_rows.lock().unwrap(), ["1:2", "1:7"]);
+    assert_eq!(*right_rows.lock().unwrap(), ["1:2", "1:5"]);
+}
+
+#[test]
+fn left_stream_branch_routes_its_timer_output_to_only_its_sink() {
+    branch_timer_output_reaches_only_its_sink(false);
+}
+
+#[test]
+fn right_stream_branch_routes_its_timer_output_to_only_its_sink() {
+    branch_timer_output_reaches_only_its_sink(true);
+}
+
+fn branch_timer_output_reaches_only_its_sink(stateful_on_right: bool) {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .test_stream_source(
+            "source",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)]),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+            ],
+        )
+        .unwrap();
+    let stateful_rows = Arc::new(Mutex::new(Vec::new()));
+    let raw_rows = Arc::new(Mutex::new(Vec::new()));
+    let stateful_capture = Arc::clone(&stateful_rows);
+    let stateful = source
+        .stateful_timer_map_named::<i32, i32>(
+            "branch-timer",
+            "tests/branch-timer-v1",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("stateful-label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named("stateful", spec(), move || {
+            Ok(Box::new(Capture {
+                rows: Arc::clone(&stateful_capture),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    let raw_capture = Arc::clone(&raw_rows);
+    let raw = source
+        .map_named("raw-label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named("raw", spec(), move || {
+            Ok(Box::new(Capture {
+                rows: Arc::clone(&raw_capture),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    let (left, right) = if stateful_on_right {
+        (&raw, &stateful)
+    } else {
+        (&stateful, &raw)
+    };
+    DirectRunner
+        .start_stream_sink_pair(left, right, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*stateful_rows.lock().unwrap(), ["1:3"]);
+    assert_eq!(*raw_rows.lock().unwrap(), ["1:3"]);
 }
 
 struct Capture<T> {

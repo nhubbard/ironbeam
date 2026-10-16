@@ -104,7 +104,7 @@ fn pair_processor_honors_cancellation_before_applying_shared_work() {
 }
 
 #[test]
-fn stream_pair_rejects_stateful_stage_after_the_branch() {
+fn stream_pair_runs_one_stateful_branch_after_the_split() {
     let pipeline = Pipeline::default();
     let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
     let left = source
@@ -136,14 +136,26 @@ fn stream_pair_rejects_stateful_stage_after_the_branch() {
         ErrorKind::UnsupportedCapability { ref capability }
             if capability == "multi-output-operation"
     ));
-    let error = prepare_stream_sinks(&graph, &registry, left.key(), right.key())
-        .err()
-        .unwrap();
-    assert!(matches!(
-        error.kind,
-        ErrorKind::UnsupportedCapability { ref capability }
-            if capability == "branch-stateful-stream"
-    ));
+    let plan = prepare_stream_sinks(&graph, &registry, left.key(), right.key()).unwrap();
+    assert_eq!(plan.stateful_key.as_deref(), Some("left-state"));
+    let (left_rows, right_rows) = process_event(
+        Envelope {
+            value: Box::new((1_i32, 2_i32)),
+            timestamp_ns: 0,
+            window: Window::Global,
+            assigned_window: None,
+            pane: PaneInfo::NO_FIRING,
+        },
+        &plan,
+        &registry,
+        &JobConfig::default(),
+        &MetricsState::default(),
+    )
+    .unwrap();
+    assert_eq!(left_rows.len(), 1);
+    assert_eq!(right_rows.len(), 1);
+    assert_eq!(left_rows[0].value.downcast_ref::<String>().unwrap(), "1:2");
+    assert_eq!(right_rows[0].value.downcast_ref::<String>().unwrap(), "1:2");
 }
 
 #[test]

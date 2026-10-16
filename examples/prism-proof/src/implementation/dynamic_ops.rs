@@ -307,6 +307,56 @@ pub fn streaming_value_state_fixture(
         )
 }
 
+/// One TestStream feeds a stateful branch and a stateless branch independently.
+pub fn streaming_branch_value_state_fixture(
+    pipeline: &Pipeline,
+    stateful_directory: PathBuf,
+    stateless_directory: PathBuf,
+) -> Result<(Sink<String>, Sink<String>), Error> {
+    let source = pipeline.test_stream_source(
+        "branch-state-input",
+        vec![
+            TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)]),
+            TestStreamEvent::Elements(vec![((1_i32, 5_i32), 1_000_000)]),
+            TestStreamEvent::AdvanceWatermark(2_000_000),
+        ],
+    )?;
+    let stateful_sink_directory = stateful_directory.clone();
+    let stateful = source
+        .stateful_value_map_named::<i32, i32>(
+            "branch-value-state",
+            "prism-proof/branch-value-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let next = prior.unwrap_or(0) + value;
+                Ok((Some(next), next))
+            },
+        )?
+        .map_named("branch-value-label", |(key, value)| format!("{key}:{value}"))?
+        .sink_named_with_config(
+            "branch-value-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("branch-value-result:{}", stateful_directory.display()),
+            move || Ok(Box::new(IdempotentStateLabelSink {
+                directory: stateful_sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )?;
+    let stateless_sink_directory = stateless_directory.clone();
+    let stateless = source
+        .map_named("branch-raw-label", |(key, value)| format!("{key}:{value}"))?
+        .sink_named_with_config(
+            "branch-raw-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("branch-raw-result:{}", stateless_directory.display()),
+            move || Ok(Box::new(IdempotentStateLabelSink {
+                directory: stateless_sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )?;
+    Ok((stateful, stateless))
+}
+
 /// BagState retains all values for each key across unbounded element batches.
 pub fn streaming_bag_state_fixture(
     pipeline: &Pipeline,

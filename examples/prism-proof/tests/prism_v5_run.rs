@@ -2371,6 +2371,67 @@ async fn prism_matches_direct_unbounded_global_value_state() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_stateful_branch_after_stream_fanout() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_stateful = directory.path().join("direct-branch-state");
+    let direct_raw = directory.path().join("direct-branch-raw");
+    let portable_stateful = directory.path().join("portable-branch-state");
+    let portable_raw = directory.path().join("portable-branch-raw");
+    let direct = Pipeline::default();
+    let (left, right) = ironbeam_prism_proof::streaming_branch_value_state_fixture(
+        &direct,
+        direct_stateful.clone(),
+        direct_raw.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink_pair(&left, &right, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_branch_value_state_fixture(
+        &portable,
+        portable_stateful.clone(),
+        portable_raw.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "streaming-branch-value-state",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_BRANCH_VALUE_STATE".into(),
+                portable_stateful.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_BRANCH_RAW".into(),
+                portable_raw.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism branch state failed: {terminal:?}");
+    let rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    assert_eq!(rows(&direct_stateful), ["1:2", "1:7"]);
+    assert_eq!(rows(&portable_stateful), ["1:2", "1:7"]);
+    assert_eq!(rows(&direct_raw), ["1:2", "1:5"]);
+    assert_eq!(rows(&portable_raw), ["1:2", "1:5"]);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_unbounded_windowed_value_state() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

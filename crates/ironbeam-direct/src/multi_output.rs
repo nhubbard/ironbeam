@@ -142,9 +142,6 @@ fn prepare_routes(
     }
     let stateful_key = stateful.into_iter().next().cloned();
     if let Some(key) = &stateful_key {
-        if !left[..common].contains(key) {
-            return Err(Error::unsupported(key, "direct", "branch-stateful-stream"));
-        }
         let Some(Operation::StatefulParDo { .. }) = graph.node(key).map(|node| &node.operation)
         else {
             return Err(Error::graph(key, "stateful route node missing"));
@@ -231,19 +228,40 @@ pub(crate) fn process_timer_event(
         .stateful_key
         .as_ref()
         .ok_or_else(|| Error::graph(&plan.split_key, "timer output has no stateful stage"))?;
-    let position = plan
-        .common_stages
-        .iter()
-        .position(|stage| stage == key)
-        .ok_or_else(|| Error::graph(key, "stateful stage is not shared"))?;
-    let common = apply_stages(
-        registry,
-        vec![event],
-        &plan.common_stages[position + 1..],
-        config,
-        metrics,
-    )?;
-    split_events(common, plan, registry, config, metrics)
+    if let Some(position) = plan.common_stages.iter().position(|stage| stage == key) {
+        let common = apply_stages(
+            registry,
+            vec![event],
+            &plan.common_stages[position + 1..],
+            config,
+            metrics,
+        )?;
+        return split_events(common, plan, registry, config, metrics);
+    }
+    if let Some(position) = plan.left_stages.iter().position(|stage| stage == key) {
+        let left = apply_stages(
+            registry,
+            vec![event],
+            &plan.left_stages[position + 1..],
+            config,
+            metrics,
+        )?;
+        return Ok((left, Vec::new()));
+    }
+    if let Some(position) = plan.right_stages.iter().position(|stage| stage == key) {
+        let right = apply_stages(
+            registry,
+            vec![event],
+            &plan.right_stages[position + 1..],
+            config,
+            metrics,
+        )?;
+        return Ok((Vec::new(), right));
+    }
+    Err(Error::graph(
+        key,
+        "stateful stage is absent from both branches",
+    ))
 }
 
 fn split_events(

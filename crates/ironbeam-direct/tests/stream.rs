@@ -2371,6 +2371,135 @@ fn stream_pair_shares_source_and_recovers_both_branches() {
 }
 
 #[test]
+fn stream_pair_restores_state_on_only_one_branch() {
+    let temporary = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let hold = Arc::new(AtomicBool::new(true));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let left_values = Arc::new(Mutex::new(Vec::new()));
+    let right_values = Arc::new(Mutex::new(Vec::new()));
+    let source_hold = Arc::clone(&hold);
+    let source_opens = Arc::clone(&opens);
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "branch-state-source-v1".into(),
+            0,
+            move |position| {
+                source_opens.lock().unwrap().push(position.clone());
+                let polls = match position.as_deref() {
+                    None if source_hold.load(Ordering::SeqCst) => vec![batch(1, 1, false)].into(),
+                    None => vec![batch(1, 1, false), batch(2, 2, true)].into(),
+                    Some([1]) if source_hold.load(Ordering::SeqCst) => VecDeque::new(),
+                    Some([1]) => vec![batch(2, 2, true)].into(),
+                    _ => return Err(Error::incompatible("unexpected branch-state cursor")),
+                };
+                Ok(Box::new(Script { polls }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .map_named("keyed", |value| (1_i32, value))
+        .unwrap();
+    let left_accepted = Arc::new(Mutex::new(HashSet::new()));
+    let left = source
+        .stateful_value_map_named::<i32, i32>(
+            "branch-state",
+            "tests/branch-state-checkpoint-v1",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let next = prior.unwrap_or(0) + value;
+                Ok((Some(next), next))
+            },
+        )
+        .unwrap()
+        .map_named("left-value", |(_, value)| value)
+        .unwrap()
+        .sink_named_with_config(
+            "left",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "branch-left-v1".into(),
+            {
+                let values = Arc::clone(&left_values);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&values),
+                        accepted: Arc::clone(&left_accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let right_accepted = Arc::new(Mutex::new(HashSet::new()));
+    let right = source
+        .map_named("right-value", |(_, value)| value)
+        .unwrap()
+        .sink_named_with_config(
+            "right",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "branch-right-v1".into(),
+            {
+                let values = Arc::clone(&right_values);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&values),
+                        accepted: Arc::clone(&right_accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let job = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config(temporary.path()))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while job
+        .progress()
+        .as_ref()
+        .and_then(|progress| progress.checkpoint_position.as_deref())
+        != Some(&[1][..])
+    {
+        assert!(
+            Instant::now() < deadline,
+            "first branch-state batch did not commit"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(*left_values.lock().unwrap(), [1]);
+    assert_eq!(*right_values.lock().unwrap(), [1]);
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    hold.store(false, Ordering::SeqCst);
+    let resumed = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config(temporary.path()))
+        .unwrap();
+    assert_eq!(resumed.wait().unwrap().status(), JobStatus::Succeeded);
+    assert_eq!(*left_values.lock().unwrap(), [1, 3]);
+    assert_eq!(*right_values.lock().unwrap(), [1, 2]);
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
+}
+
+#[test]
 fn stream_pair_replays_from_verified_history_without_duplicate_sink_commits() {
     let temporary = tempfile::tempdir().unwrap();
     let left_values = Arc::new(Mutex::new(Vec::new()));
