@@ -65,7 +65,7 @@ unproved. These gaps keep the public session-lateness guard in place.
 | Path | Observed result |
 | --- | --- |
 | Single-source Direct | An event assigned to `[0, 5)` ns joins an active `[0, 9)` ns session after a six-millisecond watermark. The result survives checkpoint restore. |
-| Multi-source Direct group | A keyed transitive bridge is accepted after state save/restore; an unrelated key is dropped and a distant session stays open. A three-source job checkpoint restores all cursors, accepts the second source's expired-original-interval bridge, and emits the merged group once. |
+| Multi-source Direct group | A keyed transitive bridge is accepted after state save/restore; an unrelated key is dropped and a distant session stays open. A three-source job checkpoint restores all cursors, accepts the second source's expired-original-interval bridge, drops an expired row of another key whose session is distant, and emits each surviving group once. |
 | Two-source Direct join and co-group | TestStream fixtures accept a cross-input bridge and drop a row after the merged window closes. Both recovery fixtures restore `[0, 9)` ns and accept an expired-original-interval row from the second source. The join emits both pairs once; the co-group emits one merged group. |
 | Pinned local Prism | The same single-source intermediate-watermark fixture emits `1|[1]|0|5000000` and `1|[2, 3]|0|9000000`; Direct emits `1|[1, 2, 3]|0|9000000`. The equality test is retained as an ignored diagnostic. |
 

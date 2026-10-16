@@ -1217,8 +1217,11 @@ fn three_source_session_expired_bridge_arrives_after_checkpoint_restart() {
                             (rows, 1, 6_000_000, false)
                         }
                         Some([1]) if !hold.load(Ordering::SeqCst) => {
+                            // Key 1 joins its live [0, 9) session. Key 2's
+                            // [0, 5) candidate cannot reach its [6, 11)
+                            // session and must be dropped after the restart.
                             let rows = if index == 1 {
-                                vec![(1, 10, 0)]
+                                vec![(1, 10, 0), (2, 88, 0)]
                             } else {
                                 Vec::new()
                             };
