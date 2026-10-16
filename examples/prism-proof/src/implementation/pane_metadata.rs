@@ -374,6 +374,57 @@ pub fn dual_count_and_time_late_cogroup_fixture(
         )
 }
 
+/// Three independent sources contribute to one early pane and one late pane.
+pub fn triple_count_and_time_late_cogroup_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let source = |name: &str, first: i32, late: Option<i32>| {
+        let mut events = vec![
+            TestStreamEvent::Elements(vec![((1_i32, first), i64::from(first) * 1_000_000)]),
+            TestStreamEvent::AdvanceWatermark(0),
+            TestStreamEvent::AdvanceProcessingTime(5_000_000),
+            TestStreamEvent::AdvanceWatermark(10_000_000),
+        ];
+        if let Some(value) = late {
+            events.push(TestStreamEvent::Elements(vec![((1_i32, value), i64::from(value) * 1_000_000)]));
+        }
+        events.push(TestStreamEvent::AdvanceWatermark(15_000_000));
+        pipeline
+            .test_stream_source(name, events)?
+            .fixed_windows(&format!("{name}-window"), 10_000_000)?
+            .allowed_lateness_named(&format!("{name}-lateness"), 5_000_000)?
+            .count_and_processing_time_and_late_count_trigger_named(
+                &format!("{name}-trigger"), 3, 5_000_000, 2,
+            )
+    };
+    let sink_directory = directory.clone();
+    source("triple-and-late-first", 2, Some(5))?
+        .co_group_homogeneous_named(
+            "triple-and-late-group",
+            &[
+                source("triple-and-late-second", 4, Some(7))?,
+                source("triple-and-late-third", 6, None)?,
+            ],
+        )?
+        .reify_panes_named("triple-and-late-pane")?
+        .map_named("triple-and-late-row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })?
+        .sink_named_with_config(
+            "triple-and-late-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("triple-and-late:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink {
+                directory: sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )
+}
+
 pub fn dual_count_or_time_cogroup_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
