@@ -3148,6 +3148,17 @@ async fn prism_matches_direct_two_unbounded_merged_session_cogroup() {
     assert_eq!(portable, direct);
 }
 
+const FOUR_JOIN_FANOUT_ROWS: [&str; 8] = [
+    "21|1000000|0..4000000",
+    "23|5000000|4000000..8000000",
+    "31|1000000|0..4000000",
+    "41|1000000|0..4000000",
+    "43|5000000|4000000..8000000",
+    "50|5000000|4000000..8000000",
+    "51|1000000|0..4000000",
+    "60|5000000|4000000..8000000",
+];
+
 #[tokio::test]
 async fn prism_matches_direct_four_join_unbounded_fanout() {
     let directory = tempfile::tempdir().unwrap();
@@ -3170,19 +3181,7 @@ async fn prism_matches_direct_four_join_unbounded_fanout() {
         .wait()
         .unwrap();
     let direct = read_rows(&direct_path);
-    assert_eq!(
-        direct,
-        [
-            "21|1000000|0..4000000",
-            "23|5000000|4000000..8000000",
-            "31|1000000|0..4000000",
-            "41|1000000|0..4000000",
-            "43|5000000|4000000..8000000",
-            "50|5000000|4000000..8000000",
-            "51|1000000|0..4000000",
-            "60|5000000|4000000..8000000",
-        ]
-    );
+    assert_eq!(direct, FOUR_JOIN_FANOUT_ROWS);
 
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
@@ -3202,6 +3201,47 @@ async fn prism_matches_direct_four_join_unbounded_fanout() {
     .await;
     assert_eq!(terminal.0, 3, "Prism four-join fanout state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct);
+}
+
+#[tokio::test]
+async fn prism_recovers_four_join_fanout_after_execution_child_failure() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("recovered-four-join-fanout");
+    let witness = directory.path().join("killed-four-join-child");
+    let pipeline = Pipeline::default();
+    dual_unbounded_join_fanout_fixture(&pipeline, output.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "four-join-unbounded-recovery",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_DUAL_JOIN_FANOUT".into(),
+                output.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_TEST_KILL_DUAL_FANOUT_CHILD".into(),
+                witness.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism four-join recovery state: {terminal:?}"
+    );
+    assert!(witness.exists(), "the first execution child did not fail");
+    let mut rows = std::fs::read_dir(&output)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    rows.sort_unstable();
+    assert_eq!(rows, FOUR_JOIN_FANOUT_ROWS);
 }
 
 #[tokio::test]

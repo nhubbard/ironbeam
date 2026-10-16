@@ -41,6 +41,15 @@ batches for one hot key in bounded and fixed-window streams; a supervised
 Prism job also recovers while processing that batch callback. Automatic
 sharding remains outside the tested API.
 
+One two-source TestStream graph branches into inner, left, right, and full
+joins, then flattens the results into an idempotent sink. Direct and local
+Prism agree on eight matched and unmatched rows with their event times and
+fixed windows. A second Prism job replaces an execution child that exits
+inside the output callback and publishes those eight rows once. Direct has
+a separate checkpoint and failed-commit recovery test for the four-join
+shape. These proofs cover that graph and failure point; other stateful DAG
+shapes still need runner tests.
+
 `BeamRow<S>` embeds its writer schema in the graph and uses Beam's row coder.
 An explicit reader schema can add nullable fields, remove fields, or reorder
 compatible fields, including fields inside nested rows, arrays, iterables,
