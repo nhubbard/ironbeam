@@ -1473,7 +1473,9 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_COUNT_OR_FINALLY") {
         let accumulating = std::env::var("IRONBEAM_V5_PRISM_COUNT_OR_FINALLY_ACCUMULATING")
             .as_deref() == Ok("1");
-        return count_or_finally_trigger_fixture(pipeline, path.into(), accumulating)
+        let final_count = std::env::var("IRONBEAM_V5_PRISM_COUNT_OR_FINALLY_FINAL_COUNT")?
+            .parse()?;
+        return count_or_finally_trigger_fixture(pipeline, path.into(), accumulating, final_count)
             .map(|_| ())
             .map_err(Into::into);
     }

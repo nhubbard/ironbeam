@@ -6,9 +6,10 @@ pub fn count_or_finally_trigger_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
     accumulating: bool,
+    final_count: u64,
 ) -> Result<Sink<String>, Error> {
     let mut events = Vec::new();
-    for values in [[1, 2].as_slice(), &[3, 4], &[5, 6], &[7], &[8, 9]] {
+    for values in [[1, 2].as_slice(), &[3, 4], &[5, 6], &[7], &[8], &[9]] {
         events.push(TestStreamEvent::Elements(
             values.iter().map(|&value| (("a".to_owned(), value), i64::from(value) * 1_000_000)).collect(),
         ));
@@ -18,9 +19,9 @@ pub fn count_or_finally_trigger_fixture(
         .test_stream_source("count-or-finally-events", events)?
         .fixed_windows("count-or-finally-windows", 10_000_000)?;
     let values = if accumulating {
-        values.accumulating_count_or_finally_trigger_named("count-or-finally-trigger", 2, 7)?
+        values.accumulating_count_or_finally_trigger_named("count-or-finally-trigger", 2, final_count)?
     } else {
-        values.count_or_finally_trigger_named("count-or-finally-trigger", 2, 7)?
+        values.count_or_finally_trigger_named("count-or-finally-trigger", 2, final_count)?
     };
     let rows = values
         .group_by_key_named("count-or-finally-group")?
@@ -32,7 +33,7 @@ pub fn count_or_finally_trigger_fixture(
     rows.sink_named_with_config(
         "count-or-finally-result",
         SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
-        format!("count-or-finally-result:{accumulating}:{}", directory.display()),
+        format!("count-or-finally-result:{accumulating}:{final_count}:{}", directory.display()),
         move || Ok(Box::new(IdempotentRowSink { directory: sink_directory.clone(), pending: Vec::new() })),
     )
 }

@@ -14,18 +14,24 @@ async fn prism_matches_direct_count_or_finally_panes() {
         rows.sort();
         rows
     };
-    for accumulating in [false, true] {
-        let direct_path = directory.path().join(format!("direct-{accumulating}"));
+    for (accumulating, final_count) in [(false, 7), (true, 7), (false, 11), (true, 11)] {
+        let direct_path = directory
+            .path()
+            .join(format!("direct-{accumulating}-{final_count}"));
         let direct_pipeline = Pipeline::default();
-        let direct_sink =
-            count_or_finally_trigger_fixture(&direct_pipeline, direct_path.clone(), accumulating)
-                .unwrap();
+        let direct_sink = count_or_finally_trigger_fixture(
+            &direct_pipeline,
+            direct_path.clone(),
+            accumulating,
+            final_count,
+        )
+        .unwrap();
         DirectRunner
             .start_stream_sink(&direct_sink, &JobConfig::default())
             .unwrap()
             .wait()
             .unwrap();
-        let expected = if accumulating {
+        let expected = if (accumulating, final_count) == (true, 7) {
             [
                 "a:[1, 2]:Early:0",
                 "a:[1, 2, 3, 4]:Early:1",
@@ -33,13 +39,29 @@ async fn prism_matches_direct_count_or_finally_panes() {
                 "a:[1, 2, 3, 4, 5, 6, 7]:Early:3",
                 "a:[1, 2, 3, 4, 5, 6, 7, 8, 9]:OnTime:4",
             ]
-        } else {
+        } else if (accumulating, final_count) == (false, 7) {
             [
                 "a:[1, 2]:Early:0",
                 "a:[3, 4]:Early:1",
                 "a:[5, 6]:Early:2",
                 "a:[7]:Early:3",
                 "a:[8, 9]:OnTime:4",
+            ]
+        } else if accumulating {
+            [
+                "a:[1, 2]:Early:0",
+                "a:[1, 2, 3, 4]:Early:1",
+                "a:[1, 2, 3, 4, 5, 6]:Early:2",
+                "a:[1, 2, 3, 4, 5, 6, 7, 8]:Early:3",
+                "a:[1, 2, 3, 4, 5, 6, 7, 8, 9]:OnTime:4",
+            ]
+        } else {
+            [
+                "a:[1, 2]:Early:0",
+                "a:[3, 4]:Early:1",
+                "a:[5, 6]:Early:2",
+                "a:[7, 8]:Early:3",
+                "a:[9]:OnTime:4",
             ]
         };
         let mut expected = expected.map(str::to_owned).to_vec();
@@ -48,13 +70,21 @@ async fn prism_matches_direct_count_or_finally_panes() {
         let Some(endpoint) = endpoint.as_deref() else {
             continue;
         };
-        let portable_path = directory.path().join(format!("portable-{accumulating}"));
+        let portable_path = directory
+            .path()
+            .join(format!("portable-{accumulating}-{final_count}"));
         let pipeline = Pipeline::default();
-        count_or_finally_trigger_fixture(&pipeline, portable_path.clone(), accumulating).unwrap();
+        count_or_finally_trigger_fixture(
+            &pipeline,
+            portable_path.clone(),
+            accumulating,
+            final_count,
+        )
+        .unwrap();
         let terminal = run_shared_fixture(
             endpoint,
             &pipeline,
-            &format!("count-or-finally-{accumulating}"),
+            &format!("count-or-finally-{accumulating}-{final_count}"),
             HashMap::from([
                 (
                     "IRONBEAM_V5_PRISM_COUNT_OR_FINALLY".into(),
@@ -63,6 +93,10 @@ async fn prism_matches_direct_count_or_finally_panes() {
                 (
                     "IRONBEAM_V5_PRISM_COUNT_OR_FINALLY_ACCUMULATING".into(),
                     if accumulating { "1" } else { "0" }.into(),
+                ),
+                (
+                    "IRONBEAM_V5_PRISM_COUNT_OR_FINALLY_FINAL_COUNT".into(),
+                    final_count.to_string(),
                 ),
             ]),
         )
