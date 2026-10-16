@@ -78,6 +78,10 @@ fn explicit_shards_split_one_hot_key_into_independent_batches() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture checks both shard-local batches and transactional limit validation"
+)]
 fn explicit_shards_keep_byte_limits_independent() {
     let pipeline = Pipeline::default();
     let short_bytes = (1_u8, "a".to_owned()).encoded_len().unwrap();
@@ -150,6 +154,24 @@ fn explicit_shards_keep_byte_limits_independent() {
             )
             .is_err()
     );
+    let sentinel = usize::try_from(i64::MAX).unwrap();
+    for (key, count, bytes) in [
+        ("invalid-byte-count-sentinel", sentinel, short_bytes * 2),
+        ("invalid-byte-size-sentinel", 10, sentinel),
+    ] {
+        assert!(
+            source
+                .group_into_batches_with_limits_and_sharded_key_named(
+                    key,
+                    count,
+                    bytes,
+                    "tests/byte-shard-selector",
+                    Version { major: 1, minor: 0 },
+                    |_, _| vec![0],
+                )
+                .is_err()
+        );
+    }
     assert!(
         source
             .group_into_batches_with_limits_and_sharded_key_named(

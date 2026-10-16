@@ -156,7 +156,9 @@ splits a key's values at two elements or 4,096 encoded value bytes, whichever
 comes first. The byte count excludes the key and Beam's window envelope. A
 single value larger than the limit forms a one-value batch. Direct and local
 Prism produce the same batch values in the tested bounded job. The method
-also assigns each batch its own earliest value timestamp. On unbounded input,
+requires both limits to be between 1 and `i64::MAX - 1`, matching Beam's
+reserved maximum sentinel. Each batch receives its earliest value timestamp.
+On unbounded input,
 it keeps a coded partial batch per key and window. Count and byte limits flush
 immediately; an event-time timer flushes the remainder at the end of a
 millisecond-aligned fixed window. Direct checkpoints the partial batch with

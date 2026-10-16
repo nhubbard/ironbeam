@@ -175,7 +175,13 @@ fn bounded_keyed_batches_obey_count_and_encoded_byte_limits() {
 fn byte_limited_batches_reject_invalid_limits_and_build_unbounded_state() {
     let pipeline = Pipeline::default();
     let bounded = pipeline.from_vec("bounded", vec![(1_i32, 2_i32)]).unwrap();
-    for (key, count, bytes) in [("count", 0, 1), ("bytes", 1, 0)] {
+    let sentinel = usize::try_from(i64::MAX).unwrap();
+    for (key, count, bytes) in [
+        ("count", 0, 1),
+        ("bytes", 1, 0),
+        ("count-sentinel", sentinel, 1),
+        ("bytes-sentinel", 1, sentinel),
+    ] {
         let error = bounded
             .group_into_batches_with_limits_named(key, count, bytes)
             .err()
@@ -202,6 +208,8 @@ fn byte_limited_batches_reject_invalid_limits_and_build_unbounded_state() {
     let (graph, _) = pipeline.snapshot().unwrap();
     assert!(graph.node("count").is_none());
     assert!(graph.node("bytes").is_none());
+    assert!(graph.node("count-sentinel").is_none());
+    assert!(graph.node("bytes-sentinel").is_none());
     assert!(graph.node("unbounded-batches").is_some());
     assert!(graph.node("unbounded-batches/byte-state").is_some());
     assert!(graph.node("unaligned-batches").is_none());

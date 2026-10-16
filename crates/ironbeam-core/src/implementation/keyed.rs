@@ -522,10 +522,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         K: BeamPortableKey,
     {
         Self::validate_semantic_handler(key, shard_semantic_id, shard_version)?;
-        if max_count == 0 || max_encoded_bytes == 0 {
+        if !matches!(i64::try_from(max_count), Ok(size) if size > 0 && size < i64::MAX)
+            || !matches!(i64::try_from(max_encoded_bytes), Ok(size) if size > 0 && size < i64::MAX)
+        {
             return Err(Error::graph(
                 key,
-                "batch count and encoded byte limits must be positive",
+                "batch count and encoded byte limits must be in 1..i64::MAX",
             ));
         }
         let sharded = self.flat_map_registered(
@@ -638,10 +640,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         max_count: usize,
         max_encoded_bytes: usize,
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
-        if max_count == 0 || max_encoded_bytes == 0 {
+        if !matches!(i64::try_from(max_count), Ok(size) if size > 0 && size < i64::MAX)
+            || !matches!(i64::try_from(max_encoded_bytes), Ok(size) if size > 0 && size < i64::MAX)
+        {
             return Err(Error::graph(
                 key,
-                "batch count and encoded byte limits must be positive",
+                "batch count and encoded byte limits must be in 1..i64::MAX",
             ));
         }
         if self.parent()?.boundedness == Boundedness::Unbounded {
