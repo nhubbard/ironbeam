@@ -168,6 +168,141 @@ fn global_value_state_recovers_with_source_cursor() {
 }
 
 #[test]
+fn shared_stream_value_state_recovers_both_sink_branches() {
+    let directory = tempfile::tempdir().unwrap();
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let first_rows = Arc::new(Mutex::new(HashSet::new()));
+    let second_rows = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let shared = pipeline
+        .unbounded_source_with_factory(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "shared-value-state-two-batches-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |cursor| {
+                    opens.lock().unwrap().push(cursor.clone());
+                    Ok(Box::new(TwoBatchSource {
+                        cursor,
+                        emitted: false,
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                }
+            },
+        )
+        .unwrap()
+        .stateful_value_map_named::<i32, i32>(
+            "shared-count",
+            "tests/shared-value-state",
+            Version { major: 1, minor: 0 },
+            |_, _, prior| {
+                let next = prior.unwrap_or(0) + 1;
+                Ok((Some(next), next))
+            },
+        )
+        .unwrap()
+        .map_named("shared-label", |(key, count)| format!("{key}:{count}"))
+        .unwrap();
+    let first = shared
+        .sink_named_with_config(
+            "first",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-state-first-v1".into(),
+            {
+                let accepted = Arc::clone(&first_rows);
+                move || {
+                    Ok(Box::new(IdempotentCapture {
+                        accepted: Arc::clone(&accepted),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let second = shared
+        .map_named("copy-label", |label| format!("copy:{label}"))
+        .unwrap()
+        .sink_named_with_config(
+            "second",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-state-second-v1".into(),
+            {
+                let accepted = Arc::clone(&second_rows);
+                move || {
+                    Ok(Box::new(IdempotentCapture {
+                        accepted: Arc::clone(&accepted),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 2,
+            recover: true,
+            binary_build_id: "shared-value-state-test-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let job = DirectRunner
+        .start_stream_sink_pair(&first, &second, &config())
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while job
+        .progress()
+        .and_then(|progress| progress.checkpoint_position)
+        != Some(vec![1])
+    {
+        assert_ne!(job.handle().status(), JobStatus::Failed);
+        assert!(
+            Instant::now() < deadline,
+            "first pair batch was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    DirectRunner
+        .start_stream_sink_pair(&first, &second, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
+    let expected = HashSet::from([
+        "1:1".to_owned(),
+        "1:2".to_owned(),
+        "1:3".to_owned(),
+        "2:1".to_owned(),
+        "2:2".to_owned(),
+    ]);
+    assert_eq!(*first_rows.lock().unwrap(), expected);
+    assert_eq!(
+        *second_rows.lock().unwrap(),
+        expected
+            .into_iter()
+            .map(|row| format!("copy:{row}"))
+            .collect()
+    );
+}
+
+#[test]
 fn global_bag_state_recovers_with_source_cursor() {
     let directory = tempfile::tempdir().unwrap();
     let opens = Arc::new(Mutex::new(Vec::new()));

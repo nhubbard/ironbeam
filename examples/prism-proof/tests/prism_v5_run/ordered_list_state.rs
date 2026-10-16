@@ -66,7 +66,7 @@ async fn prism_matches_direct_bounded_stateful_fanout() {
 }
 
 #[tokio::test]
-async fn prism_runs_unbounded_stateful_fanout_with_direct_gap_recorded() {
+async fn prism_matches_direct_unbounded_stateful_fanout() {
     let directory = tempfile::tempdir().unwrap();
     let direct_first = directory.path().join("direct-stream-state-first");
     let direct_second = directory.path().join("direct-stream-state-second");
@@ -79,15 +79,11 @@ async fn prism_runs_unbounded_stateful_fanout_with_direct_gap_recorded() {
         direct_second.clone(),
     )
     .unwrap();
-    let error = DirectRunner
+    DirectRunner
         .start_stream_sink_pair(&first_sink, &second_sink, &JobConfig::default())
-        .err()
-        .expect("Direct must reject the unsupported shared stateful pair route");
-    assert!(matches!(
-        error.kind,
-        ErrorKind::UnsupportedCapability { ref capability }
-            if capability == "multi-output-operation"
-    ));
+        .unwrap()
+        .wait()
+        .unwrap();
     let rows = |path: &Path| {
         let mut values = std::fs::read_dir(path)
             .unwrap()
@@ -108,6 +104,8 @@ async fn prism_runs_unbounded_stateful_fanout_with_direct_gap_recorded() {
         "0:10000000:copy:2:30:0",
         "10000000:20000000:copy:1:40:0",
     ];
+    assert_eq!(rows(&direct_first), first);
+    assert_eq!(rows(&direct_second), second);
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };

@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 
 pub(crate) struct PairPlan {
     pub(crate) source_key: String,
+    pub(crate) stateful_key: Option<String>,
     split_key: String,
     common_stages: Vec<String>,
     left_stages: Vec<String>,
@@ -20,6 +21,7 @@ fn linear_route(
     graph: &Graph,
     registry: &Registry,
     output_key: &str,
+    allow_stateful: bool,
 ) -> Result<Vec<String>, Error> {
     let mut reversed = Vec::new();
     let mut key = output_key;
@@ -45,6 +47,8 @@ fn linear_route(
                     return Err(Error::unsupported(key, "direct", "transform-function"));
                 }
             }
+            Operation::StatefulParDo { .. }
+                if allow_stateful && registry.has_stateful_value(key) => {}
             _ => return Err(Error::unsupported(key, "direct", "multi-output-operation")),
         }
         key = node
@@ -70,7 +74,7 @@ pub(crate) fn prepare(
             return Err(Error::graph(key, "requested terminal is not an output"));
         }
     }
-    prepare_routes(graph, registry, left_key, right_key)
+    prepare_routes(graph, registry, left_key, right_key, false)
 }
 
 pub(crate) fn prepare_sinks(
@@ -87,7 +91,24 @@ pub(crate) fn prepare_sinks(
             return Err(Error::graph(key, "requested terminal is not a sink"));
         }
     }
-    prepare_routes(graph, registry, left_key, right_key)
+    prepare_routes(graph, registry, left_key, right_key, false)
+}
+
+pub(crate) fn prepare_stream_sinks(
+    graph: &Graph,
+    registry: &Registry,
+    left_key: &str,
+    right_key: &str,
+) -> Result<PairPlan, Error> {
+    for key in [left_key, right_key] {
+        if !graph
+            .node(key)
+            .is_some_and(|node| matches!(node.operation, Operation::Sink { .. }))
+        {
+            return Err(Error::graph(key, "requested terminal is not a sink"));
+        }
+    }
+    prepare_routes(graph, registry, left_key, right_key, true)
 }
 
 fn prepare_routes(
@@ -95,9 +116,10 @@ fn prepare_routes(
     registry: &Registry,
     left_key: &str,
     right_key: &str,
+    allow_stateful: bool,
 ) -> Result<PairPlan, Error> {
-    let left = linear_route(graph, registry, left_key)?;
-    let right = linear_route(graph, registry, right_key)?;
+    let left = linear_route(graph, registry, left_key, allow_stateful)?;
+    let right = linear_route(graph, registry, right_key, allow_stateful)?;
     if left.first() != right.first() {
         return Err(Error::unsupported(
             right_key,
@@ -106,6 +128,32 @@ fn prepare_routes(
         ));
     }
     let common = left.iter().zip(&right).take_while(|(a, b)| a == b).count();
+    let stateful = left
+        .iter()
+        .chain(&right)
+        .filter(|key| registry.has_stateful_value(key))
+        .collect::<std::collections::BTreeSet<_>>();
+    if stateful.len() > 1 {
+        return Err(Error::unsupported(
+            left_key,
+            "direct",
+            "multiple-stream-value-state",
+        ));
+    }
+    let stateful_key = stateful.into_iter().next().cloned();
+    if let Some(key) = &stateful_key {
+        if !left[..common].contains(key) {
+            return Err(Error::unsupported(key, "direct", "branch-stateful-stream"));
+        }
+        let Some(Operation::StatefulParDo { contract, .. }) =
+            graph.node(key).map(|node| &node.operation)
+        else {
+            return Err(Error::graph(key, "stateful route node missing"));
+        };
+        if !contract.timers.is_empty() || contract.on_window_expiration_timer.is_some() {
+            return Err(Error::unsupported(key, "direct", "paired-stream-timers"));
+        }
+    }
     let split_key = &left[common - 1];
     if !registry.has_coder(split_key) {
         return Err(Error::unsupported(
@@ -116,6 +164,7 @@ fn prepare_routes(
     }
     Ok(PairPlan {
         source_key: left[0].clone(),
+        stateful_key,
         split_key: split_key.clone(),
         common_stages: left[1..common].to_vec(),
         left_stages: left[common..].to_vec(),

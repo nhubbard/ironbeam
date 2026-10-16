@@ -504,9 +504,10 @@ when the execution child is replaced during residual reopen. Combining state als
 
 Prism can fan out one unbounded fixed-window bag-state stage into two
 idempotent sinks. A three-batch fixture checks the values and window assigned
-to every row in both sinks. Direct currently rejects a paired streaming route
-with a shared stateful stage; its paired route has no state checkpoint or
-window-expiration handling.
+to every row in both sinks. Direct runs the same paired route for one shared stateful stage without timers.
+Its checkpoint saves that stage’s cells with the source cursor; a restart test
+confirms both sinks receive the later counts. Paired timer-bearing stateful
+stages remain unsupported by Direct.
 
 `stateful_timer_map_named` combines one value cell with declared timer
 families. Its element callback can set or clear a timer for its current key

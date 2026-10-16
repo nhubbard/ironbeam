@@ -1253,7 +1253,7 @@ impl DirectRunner {
                 return Err(Error::unsupported(key, "direct", "idempotent-stream-sink"));
             }
         }
-        let plan = multi_output::prepare_sinks(&graph, &registry, left.key(), right.key())?;
+        let plan = multi_output::prepare_stream_sinks(&graph, &registry, left.key(), right.key())?;
         let source_node = graph
             .node(&plan.source_key)
             .ok_or_else(|| Error::graph(&plan.source_key, "stream source node missing"))?;
@@ -1303,11 +1303,20 @@ impl DirectRunner {
                 )
             })
             .transpose()?;
-        let recovered = checkpoint
-            .as_ref()
-            .map(StreamCheckpoint::load)
-            .transpose()?
-            .flatten();
+        let recovered = if let (Some(key), Some(checkpoint)) = (&plan.stateful_key, &checkpoint) {
+            if let Some((progress, state)) = checkpoint.load_state(config.memory_budget_bytes)? {
+                registry.restore_stateful_value(key, &state)?;
+                Some(progress)
+            } else {
+                None
+            }
+        } else {
+            checkpoint
+                .as_ref()
+                .map(StreamCheckpoint::load)
+                .transpose()?
+                .flatten()
+        };
         #[allow(unused_mut)]
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
@@ -2820,24 +2829,48 @@ fn run_stream_pair(
             if config.cancellation.load(Ordering::Acquire) {
                 return Err(cancelled());
             }
+            let state = plan
+                .stateful_key
+                .as_ref()
+                .map(|key| {
+                    registry.expire_stateful_value(key, batch.progress.event_time_ns)?;
+                    registry.checkpoint_stateful_value(key)
+                })
+                .transpose()?;
+            if state
+                .as_ref()
+                .is_some_and(|bytes| bytes.len() > config.memory_budget_bytes)
+            {
+                return Err(Error::resource(
+                    "stateful-value",
+                    "stream value state exceeds memory budget",
+                ));
+            }
             commit_stream_branch(left_key, &mut left_session)?;
             commit_stream_branch(right_key, &mut right_session)?;
-            Ok(())
+            Ok(state)
         })();
-        if let Err(error) = result {
-            if let Some(session) = &mut left_session {
-                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+        let state = match result {
+            Ok(state) => state,
+            Err(error) => {
+                if let Some(session) = &mut left_session {
+                    let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                }
+                if let Some(session) = &mut right_session {
+                    let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                }
+                return Err(error);
             }
-            if let Some(session) = &mut right_session {
-                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
-            }
-            return Err(error);
-        }
+        };
         let next_progress = merge_progress(progress.as_ref(), batch.progress);
         if let Some(checkpoint) = &checkpoint
             && (next_progress.checkpoint_position.is_some() || next_progress.completed)
         {
-            checkpoint.save(&next_progress)?;
+            if let Some(state) = state {
+                checkpoint.save_state(&next_progress, &state, config.memory_budget_bytes)?;
+            } else {
+                checkpoint.save(&next_progress)?;
+            }
         }
         let total = handle
             .metrics
