@@ -434,6 +434,54 @@ pub fn streaming_global_byte_batches_fixture(
         )
 }
 
+/// Offset windows on either side of the epoch retain separate byte-batch
+/// cells and flush their remainders when the event watermark crosses each end.
+pub fn streaming_offset_byte_batches_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "offset-byte-input",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, "x".to_owned()), -4_000_000),
+                    ((1, "a".to_owned()), -2_000_000),
+                    ((1, "b".to_owned()), 1_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(-3_000_000),
+                TestStreamEvent::AdvanceWatermark(7_000_000),
+            ],
+        )?
+        .fixed_windows_with_offset("offset-byte-window", 10_000_000, 7_000_000)?
+        .group_into_batches_with_limits_named("offset-byte-batches", 10, 1_000)?
+        .reify_timestamps_named("offset-byte-time")?
+        .with_window_named("offset-byte-interval")?
+        .map_named("offset-byte-label", |(window, (timestamp, (key, mut values)))| {
+            values.sort();
+            format!(
+                "{}..{}:{key}:{timestamp}:{values:?}",
+                window.start_ns, window.end_ns
+            )
+        })?
+        .sink_named_with_config(
+            "offset-byte-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("offset-byte-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Two events occupy three overlapping sliding-window byte-batch cells.
 pub fn streaming_sliding_byte_batches_fixture(
     pipeline: &Pipeline,

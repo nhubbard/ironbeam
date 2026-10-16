@@ -6708,6 +6708,57 @@ async fn prism_matches_direct_global_byte_batches_after_watermark() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_offset_byte_batches_across_epoch() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-offset-byte-batches");
+    let portable_path = directory.path().join("portable-offset-byte-batches");
+    let direct = Pipeline::default();
+    let direct_sink =
+        ironbeam_prism_proof::streaming_offset_byte_batches_fixture(&direct, direct_path.clone())
+            .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_offset_byte_batches_fixture(&portable, portable_path.clone())
+        .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "offset-byte-batches",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_OFFSET_BYTE_BATCHES".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism offset byte batches failed: {terminal:?}"
+    );
+    let rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = [
+        "-13000000..-3000000:1:-4000000:[\"x\"]",
+        "-3000000..7000000:1:-2000000:[\"a\", \"b\"]",
+    ];
+    assert_eq!(rows(&direct_path), expected);
+    assert_eq!(rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_replays_byte_batches_after_execution_child_loss() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
