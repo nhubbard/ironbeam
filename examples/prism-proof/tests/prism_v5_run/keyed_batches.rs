@@ -306,3 +306,62 @@ async fn prism_matches_direct_conjunctive_early_and_late_count_panes() {
     );
     assert_eq!(read_rows(&portable_path), expected);
 }
+
+#[tokio::test]
+async fn prism_replays_conjunctive_early_pane_after_execution_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let portable_path = directory.path().join("replayed-and-time-late");
+    let trigger = directory.path().join("early-pane-trigger");
+    let killed = directory.path().join("early-pane-killed");
+    let pipeline = Pipeline::default();
+    count_and_time_late_group_fixture(&pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "replayed-count-and-time-late-group",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_COUNT_AND_TIME_LATE_GROUP".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_KILL_COUNT_AND_TIME_LATE_EARLY".into(),
+                "1".into(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism failed to replay the early pane: {terminal:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap()
+    );
+    let mut rows = std::fs::read_dir(&portable_path)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    rows.sort();
+    assert_eq!(
+        rows,
+        [
+            "a:[2, 3]:Early:true:false:0:-1",
+            "a:[5, 7]:Late:false:false:1:0",
+        ]
+    );
+}

@@ -1,5 +1,26 @@
 struct PaneCheckingSink(GlobalFoldSink<String>);
 
+struct ConjunctiveLateReplaySink(IdempotentRowSink);
+
+impl TypedSink<String> for ConjunctiveLateReplaySink {
+    fn write(&mut self, value: String) -> Result<(), Error> {
+        if value.contains(":Early:")
+            && std::env::var_os("IRONBEAM_V5_PRISM_KILL_COUNT_AND_TIME_LATE_EARLY").is_some()
+        {
+            await_supervised_source_replacement(Some(&[1]))?;
+        }
+        self.0.write(value)
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        self.0.commit()
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        self.0.abort()
+    }
+}
+
 pub fn count_then_processing_time_trigger_collection(
     pipeline: &Pipeline,
     accumulating: bool,
@@ -647,10 +668,10 @@ pub fn count_and_time_late_group_fixture(
             "and-time-late-capture",
             SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
             format!("and-time-late:{}", path.display()),
-            move || Ok(Box::new(IdempotentRowSink {
+            move || Ok(Box::new(ConjunctiveLateReplaySink(IdempotentRowSink {
                 directory: sink_directory.clone(),
                 pending: Vec::new(),
-            })),
+            }))),
         )
 }
 
