@@ -1,4 +1,4 @@
-//! Durable bundle-to-sink mapping for portable finalization callbacks.
+//! Durable bundle-to-sink and source-progress mapping for portable callbacks.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -8,15 +8,17 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use ironbeam_cloud_objects::{ErrorKind as ObjectErrorKind, ObjectLocation, ObjectStores};
-use ironbeam_core::ExecutionIdentity;
+use ironbeam_core::{ExecutionIdentity, ProgressSignal};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// Recorded sinks and completion state for one bundle attempt.
+/// Recorded sinks, source positions, and completion state for one bundle attempt.
 pub struct JournalEntry {
     pub sinks: Vec<String>,
+    /// Source positions to acknowledge after sink finalization.
+    pub sources: Vec<ProgressSignal>,
     pub completed: bool,
 }
 
@@ -42,13 +44,26 @@ impl CompletedFinalizationManifest {
     }
 }
 
-/// Storage for the exact sink set committed by one ProcessBundle response.
+/// Storage for the exact sinks and source positions in one ProcessBundle response.
 /// A callback must never infer this set from fragments found on a worker.
 /// Implementations must durably bind each record to the execution identity,
 /// reject conflicting replays, and make completion idempotent across workers.
 pub trait FinalizationJournal: Send + Sync {
     /// Durably record the exact sink set for one accepted bundle attempt.
     fn record(&self, bundle_id: &str, sinks: &[String]) -> Result<()>;
+    /// Durably record source positions alongside the accepted sink set.
+    /// Implementations without source support must reject nonempty positions.
+    fn record_with_sources(
+        &self,
+        bundle_id: &str,
+        sinks: &[String],
+        sources: &[ProgressSignal],
+    ) -> Result<()> {
+        if !sources.is_empty() {
+            bail!("finalization journal does not support source positions");
+        }
+        self.record(bundle_id, sinks)
+    }
     /// Load a recorded attempt, or return `None` for an unknown bundle ID.
     fn load(&self, bundle_id: &str) -> Result<Option<JournalEntry>>;
     /// Mark a recorded bundle callback complete; repeated calls are idempotent.
@@ -113,6 +128,8 @@ struct Payload {
     identity: ExecutionIdentity,
     bundle_id: String,
     sinks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sources: Vec<ProgressSignal>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -133,38 +150,64 @@ fn encode_record(
     identity: &ExecutionIdentity,
     bundle_id: &str,
     sinks: &[String],
+    sources: &[ProgressSignal],
 ) -> Result<Vec<u8>> {
     if bundle_id.is_empty()
-        || sinks.is_empty()
+        || (sinks.is_empty() && sources.is_empty())
         || sinks.iter().any(String::is_empty)
         || sinks.windows(2).any(|pair| pair[0] >= pair[1])
+        || !valid_sources(sources)
     {
-        bail!("finalization journal requires an ID and sorted, distinct sink keys");
+        bail!("finalization journal requires an ID and valid sinks or sources");
     }
     let payload = Payload {
-        version: 1,
+        version: if sources.is_empty() { 1 } else { 2 },
         identity: identity.clone(),
         bundle_id: bundle_id.into(),
         sinks: sinks.to_vec(),
+        sources: sources.to_vec(),
     };
     let checksum = digest(&serde_json::to_vec(&payload)?);
     Ok(serde_json::to_vec(&Record { payload, checksum })?)
+}
+
+fn valid_sources(sources: &[ProgressSignal]) -> bool {
+    sources.len() <= 4096
+        && sources
+            .iter()
+            .try_fold(0_usize, |total, signal| {
+                total.checked_add(signal.checkpoint_position.as_ref()?.len())
+            })
+            .is_some_and(|total| total <= 8 * 1024 * 1024)
+        && sources.iter().all(|signal| {
+            !signal.source_key.is_empty()
+                && signal.source_key.len() <= 1024
+                && !signal.split_id.is_empty()
+                && signal.split_id.len() <= 1024
+                && signal
+                    .checkpoint_position
+                    .as_ref()
+                    .is_some_and(|position| !position.is_empty() && position.len() <= 1024 * 1024)
+        })
 }
 
 fn decode_record(identity: &ExecutionIdentity, bundle_id: &str, bytes: &[u8]) -> Result<Record> {
     let record: Record = serde_json::from_slice(bytes).context("decode finalization journal")?;
     let encoded = serde_json::to_vec(&record.payload)?;
     if record.checksum != digest(&encoded)
-        || record.payload.version != 1
+        || !matches!(record.payload.version, 1 | 2)
         || record.payload.identity != *identity
         || record.payload.bundle_id != bundle_id
-        || record.payload.sinks.is_empty()
+        || (record.payload.sinks.is_empty() && record.payload.sources.is_empty())
         || record.payload.sinks.iter().any(String::is_empty)
         || record
             .payload
             .sinks
             .windows(2)
             .any(|pair| pair[0] >= pair[1])
+        || !valid_sources(&record.payload.sources)
+        || (record.payload.version == 1 && !record.payload.sources.is_empty())
+        || (record.payload.version == 2 && record.payload.sources.is_empty())
     {
         bail!("finalization journal identity, sink set, or checksum differs");
     }
@@ -310,8 +353,17 @@ impl FileFinalizationJournal {
 
 impl FinalizationJournal for FileFinalizationJournal {
     fn record(&self, bundle_id: &str, sinks: &[String]) -> Result<()> {
+        self.record_with_sources(bundle_id, sinks, &[])
+    }
+
+    fn record_with_sources(
+        &self,
+        bundle_id: &str,
+        sinks: &[String],
+        sources: &[ProgressSignal],
+    ) -> Result<()> {
         let (path, _) = self.paths(bundle_id)?;
-        let bytes = encode_record(&self.identity, bundle_id, sinks)?;
+        let bytes = encode_record(&self.identity, bundle_id, sinks, sources)?;
         create_dir_all_durable(&self.root)?;
         let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
         temp.write_all(&bytes)?;
@@ -349,6 +401,7 @@ impl FinalizationJournal for FileFinalizationJournal {
         }
         Ok(Some(JournalEntry {
             sinks: record.payload.sinks,
+            sources: record.payload.sources,
             completed,
         }))
     }
@@ -472,8 +525,17 @@ impl ObjectFinalizationJournal {
 
 impl FinalizationJournal for ObjectFinalizationJournal {
     fn record(&self, bundle_id: &str, sinks: &[String]) -> Result<()> {
+        self.record_with_sources(bundle_id, sinks, &[])
+    }
+
+    fn record_with_sources(
+        &self,
+        bundle_id: &str,
+        sinks: &[String],
+        sources: &[ProgressSignal],
+    ) -> Result<()> {
         let (uri, _) = self.uris(bundle_id)?;
-        let bytes = encode_record(&self.identity, bundle_id, sinks)?;
+        let bytes = encode_record(&self.identity, bundle_id, sinks, sources)?;
         match self.stores.create(&uri, &bytes) {
             Ok(()) => Ok(()),
             Err(error) if error.kind == ObjectErrorKind::AlreadyExists => {
@@ -504,6 +566,7 @@ impl FinalizationJournal for ObjectFinalizationJournal {
         }
         Ok(Some(JournalEntry {
             sinks: record.payload.sinks,
+            sources: record.payload.sources,
             completed,
         }))
     }

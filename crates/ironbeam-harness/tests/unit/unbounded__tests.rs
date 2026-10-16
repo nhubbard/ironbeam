@@ -87,6 +87,7 @@ fn polls_encoded_values_and_resumes_from_restriction() {
         elements,
         residual: Some(residual),
         watermark_ns,
+        ..
     } = poller.poll(1).unwrap()
     else {
         panic!("expected a resumable data batch");
@@ -137,7 +138,7 @@ fn validates_restriction_before_source_open() {
 }
 
 #[test]
-fn finalized_source_is_rejected_before_reader_open() {
+fn finalized_source_opens_without_calling_its_finalizer() {
     let opened = Arc::new(Mutex::new(Vec::new()));
     let pipeline = Pipeline::default();
     let reader_opened = Arc::clone(&opened);
@@ -159,16 +160,15 @@ fn finalized_source_is_rejected_before_reader_open() {
         )
         .unwrap();
     let (graph, registry) = pipeline.snapshot().unwrap();
-    let error = SourcePoller::open(
+    let mut poller = SourcePoller::open(
         &graph,
         &registry,
         "events",
         SourceRestriction::initial("events"),
     )
-    .err()
-    .expect("portable source finalization is unsupported");
-    assert!(error.to_string().contains("source-bundle-finalization"));
-    assert!(opened.lock().unwrap().is_empty());
+    .unwrap();
+    assert_eq!(poller.poll(1).unwrap(), SourcePoll::Pending);
+    assert_eq!(opened.lock().unwrap().as_slice(), &[None]);
 }
 
 #[test]

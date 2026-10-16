@@ -1,8 +1,43 @@
 use super::*;
-use ironbeam_core::{Error, SinkMode, SinkSpec, TypedSink};
+use ironbeam_core::{
+    Error, SinkMode, SinkSpec, SourceProgress, Timestamped, TypedSink, TypedUnboundedSourceReader,
+    UnboundedPoll, UnboundedSource,
+};
 use ironbeam_io_protobuf::protobuf_fragment_sink;
 
 struct Ordinary;
+
+struct Pending;
+
+impl UnboundedSource<Timestamped<i32>> for Pending {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
+        Ok(UnboundedPoll::Pending)
+    }
+}
+
+#[test]
+fn supervisor_requires_a_journal_for_source_finalization() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .unbounded_source_with_finalizer(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "events-v1".into(),
+            0,
+            |_| Ok(Box::new(Pending) as TypedUnboundedSourceReader<i32>),
+            |_| Ok(()),
+        )
+        .unwrap();
+    assert!(validate_pipeline_with_object_journal(&pipeline, false)
+        .unwrap_err()
+        .to_string()
+        .contains("source events needs a durable finalization journal"));
+    validate_pipeline_with_object_journal(&pipeline, true).unwrap();
+}
 
 impl TypedSink<i32> for Ordinary {
     fn write(&mut self, _: i32) -> Result<(), Error> {

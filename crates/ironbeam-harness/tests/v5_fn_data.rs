@@ -532,6 +532,72 @@ fn sdf_polling_pipeline_with_pending(
     pipeline
 }
 
+fn sdf_finalizing_pipeline(acknowledged: Arc<AtomicUsize>) -> Pipeline {
+    let pipeline = Pipeline::default();
+    pipeline
+        .unbounded_source_with_finalizer(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "finalizing-events-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(SdfScript(
+                    vec![UnboundedPoll::Ready(UnboundedBatch {
+                        elements: vec![Timestamped {
+                            value: UserRow(7),
+                            timestamp_ns: 1_000_000,
+                        }],
+                        progress: ProgressSignal {
+                            source_key: "events".into(),
+                            split_id: "split-a".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(1_000_000),
+                            completed: true,
+                        },
+                    })]
+                    .into(),
+                )) as TypedUnboundedSourceReader<UserRow>)
+            },
+            move |progress| {
+                assert_eq!(progress.checkpoint_position.as_deref(), Some(&[1][..]));
+                acknowledged.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .unwrap()
+        .map_named("double", |row| UserRow(row.0 * 2))
+        .unwrap()
+        .output("result")
+        .unwrap();
+    pipeline
+}
+
+#[tokio::test]
+async fn fn_data_finalizes_source_only_after_bundle_acceptance() {
+    let acknowledged = Arc::new(AtomicUsize::new(0));
+    let pipeline = sdf_finalizing_pipeline(Arc::clone(&acknowledged));
+    let trigger = encode_sized(&SizedSourcePair {
+        pair: SourcePair {
+            element: Vec::new(),
+            restriction: SourceRestriction::initial("events"),
+        },
+        size: 1.0,
+    })
+    .unwrap();
+    let mut record = Vec::new();
+    encode_windowed_value(0, &trigger, &mut record).unwrap();
+    let (response, chunks) = run_sdf_process_bundle(&pipeline, record, false).await;
+    assert!(response.unwrap().requires_finalization);
+    assert_eq!(acknowledged.load(Ordering::SeqCst), 1);
+    assert!(chunks
+        .iter()
+        .any(|chunk| chunk.transform_id == "output" && !chunk.data.is_empty()));
+}
+
 async fn run_sdf_process_bundle(
     pipeline: &Pipeline,
     record: Vec<u8>,
@@ -700,6 +766,12 @@ async fn run_sdf_process_bundle_with_branch(
             .await
             .unwrap()
     };
+    if response
+        .as_ref()
+        .is_ok_and(|result| result.requires_finalization)
+    {
+        runner.finalize_bundle("bundle").await.unwrap();
+    }
     tokio::time::sleep(Duration::from_millis(50)).await;
     let chunks = received.lock().await.clone();
     server.abort();

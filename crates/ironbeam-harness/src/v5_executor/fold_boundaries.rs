@@ -92,6 +92,7 @@ struct BundleFinalizations {
 
 struct FinalizationEntry {
     sinks: Vec<(String, SinkGuard)>,
+    sources: Vec<ProgressSignal>,
     recovered: bool,
     completed: bool,
 }
@@ -104,9 +105,18 @@ impl BundleFinalizations {
         }
     }
 
-    fn register(&self, instruction_id: &str, mut sinks: Vec<(String, SinkGuard)>) -> Result<()> {
-        if instruction_id.is_empty() || sinks.is_empty() {
-            bail!("v5 bundle finalization needs an instruction id and sinks");
+    fn register(&self, instruction_id: &str, sinks: Vec<(String, SinkGuard)>) -> Result<()> {
+        self.register_with_sources(instruction_id, sinks, Vec::new())
+    }
+
+    fn register_with_sources(
+        &self,
+        instruction_id: &str,
+        mut sinks: Vec<(String, SinkGuard)>,
+        sources: Vec<ProgressSignal>,
+    ) -> Result<()> {
+        if instruction_id.is_empty() || (sinks.is_empty() && sources.is_empty()) {
+            bail!("v5 bundle finalization needs an instruction id and callbacks");
         }
         sinks.sort_by(|left, right| left.0.cmp(&right.0));
         if sinks.iter().any(|(key, _)| key.is_empty())
@@ -123,7 +133,7 @@ impl BundleFinalizations {
         }
         if let Some(journal) = &self.journal {
             let keys = sinks.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
-            if let Err(error) = journal.record(instruction_id, &keys) {
+            if let Err(error) = journal.record_with_sources(instruction_id, &keys, &sources) {
                 for (_, sink) in &mut sinks {
                     let _ = sink.session.abort();
                 }
@@ -137,6 +147,7 @@ impl BundleFinalizations {
             instruction_id.into(),
             Arc::new(Mutex::new(FinalizationEntry {
                 sinks,
+                sources,
                 recovered: false,
                 completed: false,
             })),
@@ -181,6 +192,7 @@ impl BundleFinalizations {
                 sinks.reverse();
                 let entry = Arc::new(Mutex::new(FinalizationEntry {
                     sinks,
+                    sources: record.sources,
                     recovered: true,
                     completed: false,
                 }));
@@ -202,6 +214,9 @@ impl BundleFinalizations {
                 sink.finalize()?;
             }
             state.sinks.pop();
+        }
+        for progress in &state.sources {
+            registry.finalize_source_progress(&progress.source_key, progress)?;
         }
         if let Some(journal) = &self.journal {
             journal.complete(instruction_id)?;

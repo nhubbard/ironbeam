@@ -546,6 +546,14 @@ pub(crate) fn validate_pipeline_with_object_journal(
             Operation::Source { progress } if progress.replay == Replay::None => {
                 bail!("supervised source {} has no replay contract", node.key);
             }
+            Operation::Source { .. }
+                if registry.source_requires_finalization(&node.key) && !has_journal =>
+            {
+                bail!(
+                    "supervised source {} needs a durable finalization journal",
+                    node.key
+                );
+            }
             Operation::Sink { spec } => {
                 let finalizing = registry.sink_requires_bundle_finalization(&node.key);
                 if spec.replay != Replay::Idempotent && !finalizing {

@@ -1,8 +1,8 @@
 //! Worker-side polling boundary for a one-split source restriction.
 
 use ironbeam_core::{
-    Boundedness, Error, Graph, Operation, Registry, Replay, UnboundedPoll, UnboundedSourceReader,
-    Window,
+    Boundedness, Error, Graph, Operation, ProgressSignal, Registry, Replay, UnboundedPoll,
+    UnboundedSourceReader, Window,
 };
 use ironbeam_graphx::sdf::{RestrictionError, SourceRestriction};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -29,6 +29,8 @@ pub enum SourcePoll {
     Pending,
     Ready {
         elements: Vec<EncodedSourceElement>,
+        /// Source position associated with these elements.
+        progress: Box<ProgressSignal>,
         /// Residual work for a runner-owned split; absent on completion.
         residual: Option<SourceRestriction>,
         watermark_ns: Option<i64>,
@@ -68,11 +70,6 @@ impl<'a> SourcePoller<'a> {
             || !registry.has_coder(key)
         {
             return Err(Error::unsupported(key, "dataflow-v5", "resumable-coded-source").into());
-        }
-        if registry.source_requires_finalization(key) {
-            return Err(
-                Error::unsupported(key, "dataflow-v5", "source-bundle-finalization").into(),
-            );
         }
         let reader = catch_unwind(AssertUnwindSafe(|| {
             registry.open_unbounded_source(key, restriction.progress.clone())
@@ -161,6 +158,7 @@ impl<'a> SourcePoller<'a> {
             elements,
             residual,
             watermark_ns: batch.progress.event_time_ns,
+            progress: Box::new(batch.progress),
         })
     }
 }

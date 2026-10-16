@@ -16,8 +16,9 @@ use beam_proto::fn_execution_v1::{
 };
 use beam_proto::pipeline_v1::{is_bounded, FunctionSpec, MonitoringInfo};
 use ironbeam_core::{
-    Boundedness, Envelope, Error as CoreError, Graph, Node, Operation, Pipeline, Registry, Replay,
-    SinkMode, SinkSession, TimerFiring, TimerMutation, UserStateKind, Window, WindowInterval,
+    Boundedness, Envelope, Error as CoreError, Graph, Node, Operation, Pipeline, ProgressSignal,
+    Registry, Replay, SinkMode, SinkSession, TimerFiring, TimerMutation, UserStateKind, Window,
+    WindowInterval,
 };
 use ironbeam_graphx::v5::{
     cogroup_flatten_collection_id, cogroup_tag_collection_id, collection_id, execution_identity,

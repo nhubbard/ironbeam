@@ -43,6 +43,7 @@ impl V5BundleExecutor {
                     && self.registry.has_coder(source_key) => true,
             _ => bail!("v5 SDF process has no registered coded source or offset callback"),
         };
+        let mut finalizing_sources = Vec::new();
         let mut collections = HashMap::from([(output_pc.clone(), source_key.to_owned())]);
         let mut consumed = HashSet::new();
         let mut seen_nodes = HashSet::new();
@@ -482,7 +483,7 @@ impl V5BundleExecutor {
                         ready => break Some(ready),
                     }
                 };
-                let (elements, residual, watermark_ns, delay) = match result {
+                let (elements, residual, watermark_ns, delay, source_progress) = match result {
                     None => (
                         Vec::new(),
                         Some(sized.pair.restriction.clone()),
@@ -491,13 +492,15 @@ impl V5BundleExecutor {
                             seconds: 0,
                             nanos: 100_000_000,
                         }),
+                        None,
                     ),
                     Some(SourcePoll::Pending) => unreachable!("loop only exits for a ready poll"),
                     Some(SourcePoll::Ready {
                         elements,
                         residual,
                         watermark_ns,
-                    }) => (elements, residual, watermark_ns, None),
+                        progress,
+                    }) => (elements, residual, watermark_ns, None, Some(*progress)),
                 };
                 for element in elements {
                     self.process_record(
@@ -519,6 +522,14 @@ impl V5BundleExecutor {
                         },
                         &mut outputs,
                     ).await?;
+                }
+                if self.registry.source_requires_finalization(source_key) {
+                    if let Some(progress) = source_progress {
+                        if progress.checkpoint_position.is_none() {
+                            bail!("finalized source produced no checkpoint position");
+                        }
+                        finalizing_sources.push(progress);
+                    }
                 }
                 if let Some(restriction) = residual {
                     let element = encode_sized(&SizedSourcePair {
@@ -581,9 +592,10 @@ impl V5BundleExecutor {
                 finalizing.push((key, sink));
             }
         }
-        let requires_finalization = !finalizing.is_empty();
+        let requires_finalization = !finalizing.is_empty() || !finalizing_sources.is_empty();
         if requires_finalization {
-            self.finalizations.register(instruction_id, finalizing)?;
+            self.finalizations
+                .register_with_sources(instruction_id, finalizing, finalizing_sources)?;
         }
         let mut monitoring_infos = vec![element_count_info(source_pc, input_count)?];
         for step in downstream {

@@ -474,7 +474,8 @@ impl Pipeline {
     /// after the output sinks and checkpoint commit. It retries the saved
     /// position on restart, so the callback must be idempotent. The source
     /// must redeliver unacknowledged records even when reopened at that saved
-    /// position. The portable worker currently rejects finalized sources.
+    /// position. Portable workers invoke the callback from Beam's
+    /// `FinalizeBundle`; supervised workers require a durable journal.
     ///
     /// # Errors
     /// Returns an error for missing replay support or an invalid source digest.

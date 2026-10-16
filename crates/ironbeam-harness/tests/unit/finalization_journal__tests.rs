@@ -14,6 +14,52 @@ fn identity(graph: &str) -> ExecutionIdentity {
     }
 }
 
+fn source_position(cursor: u8) -> ProgressSignal {
+    ProgressSignal {
+        source_key: "events".into(),
+        split_id: "subscription".into(),
+        checkpoint_position: Some(vec![cursor]),
+        event_time_ns: Some(1_000_000),
+        completed: false,
+    }
+}
+
+#[test]
+fn file_and_object_journals_recover_source_positions() {
+    let file_dir = tempfile::tempdir().unwrap();
+    let file = FileFinalizationJournal::new(file_dir.path(), identity("graph")).unwrap();
+    let object_dir = tempfile::tempdir().unwrap();
+    let mut stores = ObjectStores::new();
+    stores
+        .register("file", LocalObjectIO::new(object_dir.path()).unwrap())
+        .unwrap();
+    let object =
+        ObjectFinalizationJournal::new(Arc::new(stores), "file://bucket/jobs/", identity("graph"))
+            .unwrap();
+    for journal in [&file as &dyn FinalizationJournal, &object] {
+        let mut invalid = source_position(7);
+        invalid.checkpoint_position = Some(Vec::new());
+        assert!(journal
+            .record_with_sources("invalid", &[], &[invalid])
+            .is_err());
+        journal
+            .record_with_sources("bundle", &[], &[source_position(7)])
+            .unwrap();
+        journal
+            .record_with_sources("bundle", &[], &[source_position(7)])
+            .unwrap();
+        assert!(journal
+            .record_with_sources("bundle", &[], &[source_position(8)])
+            .is_err());
+        assert_eq!(
+            journal.load("bundle").unwrap().unwrap().sources,
+            vec![source_position(7)]
+        );
+        journal.complete("bundle").unwrap();
+        assert!(journal.load("bundle").unwrap().unwrap().completed);
+    }
+}
+
 #[test]
 fn journal_crash_child() {
     let Ok(directory) = std::env::var("IRONBEAM_FINALIZATION_CHILD_DIRECTORY") else {
@@ -92,6 +138,7 @@ fn journal_reopens_exact_sink_set_and_completed_marker() {
         journal.load("bundle").unwrap(),
         Some(JournalEntry {
             sinks: vec!["a".into(), "z".into()],
+            sources: Vec::new(),
             completed: false,
         })
     );
@@ -230,6 +277,7 @@ fn object_journal_reopens_exact_record_and_rejects_conflicts() {
         journal.load("bundle").unwrap(),
         Some(JournalEntry {
             sinks: vec!["a".into(), "z".into()],
+            sources: Vec::new(),
             completed: false,
         })
     );

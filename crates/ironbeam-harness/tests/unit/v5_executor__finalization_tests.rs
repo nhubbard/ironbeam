@@ -5,7 +5,11 @@ use crate::finalization_journal::{
     FileFinalizationJournal, FinalizationJournal, ObjectFinalizationJournal,
 };
 use ironbeam_cloud_objects::{LocalObjectIO, ObjectStores};
-use ironbeam_core::{Envelope, Error, ExecutionIdentity, Pipeline, Registry, SinkSession, Window};
+use ironbeam_core::{
+    Envelope, Error, ExecutionIdentity, Pipeline, ProgressSignal, Registry, Replay, SinkSession,
+    SourceProgress, Timestamped, TypedUnboundedSourceReader, UnboundedPoll, UnboundedSource,
+    Window,
+};
 use ironbeam_io_protobuf::{
     protobuf_fragment_sink, protobuf_fragment_store, publish_protobuf_fragments,
 };
@@ -17,6 +21,118 @@ use std::sync::{
 struct Finalizable {
     calls: Arc<AtomicUsize>,
     fail_first: bool,
+}
+
+struct PendingSource;
+
+impl UnboundedSource<Timestamped<i32>> for PendingSource {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
+        Ok(UnboundedPoll::Pending)
+    }
+}
+
+#[test]
+fn journaled_source_callback_retries_after_worker_replacement() {
+    let directory = tempfile::tempdir().unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let callback_calls = Arc::clone(&calls);
+    let pipeline = Pipeline::default();
+    pipeline
+        .unbounded_source_with_finalizer(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "events-v1".into(),
+            0,
+            |_| Ok(Box::new(PendingSource) as TypedUnboundedSourceReader<i32>),
+            move |_| {
+                if callback_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    Err(Error::io("events", "test", "injected acknowledgment failure"))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let executor = V5BundleExecutor::new(&pipeline, "build").unwrap();
+    let journal: Arc<dyn FinalizationJournal> = Arc::new(
+        FileFinalizationJournal::new(directory.path(), executor.identity.clone()).unwrap(),
+    );
+    let progress = ProgressSignal {
+        source_key: "events".into(),
+        split_id: "split-0".into(),
+        checkpoint_position: Some(vec![7]),
+        event_time_ns: None,
+        completed: true,
+    };
+    BundleFinalizations::with_journal(Arc::clone(&journal))
+        .register_with_sources("bundle-1", Vec::new(), vec![progress])
+        .unwrap();
+    let replacement = BundleFinalizations::with_journal(Arc::clone(&journal));
+    assert!(replacement.finalize("bundle-1", &registry).is_err());
+    assert!(!journal.load("bundle-1").unwrap().unwrap().completed);
+    replacement.finalize("bundle-1", &registry).unwrap();
+    assert!(journal.load("bundle-1").unwrap().unwrap().completed);
+    BundleFinalizations::with_journal(journal)
+        .finalize("bundle-1", &registry)
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn source_callback_runs_after_sink_finalization() {
+    let sink_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&sink_calls);
+    let pipeline = Pipeline::default();
+    pipeline
+        .unbounded_source_with_finalizer(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "events-order-v1".into(),
+            0,
+            |_| Ok(Box::new(PendingSource) as TypedUnboundedSourceReader<i32>),
+            move |_| {
+                if observed.load(Ordering::SeqCst) != 1 {
+                    return Err(Error::execution("events", "test", "sink finalized too late"));
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let finalizations = BundleFinalizations::default();
+    finalizations
+        .register_with_sources(
+            "bundle",
+            vec![(
+                "sink".into(),
+                SinkGuard {
+                    session: Box::new(Finalizable {
+                        calls: Arc::clone(&sink_calls),
+                        fail_first: false,
+                    }),
+                    committed: true,
+                },
+            )],
+            vec![ProgressSignal {
+                source_key: "events".into(),
+                split_id: "split-0".into(),
+                checkpoint_position: Some(vec![1]),
+                event_time_ns: None,
+                completed: false,
+            }],
+        )
+        .unwrap();
+    finalizations.finalize("bundle", &registry).unwrap();
+    assert_eq!(sink_calls.load(Ordering::SeqCst), 1);
 }
 
 impl SinkSession for Finalizable {
