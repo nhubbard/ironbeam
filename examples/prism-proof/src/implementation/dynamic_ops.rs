@@ -666,6 +666,61 @@ pub fn streaming_windowed_bag_state_fixture(
         )
 }
 
+/// Bag cells in overlapping windows keep duplicate values independently.
+pub fn streaming_sliding_bag_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "sliding-bag-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 6_000_000), ((1, 12), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(8_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 12_000_000)]),
+                TestStreamEvent::AdvanceWatermark(16_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 18_000_000)]),
+                TestStreamEvent::AdvanceWatermark(26_000_000),
+            ],
+        )?
+        .sliding_windows("sliding-bag-window", 10_000_000, 5_000_000, 0)?
+        .stateful_bag_map_named::<i32, (i32, i32, i32)>(
+            "sliding-bag-count",
+            "prism-proof/sliding-key-bag-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior: Vec<i32>| {
+                Ok((
+                    BagStateMutation::Append(vec![value]),
+                    (
+                        value,
+                        i32::try_from(prior.iter().filter(|item| **item == value).count())
+                            .expect("fixture bag fits i32"),
+                        i32::try_from(prior.len()).expect("fixture bag fits i32"),
+                    ),
+                ))
+            },
+        )?
+        .map_named("sliding-bag-label", |(key, (value, duplicates, size))| {
+            format!("{key}:{value}:{duplicates}:{size}")
+        })?
+        .sink_named_with_config(
+            "sliding-bag-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("sliding-bag-state:{}", directory.display()),
+            move || {
+                Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                })))
+            },
+        )
+}
+
 /// Mutation and duplicate-content contract for one Beam bag cell per key.
 pub fn bounded_bag_mutations_fixture(
     pipeline: &Pipeline,
