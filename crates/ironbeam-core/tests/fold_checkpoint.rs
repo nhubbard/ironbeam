@@ -257,6 +257,7 @@ fn older_late_fold_state_restores_non_speculative_pane_number() {
     assert_eq!(fold.drain_closed(10_000_000).unwrap().0[0].pane.index, 0);
     let mut saved: serde_json::Value =
         serde_json::from_slice(&fold.checkpoint_state().unwrap().unwrap()).unwrap();
+    saved["version"]["minor"] = 0.into();
     saved["fired_panes"][0]
         .as_object_mut()
         .unwrap()
@@ -408,6 +409,118 @@ fn session_group_checkpoint_merges_bridge_after_restore() {
             ),
         ]
     );
+}
+
+#[test]
+fn closed_session_lineage_survives_checkpoint_for_late_bridge() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 10_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    // The graph guard remains until runner semantics are complete. Exercise
+    // the fold's session state through a configured positive-lateness fold.
+    let window = Window::Session { gap_ns: 5_000_000 };
+    let event = |time, value| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, value)),
+        timestamp_ns: time,
+        window: window.clone(),
+        assigned_window: window.assign(time).unwrap(),
+    };
+    let mut fold = registry.open_fold("group").unwrap();
+    fold.add(event(0, 2)).unwrap();
+    assert_eq!(fold.drain_closed(5_000_000).unwrap().0.len(), 1);
+    assert!(fold.drain_closed(10_000_000).unwrap().0.is_empty());
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut corrupt: serde_json::Value = serde_json::from_slice(&saved).unwrap();
+    let duplicate = corrupt["session_lineage"][0].clone();
+    corrupt["session_lineage"]
+        .as_array_mut()
+        .unwrap()
+        .push(duplicate);
+    assert_eq!(
+        registry
+            .open_fold("group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&corrupt).unwrap())
+            .unwrap_err()
+            .kind,
+        ErrorKind::Recovery
+    );
+    let mut resumed = registry.open_fold("group").unwrap();
+    resumed.restore_checkpoint_state(&saved).unwrap();
+    let bridge = event(4_000_000, 3);
+    assert_eq!(
+        resumed.resolved_interval(&bridge).unwrap(),
+        Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 9_000_000
+        })
+    );
+    resumed.add(bridge).unwrap();
+    let (late, released) = resumed.drain_late(false).unwrap();
+    assert_eq!(released, 1);
+    assert_eq!(late.len(), 1);
+    assert_eq!(late[0].assigned_window.unwrap().start_ns, 0);
+    assert_eq!(late[0].pane.timing, PaneTiming::Late);
+    assert_eq!(late[0].pane.index, 1);
+    assert!(resumed.drain_closed(19_000_000).unwrap().0.is_empty());
+    assert_eq!(
+        resumed.resolved_interval(&event(4_000_000, 4)).unwrap(),
+        Some(WindowInterval {
+            start_ns: 4_000_000,
+            end_ns: 9_000_000
+        })
+    );
+    let expired: serde_json::Value =
+        serde_json::from_slice(&resumed.checkpoint_state().unwrap().unwrap()).unwrap();
+    assert!(expired["session_lineage"].is_null());
+    assert!(expired["fired_panes"].is_null());
+}
+
+#[test]
+fn accumulating_late_group_releases_state_at_expiry() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .accumulating_late_count_trigger_named("trigger", 1)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut fold = registry.open_fold("group").unwrap();
+    fold.add(Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, 2_i32)),
+        timestamp_ns: 2_000_000,
+        window: Window::Fixed {
+            size_ns: 10_000_000,
+        },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10_000_000,
+        }),
+    })
+    .unwrap();
+    assert_eq!(fold.drain_closed(10_000_000).unwrap().0.len(), 1);
+    let (closed, released) = fold.drain_closed(15_000_000).unwrap();
+    assert!(closed.is_empty());
+    assert_eq!(released, 1);
+    let saved: serde_json::Value =
+        serde_json::from_slice(&fold.checkpoint_state().unwrap().unwrap()).unwrap();
+    assert!(saved["groups"].as_array().unwrap().is_empty());
 }
 
 #[test]

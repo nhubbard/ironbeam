@@ -241,6 +241,7 @@ struct GroupByKeyFoldState<K, V> {
     global_indices: HashMap<K, usize>,
     window_indices: HashMap<(K, WindowInterval), usize>,
     session_indices: HashMap<K, Vec<usize>>,
+    session_lineage: HashMap<K, Vec<WindowInterval>>,
     fired_panes: HashMap<(K, WindowInterval), i64>,
     nonspeculative_base: HashMap<(K, WindowInterval), i64>,
     fired_value_counts: HashMap<(K, WindowInterval), usize>,
@@ -279,6 +280,14 @@ struct GroupFoldCheckpoint {
     groups: Vec<GroupFoldCheckpointRow>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     fired_panes: Vec<GroupFoldCheckpointPane>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    session_lineage: Vec<GroupFoldCheckpointSession>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct GroupFoldCheckpointSession {
+    key: Vec<u8>,
+    interval: WindowInterval,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -307,9 +316,64 @@ struct GroupFoldCheckpointRow {
     processing_ready: bool,
 }
 
-const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 0 };
+const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 1 };
+const PRE_LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 0 };
 
 impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
+    fn record_session_interval(&mut self, key: &K, mut interval: WindowInterval) -> WindowInterval {
+        if self.allowed_lateness_ns == 0 {
+            return interval;
+        }
+        let active = self.session_lineage.entry(key.clone()).or_default();
+        let mut absorbed = Vec::new();
+        active.retain(|prior| {
+            if interval.start_ns < prior.end_ns && prior.start_ns < interval.end_ns {
+                interval.start_ns = interval.start_ns.min(prior.start_ns);
+                interval.end_ns = interval.end_ns.max(prior.end_ns);
+                absorbed.push(*prior);
+                false
+            } else {
+                true
+            }
+        });
+        active.push(interval);
+        for prior in absorbed {
+            if prior == interval {
+                continue;
+            }
+            let old = (key.clone(), prior);
+            let new = (key.clone(), interval);
+            if let Some(index) = self.fired_panes.remove(&old) {
+                self.fired_panes
+                    .entry(new.clone())
+                    .and_modify(|next| *next = (*next).max(index))
+                    .or_insert(index);
+            }
+            if let Some(base) = self.nonspeculative_base.remove(&old) {
+                self.nonspeculative_base
+                    .entry(new.clone())
+                    .and_modify(|current| *current = (*current).min(base))
+                    .or_insert(base);
+            }
+            if let Some(count) = self.fired_value_counts.remove(&old) {
+                self.fired_value_counts
+                    .entry(new.clone())
+                    .and_modify(|current| *current = current.saturating_add(count))
+                    .or_insert(count);
+            }
+            if let Some(deadline) = self.processing_deadlines.remove(&old) {
+                self.processing_deadlines
+                    .entry(new.clone())
+                    .and_modify(|current| *current = (*current).min(deadline))
+                    .or_insert(deadline);
+            }
+            if self.processing_ready.remove(&old) {
+                self.processing_ready.insert(new);
+            }
+        }
+        interval
+    }
+
     fn rebuild_indices(&mut self) {
         self.global_indices.clear();
         self.window_indices.clear();
@@ -338,6 +402,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
             let Some(mut merged) = assigned_window else {
                 return;
             };
+            merged = self.record_session_interval(&group_key, merged);
             let matches = self
                 .session_indices
                 .get(&group_key)
@@ -464,6 +529,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             .value
             .downcast_ref::<(K, V)>()
             .ok_or_else(|| Error::execution(&self.key, "direct", "group input type mismatch"))?;
+        if self.allowed_lateness_ns > 0 {
+            for interval in self.session_lineage.get(group_key).into_iter().flatten() {
+                if merged.start_ns < interval.end_ns && interval.start_ns < merged.end_ns {
+                    merged.start_ns = merged.start_ns.min(interval.start_ns);
+                    merged.end_ns = merged.end_ns.max(interval.end_ns);
+                }
+            }
+            return Ok(Some(merged));
+        }
         for &index in self.session_indices.get(group_key).into_iter().flatten() {
             let interval = self.groups[index]
                 .4
@@ -731,15 +805,23 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let accumulating_late = self.trigger.late_count().is_some() && self.trigger.is_accumulating();
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
             if assigned_window.is_some_and(|interval| interval.end_ns <= watermark_ns) {
+                let interval = assigned_window.unwrap();
+                let expired = interval.end_ns.saturating_add(self.allowed_lateness_ns)
+                    <= watermark_ns;
                 if self.allowed_lateness_ns > 0
-                    && self.nonspeculative_base.contains_key(&(key.clone(), assigned_window.unwrap()))
+                    && self.nonspeculative_base.contains_key(&(key.clone(), interval))
                 {
-                    remaining.push((key, values, timestamp_ns, window, assigned_window));
+                    if expired {
+                        released = released.saturating_add(values.len());
+                    } else {
+                        remaining.push((key, values, timestamp_ns, window, assigned_window));
+                    }
                     continue;
                 }
                 let value_count = values.len();
-                let scope = (key.clone(), assigned_window.unwrap());
-                let output_values = if accumulating_late {
+                let scope = (key.clone(), interval);
+                let retain_for_late = accumulating_late && !expired;
+                let output_values = if retain_for_late {
                     let copied = Vec::<V>::decode(&values.encode()?)?;
                     remaining.push((key.clone(), values, timestamp_ns, window.clone(), assigned_window));
                     copied
@@ -760,12 +842,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 if self.allowed_lateness_ns > 0 {
                     self.nonspeculative_base.insert(scope.clone(), index);
                 }
-                if accumulating_late {
+                if retain_for_late {
                     self.fired_value_counts.insert(scope.clone(), value_count);
                 } else {
                     self.fired_value_counts.remove(&scope);
                 }
-                let latest = if accumulating_late {
+                let latest = if retain_for_late {
                     self.latest_timestamps.get(&scope).copied()
                 } else {
                     self.latest_timestamps.remove(&scope)
@@ -789,6 +871,32 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             }
         }
         self.groups = remaining;
+        let expired_sessions = self
+            .session_lineage
+            .iter()
+            .flat_map(|(key, intervals)| {
+                intervals
+                    .iter()
+                    .filter(|interval| {
+                        interval.end_ns.saturating_add(self.allowed_lateness_ns) <= watermark_ns
+                    })
+                    .map(|interval| (key.clone(), *interval))
+            })
+            .collect::<HashSet<_>>();
+        self.session_lineage.retain(|_, intervals| {
+            intervals.retain(|interval| {
+                interval.end_ns.saturating_add(self.allowed_lateness_ns) > watermark_ns
+            });
+            !intervals.is_empty()
+        });
+        if !expired_sessions.is_empty() {
+            self.fired_panes.retain(|scope, _| !expired_sessions.contains(scope));
+            self.nonspeculative_base.retain(|scope, _| !expired_sessions.contains(scope));
+            self.fired_value_counts.retain(|scope, _| !expired_sessions.contains(scope));
+            self.processing_deadlines.retain(|scope, _| !expired_sessions.contains(scope));
+            self.processing_ready.retain(|scope| !expired_sessions.contains(scope));
+            self.latest_timestamps.retain(|scope, _| !expired_sessions.contains(scope));
+        }
         if self.allowed_lateness_ns == 0 {
             self.fired_panes.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         }
@@ -936,12 +1044,29 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             (&left.key, left.interval.start_ns, left.interval.end_ns)
                 .cmp(&(&right.key, right.interval.start_ns, right.interval.end_ns))
         });
+        let mut session_lineage = self
+            .session_lineage
+            .iter()
+            .flat_map(|(key, intervals)| {
+                intervals.iter().map(|interval| {
+                    Ok(GroupFoldCheckpointSession {
+                        key: key.encode()?,
+                        interval: *interval,
+                    })
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        session_lineage.sort_by(|left, right| {
+            (&left.key, left.interval.start_ns, left.interval.end_ns)
+                .cmp(&(&right.key, right.interval.start_ns, right.interval.end_ns))
+        });
         serde_json::to_vec(&GroupFoldCheckpoint {
             version: GROUP_FOLD_CHECKPOINT_VERSION,
             key_coder: K::coder_identity(),
             value_coder: V::coder_identity(),
             groups,
             fired_panes,
+            session_lineage,
         })
         .map(Some)
         .map_err(|error| Error::recovery(&self.key, error.to_string()))
@@ -953,7 +1078,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         }
         let checkpoint: GroupFoldCheckpoint = serde_json::from_slice(state)
             .map_err(|error| Error::recovery(&self.key, error.to_string()))?;
-        if checkpoint.version != GROUP_FOLD_CHECKPOINT_VERSION {
+        if checkpoint.version != GROUP_FOLD_CHECKPOINT_VERSION
+            && checkpoint.version != PRE_LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION
+        {
             return Err(Error::incompatible(
                 "group fold checkpoint version mismatch",
             ));
@@ -971,6 +1098,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             global_indices: HashMap::new(),
             window_indices: HashMap::new(),
             session_indices: HashMap::new(),
+            session_lineage: HashMap::new(),
             fired_panes: HashMap::new(),
             nonspeculative_base: HashMap::new(),
             fired_value_counts: HashMap::new(),
@@ -979,6 +1107,22 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             latest_timestamps: HashMap::new(),
             groups: Vec::with_capacity(checkpoint.groups.len()),
         };
+        for session in checkpoint.session_lineage {
+            if self.allowed_lateness_ns == 0
+                || session.interval.end_ns <= session.interval.start_ns
+            {
+                return Err(Error::recovery(&self.key, "invalid session lineage in fold checkpoint"));
+            }
+            let key = K::decode(&session.key)?;
+            let intervals = restored.session_lineage.entry(key).or_default();
+            if intervals.iter().any(|prior| {
+                session.interval.start_ns < prior.end_ns
+                    && prior.start_ns < session.interval.end_ns
+            }) {
+                return Err(Error::recovery(&self.key, "overlapping session lineage in fold checkpoint"));
+            }
+            intervals.push(session.interval);
+        }
         for pane in checkpoint.fired_panes {
             if pane.interval.end_ns <= pane.interval.start_ns || pane.next_index <= 0 {
                 return Err(Error::recovery(&self.key, "invalid pane index in fold checkpoint"));
@@ -1332,6 +1476,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFol
             value_coder: <(i64, V) as Element>::coder_identity(),
             groups,
             fired_panes: Vec::new(),
+            session_lineage: Vec::new(),
         })
         .map(Some)
         .map_err(|error| Error::recovery(&self.key, error.to_string()))
