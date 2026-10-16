@@ -61,6 +61,27 @@ the same registry and pass the same URI whenever the worker binary starts.
 The file-journal environment variable must be unset when using an object
 journal.
 
+For a GCS-backed worker, enable `ironbeam-cloud-object-store`'s `gcp` feature
+and construct the registry in the application entry point:
+
+```rust
+use std::sync::Arc;
+use ironbeam_cloud_object_store::object_stores_from_env;
+use ironbeam_dataflow::run_v5_from_env_with_object_journal;
+
+let stores = Arc::new(object_stores_from_env()?);
+run_v5_from_env_with_object_journal(
+    build_pipeline,
+    "worker-build-v1",
+    stores,
+    "gs://my-bucket/ironbeam/finalization/",
+).await?;
+```
+
+`build_pipeline` is the application's pipeline-building function. The URI
+must identify a durable prefix accessible to every worker invocation.
+Hosted GCS execution has not yet been verified by the local Prism proof.
+
 The local Prism fixture kills a supervised execution child and completes the
 same job with an object-backed journal. The publication plan checks the
 resulting journal against Prism's committed Fn metrics before releasing the
