@@ -3782,6 +3782,56 @@ async fn prism_matches_direct_fixed_offset_sliding_and_empty_mapped_side_views()
 }
 
 #[tokio::test]
+async fn prism_matches_direct_overlapping_main_windows_with_mapped_side_views() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-sliding-main-side.txt");
+    let portable_path = directory.path().join("portable-sliding-main-side.txt");
+    let direct_pipeline = Pipeline::default();
+    let sink =
+        ironbeam_prism_proof::sliding_main_side_view_fixture(&direct_pipeline, direct_path.clone())
+            .unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    let rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    let expected = [
+        "1000000:10:2:-5000000..5000000",
+        "1000000:10:2:0..10000000",
+        "6000000:20:11:5000000..15000000",
+        "6000000:20:2:0..10000000",
+    ];
+    assert_eq!(rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    ironbeam_prism_proof::sliding_main_side_view_fixture(&portable_pipeline, portable_path.clone())
+        .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "sliding-main-side-view",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_SLIDING_MAIN_SIDE_VIEW".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism sliding main side view state: {terminal:?}"
+    );
+    assert_eq!(rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_and_direct_reject_duplicate_windowed_map_keys_before_commit() {
     let directory = tempfile::tempdir().unwrap();
     let direct_path = directory.path().join("direct-windowed-duplicate-map.txt");

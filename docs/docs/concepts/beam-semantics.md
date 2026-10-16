@@ -308,7 +308,9 @@ start later than that millisecond. The methods require default triggers, zero
 allowed lateness, and whole-millisecond window parameters. A shared Direct and
 local Prism job checks fixed, offset-fixed, and sliding mappings, including gapped
 sliding windows and empty side windows, with matching values and main
-timestamps. The worker also handles a runner-issued `MapWindows` bundle for
+timestamps. A second job assigns each main element to two overlapping sliding
+windows and checks that each window reads its mapped fixed side view on both
+runners. The worker also handles a runner-issued `MapWindows` bundle for
 global, identity, fixed, and sliding mapping functions. A Fn Data test covers
 those mappings and checks that the worker preserves the main window,
 timestamp, and pane. The worker accepts encoded keys up to 2 MiB. A live

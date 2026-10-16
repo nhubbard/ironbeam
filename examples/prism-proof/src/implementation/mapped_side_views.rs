@@ -84,3 +84,54 @@ pub fn mapped_side_view_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Si
             },
         )
 }
+
+/// Map each overlapping main interval independently to a fixed side interval.
+pub fn sliding_main_side_view_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let main = pipeline
+        .from_vec(
+            "sliding-main-source",
+            vec![(1_000_000_i64, 10_i32), (6_000_000, 20)],
+        )?
+        .timestamps_from_pairs_named("sliding-main-time")?
+        .sliding_windows("sliding-main-windows", 10_000_000, 5_000_000, 0)?;
+    let side = pipeline
+        .from_vec(
+            "sliding-main-side-source",
+            vec![(2_000_000_i64, 2_i32), (11_000_000, 11)],
+        )?
+        .timestamps_from_pairs_named("sliding-main-side-time")?
+        .fixed_windows("sliding-main-side-windows", 10_000_000)?;
+    let sink_path = path.clone();
+    main.map_with_mapped_window_side_named("sliding-main-side-map", &side, |value, values| {
+        (value, values.iter().sum::<i32>())
+    })?
+    .with_window_named("sliding-main-side-window")?
+    .reify_timestamps_named("sliding-main-side-timestamp")?
+    .map_named(
+        "sliding-main-side-row",
+        |(timestamp, (window, (value, sum)))| {
+            format!(
+                "{timestamp}:{value}:{sum}:{}..{}",
+                window.start_ns, window.end_ns
+            )
+        },
+    )?
+    .sink_named_with_config(
+        "sliding-main-side-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("sliding-main-side-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
