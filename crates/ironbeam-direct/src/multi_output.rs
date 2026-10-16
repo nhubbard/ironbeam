@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 
 pub(crate) struct PairPlan {
     pub(crate) source_key: String,
-    pub(crate) stateful_key: Option<String>,
+    pub(crate) stateful_keys: Vec<String>,
     split_key: String,
     common_stages: Vec<String>,
     left_stages: Vec<String>,
@@ -133,15 +133,15 @@ fn prepare_routes(
         .chain(&right)
         .filter(|key| registry.has_stateful_value(key))
         .collect::<std::collections::BTreeSet<_>>();
-    if stateful.len() > 1 {
+    if stateful.len() > 2 {
         return Err(Error::unsupported(
             left_key,
             "direct",
             "multiple-stream-value-state",
         ));
     }
-    let stateful_key = stateful.into_iter().next().cloned();
-    if let Some(key) = &stateful_key {
+    let stateful_keys: Vec<String> = stateful.into_iter().cloned().collect();
+    for key in &stateful_keys {
         let Some(Operation::StatefulParDo { .. }) = graph.node(key).map(|node| &node.operation)
         else {
             return Err(Error::graph(key, "stateful route node missing"));
@@ -157,7 +157,7 @@ fn prepare_routes(
     }
     Ok(PairPlan {
         source_key: left[0].clone(),
-        stateful_key,
+        stateful_keys,
         split_key: split_key.clone(),
         common_stages: left[1..common].to_vec(),
         left_stages: left[common..].to_vec(),
@@ -219,15 +219,15 @@ pub(crate) fn process_event(
 
 pub(crate) fn process_timer_event(
     event: Envelope,
+    key: &str,
     plan: &PairPlan,
     registry: &Registry,
     config: &JobConfig,
     metrics: &MetricsState,
 ) -> Result<(Vec<Envelope>, Vec<Envelope>), Error> {
-    let key = plan
-        .stateful_key
-        .as_ref()
-        .ok_or_else(|| Error::graph(&plan.split_key, "timer output has no stateful stage"))?;
+    if !plan.stateful_keys.iter().any(|candidate| candidate == key) {
+        return Err(Error::graph(key, "timer output has no stateful stage"));
+    }
     if let Some(position) = plan.common_stages.iter().position(|stage| stage == key) {
         let common = apply_stages(
             registry,

@@ -2372,6 +2372,15 @@ fn stream_pair_shares_source_and_recovers_both_branches() {
 
 #[test]
 fn stream_pair_restores_state_on_only_one_branch() {
+    stream_pair_restores_branch_state(false);
+}
+
+#[test]
+fn stream_pair_restores_two_independent_branch_states() {
+    stream_pair_restores_branch_state(true);
+}
+
+fn stream_pair_restores_branch_state(stateful_right: bool) {
     let temporary = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
     let hold = Arc::new(AtomicBool::new(true));
@@ -2443,7 +2452,22 @@ fn stream_pair_restores_state_on_only_one_branch() {
         )
         .unwrap();
     let right_accepted = Arc::new(Mutex::new(HashSet::new()));
-    let right = source
+    let right_source = if stateful_right {
+        source
+            .stateful_value_map_named::<i32, i32>(
+                "right-branch-state",
+                "tests/right-branch-state-checkpoint-v1",
+                Version { major: 1, minor: 0 },
+                |_, value, prior| {
+                    let next = prior.unwrap_or(0) + value * 10;
+                    Ok((Some(next), next))
+                },
+            )
+            .unwrap()
+    } else {
+        source
+    };
+    let right = right_source
         .map_named("right-value", |(_, value)| value)
         .unwrap()
         .sink_named_with_config(
@@ -2486,7 +2510,10 @@ fn stream_pair_restores_state_on_only_one_branch() {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(*left_values.lock().unwrap(), [1]);
-    assert_eq!(*right_values.lock().unwrap(), [1]);
+    assert_eq!(
+        *right_values.lock().unwrap(),
+        [if stateful_right { 10 } else { 1 }]
+    );
     job.cancel();
     assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
     hold.store(false, Ordering::SeqCst);
@@ -2495,7 +2522,10 @@ fn stream_pair_restores_state_on_only_one_branch() {
         .unwrap();
     assert_eq!(resumed.wait().unwrap().status(), JobStatus::Succeeded);
     assert_eq!(*left_values.lock().unwrap(), [1, 3]);
-    assert_eq!(*right_values.lock().unwrap(), [1, 2]);
+    assert_eq!(
+        *right_values.lock().unwrap(),
+        if stateful_right { [10, 30] } else { [1, 2] }
+    );
     assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
 }
 

@@ -137,7 +137,7 @@ fn stream_pair_runs_one_stateful_branch_after_the_split() {
             if capability == "multi-output-operation"
     ));
     let plan = prepare_stream_sinks(&graph, &registry, left.key(), right.key()).unwrap();
-    assert_eq!(plan.stateful_key.as_deref(), Some("left-state"));
+    assert_eq!(plan.stateful_keys, ["left-state"]);
     let (left_rows, right_rows) = process_event(
         Envelope {
             value: Box::new((1_i32, 2_i32)),
@@ -159,7 +159,7 @@ fn stream_pair_runs_one_stateful_branch_after_the_split() {
 }
 
 #[test]
-fn stream_pair_rejects_two_distinct_stateful_stages() {
+fn stream_pair_accepts_two_distinct_stateful_stages() {
     let pipeline = Pipeline::default();
     let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
     let left = source
@@ -187,12 +187,6 @@ fn stream_pair_rejects_two_distinct_stateful_stages() {
         .sink_named("right", pair_sink_spec(), || Ok(Box::new(NullStringSink)))
         .unwrap();
     let (graph, registry) = left.snapshot().unwrap();
-    let error = prepare_stream_sinks(&graph, &registry, left.key(), right.key())
-        .err()
-        .unwrap();
-    assert!(matches!(
-        error.kind,
-        ErrorKind::UnsupportedCapability { ref capability }
-            if capability == "multiple-stream-value-state"
-    ));
+    let plan = prepare_stream_sinks(&graph, &registry, left.key(), right.key()).unwrap();
+    assert_eq!(plan.stateful_keys, ["left-state", "right-state"]);
 }

@@ -22,6 +22,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod multi;
+mod pair_state;
 mod session_expiry;
 use multi::{start_dual_side_stream, start_multi_grouped_stream_sink, start_multi_stream_sink};
 
@@ -1304,9 +1305,11 @@ impl DirectRunner {
                 )
             })
             .transpose()?;
-        let recovered = if let (Some(key), Some(checkpoint)) = (&plan.stateful_key, &checkpoint) {
+        let recovered = if let (false, Some(checkpoint)) =
+            (plan.stateful_keys.is_empty(), &checkpoint)
+        {
             if let Some((progress, state)) = checkpoint.load_state(config.memory_budget_bytes)? {
-                registry.restore_stateful_value(key, &state)?;
+                pair_state::restore(&plan, &registry, &state)?;
                 Some(progress)
             } else {
                 None
@@ -2737,6 +2740,7 @@ fn commit_stream_branch(
 fn write_pair_timer_outputs(
     registry: &Registry,
     plan: &PairPlan,
+    stateful_key: &str,
     left_key: &str,
     right_key: &str,
     instruction_id: &str,
@@ -2748,8 +2752,14 @@ fn write_pair_timer_outputs(
 ) -> Result<u64, Error> {
     let mut written = 0_u64;
     for output in outputs {
-        let (left_events, right_events) =
-            multi_output::process_timer_event(output, plan, registry, config, &handle.metrics)?;
+        let (left_events, right_events) = multi_output::process_timer_event(
+            output,
+            stateful_key,
+            plan,
+            registry,
+            config,
+            &handle.metrics,
+        )?;
         written = written.saturating_add(write_stream_branch(
             registry,
             left_key,
@@ -2809,13 +2819,20 @@ fn run_stream_pair(
             ))
         })?;
         let UnboundedPoll::Ready(batch) = polled else {
-            if let (Some(key), Some(current_progress)) = (&plan.stateful_key, progress.as_ref()) {
+            if let Some(current_progress) =
+                progress.as_ref().filter(|_| !plan.stateful_keys.is_empty())
+            {
                 let now_ns = processing_time_now_ns(source.as_ref())?;
-                if registry
-                    .next_stateful_timer_deadline(key)?
-                    .is_some_and(|deadline| deadline <= now_ns)
-                {
-                    let prior_state = registry.checkpoint_stateful_value(key)?;
+                let mut timer_due = false;
+                for key in &plan.stateful_keys {
+                    timer_due |= registry
+                        .next_stateful_timer_deadline(key)?
+                        .is_some_and(|deadline| deadline <= now_ns);
+                }
+                if timer_due {
+                    let prior_state =
+                        pair_state::snapshot(plan, registry, config.memory_budget_bytes)?
+                            .ok_or_else(|| Error::graph("stateful-value", "timer has no state"))?;
                     let sink_identity = format!("{left_key}|{right_key}");
                     let instruction_id = timer_bundle_id(
                         graph_fingerprint,
@@ -2826,34 +2843,36 @@ fn run_stream_pair(
                     let mut left_session = None;
                     let mut right_session = None;
                     let result = (|| {
-                        let firings = catch_unwind(AssertUnwindSafe(|| {
-                            registry.drain_stateful_timers(key, None, Some(now_ns))
-                        }))
-                        .unwrap_or_else(|_| {
-                            Err(Error::execution(key, "direct", "timer callback panicked"))
-                        })?;
-                        let written = write_pair_timer_outputs(
-                            registry,
-                            plan,
-                            left_key,
-                            right_key,
-                            &instruction_id,
-                            config,
-                            handle,
-                            firings,
-                            &mut left_session,
-                            &mut right_session,
-                        )?;
+                        let mut written = 0_u64;
+                        for key in &plan.stateful_keys {
+                            let firings = catch_unwind(AssertUnwindSafe(|| {
+                                registry.drain_stateful_timers(key, None, Some(now_ns))
+                            }))
+                            .unwrap_or_else(|_| {
+                                Err(Error::execution(key, "direct", "timer callback panicked"))
+                            })?;
+                            written = written.saturating_add(write_pair_timer_outputs(
+                                registry,
+                                plan,
+                                key,
+                                left_key,
+                                right_key,
+                                &instruction_id,
+                                config,
+                                handle,
+                                firings,
+                                &mut left_session,
+                                &mut right_session,
+                            )?);
+                        }
                         if config.cancellation.load(Ordering::Acquire) {
                             return Err(cancelled());
                         }
-                        let state = registry.checkpoint_stateful_value(key)?;
-                        if state.len() > config.memory_budget_bytes {
-                            return Err(Error::resource(
-                                key,
-                                "stream timer state exceeds memory budget",
-                            ));
-                        }
+                        let state =
+                            pair_state::snapshot(plan, registry, config.memory_budget_bytes)?
+                                .ok_or_else(|| {
+                                    Error::graph("stateful-value", "timer has no state")
+                                })?;
                         commit_stream_branch(left_key, &mut left_session)?;
                         commit_stream_branch(right_key, &mut right_session)?;
                         Ok((state, written))
@@ -2943,7 +2962,7 @@ fn run_stream_pair(
                     config,
                 )?);
             }
-            if let Some(key) = &plan.stateful_key {
+            for key in &plan.stateful_keys {
                 let processing_time_ns = if registry.next_stateful_timer_deadline(key)?.is_some() {
                     Some(processing_time_now_ns(source.as_ref())?)
                 } else {
@@ -2962,6 +2981,7 @@ fn run_stream_pair(
                 written = written.saturating_add(write_pair_timer_outputs(
                     registry,
                     plan,
+                    key,
                     left_key,
                     right_key,
                     &instruction_id,
@@ -2975,23 +2995,10 @@ fn run_stream_pair(
             if config.cancellation.load(Ordering::Acquire) {
                 return Err(cancelled());
             }
-            let state = plan
-                .stateful_key
-                .as_ref()
-                .map(|key| {
-                    registry.expire_stateful_value(key, batch.progress.event_time_ns)?;
-                    registry.checkpoint_stateful_value(key)
-                })
-                .transpose()?;
-            if state
-                .as_ref()
-                .is_some_and(|bytes| bytes.len() > config.memory_budget_bytes)
-            {
-                return Err(Error::resource(
-                    "stateful-value",
-                    "stream value state exceeds memory budget",
-                ));
+            for key in &plan.stateful_keys {
+                registry.expire_stateful_value(key, batch.progress.event_time_ns)?;
             }
+            let state = pair_state::snapshot(plan, registry, config.memory_budget_bytes)?;
             commit_stream_branch(left_key, &mut left_session)?;
             commit_stream_branch(right_key, &mut right_session)?;
             Ok(state)
