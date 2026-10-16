@@ -75,10 +75,11 @@ use ironbeam_prism_proof::{
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
     dual_unbounded_session_cogroup_collection, dual_unbounded_session_cogroup_fixture,
     dual_unbounded_session_join_collection, dual_unbounded_session_join_fixture,
-    early_multi_value_windowed_wait_fixture, early_multi_windowed_wait_fixture,
-    early_sliding_windowed_wait_fixture, early_value_windowed_wait_fixture,
-    early_windowed_wait_fixture, explicit_custom_batches_fixture, failing_wait_on_fixture,
-    finalization_failure_fixture, finalization_probe_sink, finalization_probe_store,
+    dual_unbounded_session_join_output_time_fixture, early_multi_value_windowed_wait_fixture,
+    early_multi_windowed_wait_fixture, early_sliding_windowed_wait_fixture,
+    early_value_windowed_wait_fixture, early_windowed_wait_fixture,
+    explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
+    finalization_probe_sink, finalization_probe_store,
     global_accumulating_early_cogroup_collection, global_accumulating_early_cogroup_fixture,
     global_count_collection, global_count_fixture, global_count_output_time_fixture,
     global_fold_fixture, global_group_output_time_fixture, global_keyed_batches_fixture,
@@ -3268,6 +3269,94 @@ async fn prism_matches_direct_two_unbounded_merged_session_join() {
     .await;
     assert_eq!(terminal.0, 3, "Prism dual session join state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_two_source_session_output_times() {
+    let directory = tempfile::tempdir().unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    for (policy, env_name, expected_time) in [
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            "IRONBEAM_V5_PRISM_DUAL_SESSION_JOIN_END_TIME",
+            12_000_000,
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            "IRONBEAM_V5_PRISM_DUAL_SESSION_JOIN_LATEST_TIME",
+            8_000_000,
+        ),
+    ] {
+        let label = match policy {
+            ironbeam_core::WindowOutputTime::EndOfWindow => "end",
+            ironbeam_core::WindowOutputTime::LatestInPane => "latest",
+            ironbeam_core::WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let direct_path = directory
+            .path()
+            .join(format!("direct-dual-session-{label}"));
+        let portable_path = directory
+            .path()
+            .join(format!("portable-dual-session-{label}"));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = dual_unbounded_session_join_output_time_fixture(
+            &direct_pipeline,
+            direct_path.clone(),
+            policy,
+        )
+        .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let direct_rows = read_rows(&direct_path);
+        assert_eq!(
+            direct_rows,
+            [
+                format!("a|1|10|{expected_time}|0|13000000"),
+                format!("a|2|10|{expected_time}|0|13000000"),
+            ],
+            "Direct two-source session {label}"
+        );
+        let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+            continue;
+        };
+        let _prism_job = prism_job_lock().lock().await;
+        let portable_pipeline = Pipeline::default();
+        dual_unbounded_session_join_output_time_fixture(
+            &portable_pipeline,
+            portable_path.clone(),
+            policy,
+        )
+        .unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &portable_pipeline,
+            "dual-session-join-output-time",
+            HashMap::from([(
+                env_name.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(
+            terminal.0, 3,
+            "Prism two-source session {label}: {terminal:?}"
+        );
+        assert_eq!(
+            read_rows(&portable_path),
+            direct_rows,
+            "two-source session {label}"
+        );
+    }
 }
 
 #[tokio::test]

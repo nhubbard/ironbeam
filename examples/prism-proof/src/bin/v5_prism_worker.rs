@@ -29,11 +29,11 @@ use ironbeam_prism_proof::{
     dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_fixture, dual_unbounded_map_side_fixture,
     dual_unbounded_session_cogroup_fixture, dual_unbounded_session_join_fixture,
-    early_multi_value_windowed_wait_fixture, early_multi_windowed_wait_fixture,
-    early_sliding_windowed_wait_fixture, early_value_windowed_wait_fixture,
-    early_windowed_wait_fixture, explicit_custom_batches_fixture, failing_wait_on_fixture,
-    finalization_failure_fixture, finalization_probe_sink,
-    global_accumulating_early_cogroup_fixture, global_count_fixture,
+    dual_unbounded_session_join_output_time_fixture, early_multi_value_windowed_wait_fixture,
+    early_multi_windowed_wait_fixture, early_sliding_windowed_wait_fixture,
+    early_value_windowed_wait_fixture, early_windowed_wait_fixture,
+    explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
+    finalization_probe_sink, global_accumulating_early_cogroup_fixture, global_count_fixture,
     global_count_output_time_fixture, global_fold_fixture, global_group_output_time_fixture,
     global_keyed_batches_fixture, global_keyed_batches_with_upstream_trigger_fixture,
     global_keyed_combine_fixture, global_vector_fixture, group_end_time_fixture,
@@ -885,6 +885,16 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
         return dual_unbounded_session_join_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_SESSION_JOIN_END_TIME") {
+        return dual_unbounded_session_join_output_time_fixture(
+            pipeline, path.into(), ironbeam_core::WindowOutputTime::EndOfWindow,
+        ).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_SESSION_JOIN_LATEST_TIME") {
+        return dual_unbounded_session_join_output_time_fixture(
+            pipeline, path.into(), ironbeam_core::WindowOutputTime::LatestInPane,
+        ).map(|_| ()).map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_SESSION_COGROUP") {
         return dual_unbounded_session_cogroup_fixture(pipeline, path.into())

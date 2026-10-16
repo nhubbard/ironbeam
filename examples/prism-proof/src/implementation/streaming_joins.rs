@@ -213,6 +213,52 @@ pub fn dual_unbounded_session_join_fixture(
     )
 }
 
+/// Compare merged-session output timestamps from two independent TestStreams.
+pub fn dual_unbounded_session_join_output_time_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    let (main, side) = dual_unbounded_session_sources(pipeline)?;
+    let apply = |values: KeyedStream, key| match policy {
+        ironbeam_core::WindowOutputTime::EndOfWindow => values.end_of_window_output_time_named(key),
+        ironbeam_core::WindowOutputTime::LatestInPane => {
+            values.latest_in_pane_output_time_named(key)
+        }
+        ironbeam_core::WindowOutputTime::EarliestInPane => Ok(values),
+    };
+    let main = apply(main, "dual-session-main-output-time")?;
+    let side = apply(side, "dual-session-side-output-time")?;
+    main.join_inner_named("dual-session-time-join", &side)?
+        .reify_timestamps_named("dual-session-time-reify")?
+        .with_window_named("dual-session-time-window")?
+        .map_named(
+            "dual-session-time-row",
+            |(window, (time, (key, (left, right))))| {
+                format!(
+                    "{key}|{left}|{right}|{time}|{}|{}",
+                    window.start_ns, window.end_ns
+                )
+            },
+        )?
+        .sink_named_with_config(
+            "dual-session-time-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("dual-session-time-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 pub fn dual_unbounded_cogroup_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
