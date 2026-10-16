@@ -287,6 +287,62 @@ pub fn bounded_session_cogroup_fixture(
         )
 }
 
+/// Three branches of one source merge a session before applying output time.
+pub fn bounded_session_cogroup_output_time_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    let source = pipeline
+        .from_vec(
+            "session-time-cogroup-source",
+            vec![
+                (0_i64, ("a".to_owned(), 0_u8, 1_i32)),
+                (8_000_000, ("a".to_owned(), 0, 2)),
+                (4_000_000, ("a".to_owned(), 1, 10)),
+                (12_000_000, ("a".to_owned(), 2, 20)),
+            ],
+        )?
+        .timestamps_from_pairs_named("session-time-cogroup-stamp")?;
+    let branch = |tag: u8, prefix: &str| -> Result<_, Error> {
+        let values = source
+            .filter_named(&format!("{prefix}-filter"), move |(_, route, _)| *route == tag)?
+            .map_named(&format!("{prefix}-value"), |(key, _, value)| (key, value))?
+            .session_windows_named(&format!("{prefix}-window"), 5_000_000)?;
+        match policy {
+            ironbeam_core::WindowOutputTime::EndOfWindow => {
+                values.end_of_window_output_time_named(&format!("{prefix}-policy"))
+            }
+            ironbeam_core::WindowOutputTime::LatestInPane => {
+                values.latest_in_pane_output_time_named(&format!("{prefix}-policy"))
+            }
+            ironbeam_core::WindowOutputTime::EarliestInPane => Ok(values),
+        }
+    };
+    let first = branch(0, "session-time-cogroup-first")?;
+    let second = branch(1, "session-time-cogroup-second")?;
+    let third = branch(2, "session-time-cogroup-third")?;
+    ironbeam_core::cogroup_by_key_3_named("session-time-cogroup", &first, &second, &third)?
+        .reify_timestamps_named("session-time-cogroup-reify")?
+        .with_window_named("session-time-cogroup-bounds")?
+        .map_named("session-time-cogroup-row", |(window, (time, (key, (mut a, mut b, mut c))))| {
+            a.sort_unstable();
+            b.sort_unstable();
+            c.sort_unstable();
+            format!("{key}|{a:?}|{b:?}|{c:?}|{time}|{}|{}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "session-time-cogroup-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+            format!("session-time-cogroup-contract:{}", path.display()),
+            move || Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })),
+        )
+}
+
 /// A late-arriving bridge joins two prior sessions for one key.
 pub fn session_group_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     session_group_fixture_with_policy(pipeline, path, None)

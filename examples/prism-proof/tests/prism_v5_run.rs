@@ -51,8 +51,9 @@ use ironbeam_prism_proof::{
     allowed_lateness_fixture, bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
     bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
-    bounded_session_join_fixture, bounded_session_join_output_time_fixture,
-    bounded_side_input_fixture, bounded_ten_way_cogroup_fixture, bounded_three_way_cogroup_fixture,
+    bounded_session_cogroup_output_time_fixture, bounded_session_join_fixture,
+    bounded_session_join_output_time_fixture, bounded_side_input_fixture,
+    bounded_ten_way_cogroup_fixture, bounded_three_way_cogroup_fixture,
     bounded_value_state_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
     combined_count_fixture, completion_signal, count_and_processing_time_trigger_collection,
     count_and_processing_time_trigger_fixture, count_then_processing_time_trigger_fixture,
@@ -7373,6 +7374,80 @@ async fn prism_matches_direct_bounded_session_join_output_times() {
             read_rows(&portable_path),
             direct_rows,
             "session join {label}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_bounded_session_cogroup_output_times() {
+    let directory = tempfile::tempdir().unwrap();
+    for (policy, env_name, expected_time) in [
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            "IRONBEAM_V5_PRISM_SESSION_COGROUP_END_TIME",
+            16_000_000,
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            "IRONBEAM_V5_PRISM_SESSION_COGROUP_LATEST_TIME",
+            12_000_000,
+        ),
+    ] {
+        let label = match policy {
+            ironbeam_core::WindowOutputTime::EndOfWindow => "end",
+            ironbeam_core::WindowOutputTime::LatestInPane => "latest",
+            ironbeam_core::WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let direct_path = directory
+            .path()
+            .join(format!("direct-session-cogroup-{label}.txt"));
+        let portable_path = directory
+            .path()
+            .join(format!("portable-session-cogroup-{label}.txt"));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = bounded_session_cogroup_output_time_fixture(
+            &direct_pipeline,
+            direct_path.clone(),
+            policy,
+        )
+        .unwrap();
+        DirectRunner
+            .run_sink(&direct_sink, &JobConfig::default())
+            .unwrap();
+        let direct_rows = std::fs::read_to_string(&direct_path).unwrap();
+        assert_eq!(
+            direct_rows.trim(),
+            format!("a|[1, 2]|[10]|[20]|{expected_time}|0|17000000"),
+            "Direct session co-group {label}"
+        );
+        let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+            continue;
+        };
+        let _prism_job = prism_job_lock().lock().await;
+        let portable_pipeline = Pipeline::default();
+        bounded_session_cogroup_output_time_fixture(
+            &portable_pipeline,
+            portable_path.clone(),
+            policy,
+        )
+        .unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &portable_pipeline,
+            "session-cogroup-output-time",
+            HashMap::from([(
+                env_name.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(
+            terminal.0, 3,
+            "Prism session co-group {label}: {terminal:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&portable_path).unwrap(),
+            direct_rows
         );
     }
 }

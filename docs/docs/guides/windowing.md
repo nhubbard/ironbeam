@@ -176,7 +176,8 @@ advance and drops an event after closure.
 
 The policies also apply to co-groups and joins when every input has the same
 windowing declaration. A bounded two-input session join with a bridge from the
-second input agrees on both policies in Direct and local Prism.
+second input and a three-branch session co-group agree on both policies in
+Direct and local Prism.
 For a join, the latest-in-pane timestamp is the latest event timestamp for
 the entire key and window, including input rows that have no match. The default
 join timestamp remains the earlier timestamp of each matched pair; an unmatched

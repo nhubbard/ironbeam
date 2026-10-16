@@ -13,8 +13,9 @@ use ironbeam_prism_proof::{
     allowed_lateness_fixture, bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
     bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
-    bounded_session_join_fixture, bounded_session_join_output_time_fixture,
-    bounded_side_input_fixture, bounded_ten_way_cogroup_fixture, bounded_three_way_cogroup_fixture,
+    bounded_session_cogroup_output_time_fixture, bounded_session_join_fixture,
+    bounded_session_join_output_time_fixture, bounded_side_input_fixture,
+    bounded_ten_way_cogroup_fixture, bounded_three_way_cogroup_fixture,
     bounded_value_state_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
     combined_count_fixture, completion_signal, count_and_processing_time_trigger_fixture,
     count_then_processing_time_trigger_fixture, count_trigger_stream_fixture, dead_letter_fixture,
@@ -1027,6 +1028,24 @@ async fn main() -> anyhow::Result<()> {
         return bounded_session_cogroup_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SESSION_COGROUP_END_TIME") {
+        return bounded_session_cogroup_output_time_fixture(
+            pipeline,
+            path.into(),
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SESSION_COGROUP_LATEST_TIME") {
+        return bounded_session_cogroup_output_time_fixture(
+            pipeline,
+            path.into(),
+            ironbeam_core::WindowOutputTime::LatestInPane,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_PARTITION") {
         return partition_fixture(pipeline, path.into())
