@@ -358,7 +358,7 @@ fn session_group_checkpoint_merges_bridge_after_restore() {
     let saved = fold.checkpoint_state().unwrap().unwrap();
     let mut resumed = registry.open_fold("session-group").unwrap();
     resumed.restore_checkpoint_state(&saved).unwrap();
-    for (value, time) in [(30, 4), (40, 13)] {
+    for (value, time) in [(30, 4), (40, 12)] {
         resumed
             .add(Envelope {
                 pane: ironbeam_core::PaneInfo::NO_FIRING,
@@ -394,7 +394,7 @@ fn session_group_checkpoint_merges_bridge_after_restore() {
                 0,
                 WindowInterval {
                     start_ns: 0,
-                    end_ns: 18
+                    end_ns: 17
                 }
             ),
             (
@@ -408,6 +408,70 @@ fn session_group_checkpoint_merges_bridge_after_restore() {
             ),
         ]
     );
+}
+
+#[test]
+fn touching_sessions_stay_separate_until_an_overlapping_bridge_arrives() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 0_i32)])
+        .unwrap()
+        .group_by_session_named("session-group", 5)
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let window = Window::Session { gap_ns: 5 };
+    let add = |fold: &mut Box<dyn ironbeam_core::FoldSession>, value, time| {
+        fold.add(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, value)),
+            timestamp_ns: time,
+            window: window.clone(),
+            assigned_window: window.assign(time).unwrap(),
+        })
+        .unwrap();
+    };
+    let mut fold = registry.open_fold("session-group").unwrap();
+    add(&mut fold, 10_i32, 0);
+    add(&mut fold, 20_i32, 5);
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let separate = fold.finish().unwrap();
+    assert_eq!(separate.len(), 2);
+    assert_eq!(
+        separate[0].assigned_window,
+        Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 5
+        })
+    );
+    assert_eq!(
+        separate[1].assigned_window,
+        Some(WindowInterval {
+            start_ns: 5,
+            end_ns: 10
+        })
+    );
+
+    let mut restored = registry.open_fold("session-group").unwrap();
+    restored.restore_checkpoint_state(&saved).unwrap();
+    add(&mut restored, 30_i32, 4);
+    let merged = restored.finish().unwrap();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(
+        merged[0].assigned_window,
+        Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10
+        })
+    );
+    let (_, mut values) = *merged
+        .into_iter()
+        .next()
+        .unwrap()
+        .value
+        .downcast::<(i32, Vec<i32>)>()
+        .unwrap();
+    values.sort_unstable();
+    assert_eq!(values, [10, 20, 30]);
 }
 
 #[test]

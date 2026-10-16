@@ -36,6 +36,72 @@ fn explicit_session_assignment_merges_when_grouped_later() {
 }
 
 #[test]
+fn bounded_session_join_separates_touching_windows_until_a_bridge_arrives() {
+    fn run(with_bridge: bool) -> Vec<String> {
+        let pipeline = Pipeline::default();
+        let left = pipeline
+            .from_vec(
+                "left",
+                vec![
+                    (0_i64, ("a".to_owned(), 1_i32)),
+                    (5_000_000, ("a".to_owned(), 2)),
+                ],
+            )
+            .unwrap()
+            .timestamps_from_pairs_named("left-time")
+            .unwrap()
+            .session_windows_named("left-window", 5_000_000)
+            .unwrap();
+        let right_rows = if with_bridge {
+            vec![(4_000_000_i64, ("a".to_owned(), 3_i32))]
+        } else {
+            Vec::new()
+        };
+        let right = pipeline
+            .from_vec("right", right_rows)
+            .unwrap()
+            .timestamps_from_pairs_named("right-time")
+            .unwrap()
+            .session_windows_named("right-window", 5_000_000)
+            .unwrap();
+        let output = left
+            .join_full_named("join", &right)
+            .unwrap()
+            .with_window_named("bounds")
+            .unwrap()
+            .map_named("rows", |(window, (key, (left, right)))| {
+                format!(
+                    "{key}:{left:?}:{right:?}:{}..{}",
+                    window.start_ns, window.end_ns
+                )
+            })
+            .unwrap()
+            .output("result")
+            .unwrap();
+        let (mut rows, _) = DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap();
+        rows.sort_unstable();
+        rows
+    }
+
+    assert_eq!(
+        run(false),
+        [
+            "a:Some(1):None:0..5000000",
+            "a:Some(2):None:5000000..10000000"
+        ]
+    );
+    assert_eq!(
+        run(true),
+        [
+            "a:Some(1):Some(3):0..10000000",
+            "a:Some(2):Some(3):0..10000000"
+        ]
+    );
+}
+
+#[test]
 #[allow(clippy::too_many_lines)] // Keep the four join kinds on the same keyed session fixture.
 fn bounded_join_merges_session_intervals_across_both_inputs() {
     let pipeline = Pipeline::default();
@@ -240,7 +306,7 @@ fn keyed_sessions_merge_bridge_and_restore_completed_checkpoint() {
                 (0_i64, ("a".to_owned(), 1_i32)),
                 (8_000_000, ("a".to_owned(), 2)),
                 (4_000_000, ("a".to_owned(), 3)),
-                (13_000_000, ("a".to_owned(), 4)),
+                (12_000_000, ("a".to_owned(), 4)),
                 (4_000_000, ("b".to_owned(), 5)),
                 (-4_000_000, ("c".to_owned(), 6)),
                 (-1_000_000, ("c".to_owned(), 7)),
@@ -276,7 +342,7 @@ fn keyed_sessions_merge_bridge_and_restore_completed_checkpoint() {
         ..JobConfig::default()
     };
     let expected = vec![
-        "a|[1, 2, 3, 4]|0|0|18000000".to_owned(),
+        "a|[1, 2, 3, 4]|0|0|17000000".to_owned(),
         "b|[5]|4000000|4000000|9000000".to_owned(),
         "c|[6, 7]|-4000000|-4000000|4000000".to_owned(),
     ];

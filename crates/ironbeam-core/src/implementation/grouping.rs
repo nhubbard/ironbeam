@@ -348,7 +348,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
                     let interval = self.groups[index]
                         .4
                         .expect("session group has an interval");
-                    merged.start_ns <= interval.end_ns && interval.start_ns <= merged.end_ns
+                    // Session windows are half-open: meeting at an endpoint
+                    // does not merge them without an overlapping bridge.
+                    merged.start_ns < interval.end_ns && interval.start_ns < merged.end_ns
                 })
                 .collect::<Vec<_>>();
             if let [index] = matches.as_slice() {

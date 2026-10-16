@@ -82,7 +82,8 @@ fn merge_session_intervals<K: Eq + Hash>(by_key: &mut HashMap<K, Vec<WindowInter
         let mut merged: Vec<WindowInterval> = Vec::with_capacity(intervals.len());
         for interval in intervals.drain(..) {
             if let Some(last) = merged.last_mut()
-                && interval.start_ns <= last.end_ns
+                // A half-open session that only touches the prior one is separate.
+                && interval.start_ns < last.end_ns
             {
                 last.end_ns = last.end_ns.max(interval.end_ns);
                 continue;
