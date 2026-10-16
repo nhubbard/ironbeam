@@ -7,6 +7,7 @@
 pub mod artifact;
 pub mod auth;
 pub mod driver;
+pub mod job_metrics;
 pub mod mode;
 pub mod options;
 pub mod poll;
@@ -25,6 +26,7 @@ use std::sync::Arc;
 pub use artifact::{attach_worker_binary, StagedArtifact};
 pub use auth::{GcloudCliTokenSource, GcpAuthTokenSource, StaticTokenSource, TokenSource};
 pub use driver::{Driver, JobOutcome};
+pub use job_metrics::{get_job_metrics, DataflowJobMetrics, DataflowMetric, DataflowMetricName};
 pub use mode::Mode;
 pub use options::{DataflowOptions, DEFAULT_SDK_CONTAINER_IMAGE};
 pub use poll::{is_terminal, list_messages, PollConfig, TERMINAL_STATES};

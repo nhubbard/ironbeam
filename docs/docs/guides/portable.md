@@ -64,6 +64,10 @@ journal.
 The local Prism fixture kills a supervised execution child and completes the
 same job with an object-backed journal. The publication plan checks the
 resulting journal against Prism's committed Fn metrics before releasing the
-final fragments. The current Dataflow driver does not yet retrieve committed
-Fn metrics or prove the hosted GCS provider path, so remote result publication
-remains unverified.
+final fragments. The Dataflow driver can retrieve the latest regional service
+metrics with `Driver::job_metrics`, retaining names, step and collection labels,
+scalar values, and other metric fields. These service metrics have not been
+mapped to Ironbeam's final-result sink transforms. They therefore do not
+authorize publication. The hosted GCS provider path also remains unverified.
+Google's [JobMetrics reference](https://docs.cloud.google.com/dataflow/docs/reference/rest/v1b3/JobMetrics)
+describes the service response.

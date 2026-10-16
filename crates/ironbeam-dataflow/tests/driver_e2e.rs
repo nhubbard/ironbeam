@@ -263,6 +263,84 @@ async fn list_messages_pages_and_tracks_latest_time() {
 }
 
 #[tokio::test]
+async fn regional_job_metrics_preserve_names_and_reject_bad_counts() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(pathm(
+            "/v1b3/projects/proj/locations/us-central1/jobs/j-metrics/metrics",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metricTime": "2026-10-15T20:00:00Z",
+            "metrics": [
+                {
+                    "name": {"origin": "dataflow", "name": "element_count", "context": {"step": "s1"}},
+                    "kind": "Sum",
+                    "cumulative": true,
+                    "scalar": "3"
+                },
+                {"name": {"name": "fraction", "context": {}}, "scalar": 0.5},
+                {"name": {"name": "negative", "context": {}}, "scalar": -1},
+                {"name": {"name": "distribution", "context": {}}, "distribution": {"count": 2}}
+            ]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let driver = Driver::new(MemoryStager::new("bkt"), StaticTokenSource::new("t"))
+        .with_dataflow_base_url(server.uri());
+    let metrics = driver
+        .job_metrics(&opts("j-metrics"), "j-metrics")
+        .await
+        .unwrap();
+    assert_eq!(metrics.metric_time.as_deref(), Some("2026-10-15T20:00:00Z"));
+    assert_eq!(
+        metrics.metrics[0].name.as_ref().unwrap().name,
+        "element_count"
+    );
+    assert_eq!(
+        metrics.metrics[0].name.as_ref().unwrap().context["step"],
+        "s1"
+    );
+    assert_eq!(metrics.metrics[0].scalar_u64().unwrap(), Some(3));
+    assert!(metrics.metrics[1].scalar_u64().is_err());
+    assert!(metrics.metrics[2].scalar_u64().is_err());
+    assert_eq!(metrics.metrics[3].scalar_u64().unwrap(), None);
+    assert!(metrics.metrics[3].other.contains_key("distribution"));
+}
+
+#[tokio::test]
+async fn regional_job_metrics_surface_permission_and_shape_errors() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(pathm(
+            "/v1b3/projects/proj/locations/us-central1/jobs/forbidden/metrics",
+        ))
+        .respond_with(ResponseTemplate::new(403).set_body_string("metrics denied"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(pathm(
+            "/v1b3/projects/proj/locations/us-central1/jobs/malformed/metrics",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metricTime": "2026-10-15T20:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+    let driver = Driver::new(MemoryStager::new("bkt"), StaticTokenSource::new("t"))
+        .with_dataflow_base_url(server.uri());
+    let forbidden = driver
+        .job_metrics(&opts("forbidden"), "forbidden")
+        .await
+        .unwrap_err();
+    assert!(forbidden.to_string().contains("403"));
+    assert!(driver
+        .job_metrics(&opts("malformed"), "malformed")
+        .await
+        .is_err());
+}
+
+#[tokio::test]
 async fn poll_with_tail_messages_hits_messages_endpoint() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

@@ -6,6 +6,7 @@ use tracing::{info, warn};
 
 use crate::artifact::{attach_worker_binary, StagedArtifact};
 use crate::auth::TokenSource;
+use crate::job_metrics::{self, DataflowJobMetrics};
 use crate::options::DataflowOptions;
 use crate::poll::{self, PollConfig};
 use crate::stage::Stager;
@@ -30,6 +31,18 @@ pub struct Driver<S, T> {
 }
 
 impl<S: Stager, T: TokenSource> Driver<S, T> {
+    /// Read the latest metrics for a submitted job through the regional API.
+    /// Callers must establish their own transform-to-metric mapping before
+    /// using any value to authorize final-result publication.
+    pub async fn job_metrics(
+        &self,
+        opts: &DataflowOptions,
+        job_id: &str,
+    ) -> anyhow::Result<DataflowJobMetrics> {
+        job_metrics::get_job_metrics(&self.dataflow_base_url, &self.token_source, opts, job_id)
+            .await
+    }
+
     pub fn new(stager: S, token_source: T) -> Self {
         Self {
             stager,
