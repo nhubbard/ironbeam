@@ -651,6 +651,11 @@ the other ended the finite
 TestStream without an explicit terminal advance. Prism failed both with
 `negative watermark hold count -1 for time 1` in its hold tracker. Those
 runner failures are not counted as passing behavior.
+A smaller probe with only one pending global value finished without output on
+both runners. One key with a full batch followed by a partial batch reproduced
+the Prism hold-tracker failure. This narrows the failure to the timer transition
+between batches; it does not establish whether the fault is in Prism's hold
+accounting or in Ironbeam's timer mutations.
 
 ## Release gates
 
