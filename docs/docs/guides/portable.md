@@ -35,7 +35,8 @@ can replay the input once. The current implementation limits buffered input
 to 64 MiB per bundle and reports an error when it is exceeded.
 
 This mode checks the graph before opening sources. Each source needs a replay
-contract. Each sink must be idempotent or implement bundle finalization. A
+contract. A source with a post-commit callback needs a durable finalization
+journal. Each sink must be idempotent or implement bundle finalization; a
 finalizing sink also needs a durable journal. The local fixture uses
 `IRONBEAM_V5_FINALIZATION_JOURNAL_DIR` pointing to a directory shared by
 replacement children. The production Prism fixture
@@ -46,7 +47,8 @@ itself disconnects from Prism, the active job still fails closed.
 ## Object-backed finalization
 
 A worker whose replacement processes do not share a filesystem can store
-bundle-finalization records under one object URI prefix. The
+bundle-finalization records under one object URI prefix. Each record binds
+the accepted sink set and any source positions to the bundle. The
 `ObjectFinalizationJournal` validates each record, its completion marker, the
 execution identity, and the set of declared sinks. After a runner reports
 `DONE`, `PortablePublicationPlan::complete_object` combines that journal with

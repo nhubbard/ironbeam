@@ -78,6 +78,26 @@ each Direct job. [Direct checkpoints](checkpoints.md) gives a configuration
 example. A checkpoint can prevent rereading committed input; an external sink
 still needs an idempotent or finalized write contract to prevent duplicates.
 
+## Acknowledge a source after commit
+
+`Pipeline::unbounded_source_with_finalizer` registers a callback for a
+source position. Direct calls it after the output sinks and a per-batch
+checkpoint commit. On restart, Direct calls it again for the last saved
+position, including when the previous run completed. The callback must
+therefore tolerate duplicate calls. A Direct job using this source requires
+`JobConfig::checkpoint` with `interval_batches: 1`.
+
+A portable worker records the source position with any sink finalizers. The
+runner then calls Beam's `FinalizeBundle` after accepting the bundle; sink
+finalizers run before the source callback. Supervised workers require a
+durable file or object journal so a replacement child can recover the
+callback. Bundle finalization is best effort: if the callback is lost, the
+external source must be able to redeliver the record, even when its reader is
+reopened at the saved cursor. A provider should acknowledge a delivery ID,
+not merely mark a message ID as seen. Ironbeam does not yet include a
+Pub/Sub pipeline source; the [GCP guide](gcp.md#pubsub) describes the
+separate client.
+
 ## Runner boundaries
 
 Direct uses the source clock when a test stream supplies one and wall time for
