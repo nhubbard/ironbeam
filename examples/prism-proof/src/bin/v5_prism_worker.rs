@@ -255,6 +255,18 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let (Ok(first), Ok(second)) = (
+        std::env::var("IRONBEAM_V5_PRISM_EVENT_TIMER_FANOUT_FIRST"),
+        std::env::var("IRONBEAM_V5_PRISM_EVENT_TIMER_FANOUT_SECOND"),
+    ) {
+        return ironbeam_prism_proof::streaming_event_timer_fanout_fixture(
+            pipeline,
+            first.into(),
+            second.into(),
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_PROCESSING_TIMER") {
         return ironbeam_prism_proof::streaming_processing_timer_fixture(pipeline, path.into())
             .map(|_| ())

@@ -2731,6 +2731,43 @@ fn commit_stream_branch(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn write_pair_timer_outputs(
+    registry: &Registry,
+    plan: &PairPlan,
+    left_key: &str,
+    right_key: &str,
+    instruction_id: &str,
+    config: &JobConfig,
+    handle: &JobHandle,
+    outputs: Vec<ironbeam_core::Envelope>,
+    left_session: &mut Option<Box<dyn SinkSession>>,
+    right_session: &mut Option<Box<dyn SinkSession>>,
+) -> Result<u64, Error> {
+    let mut written = 0_u64;
+    for output in outputs {
+        let (left_events, right_events) =
+            multi_output::process_timer_event(output, plan, registry, config, &handle.metrics)?;
+        written = written.saturating_add(write_stream_branch(
+            registry,
+            left_key,
+            instruction_id,
+            left_events,
+            left_session,
+            config,
+        )?);
+        written = written.saturating_add(write_stream_branch(
+            registry,
+            right_key,
+            instruction_id,
+            right_events,
+            right_session,
+            config,
+        )?);
+    }
+    Ok(written)
+}
+
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines)] // Paired commit and replay need one ordered lifecycle.
 fn run_stream_pair(
     registry: &Registry,
@@ -2769,6 +2806,83 @@ fn run_stream_pair(
             ))
         })?;
         let UnboundedPoll::Ready(batch) = polled else {
+            if let (Some(key), Some(current_progress)) = (&plan.stateful_key, progress.as_ref()) {
+                let now_ns = processing_time_now_ns(source.as_ref())?;
+                if registry
+                    .next_stateful_timer_deadline(key)?
+                    .is_some_and(|deadline| deadline <= now_ns)
+                {
+                    let prior_state = registry.checkpoint_stateful_value(key)?;
+                    let sink_identity = format!("{left_key}|{right_key}");
+                    let instruction_id = timer_bundle_id(
+                        graph_fingerprint,
+                        &sink_identity,
+                        current_progress,
+                        &prior_state,
+                    );
+                    let mut left_session = None;
+                    let mut right_session = None;
+                    let result = (|| {
+                        let firings = catch_unwind(AssertUnwindSafe(|| {
+                            registry.drain_stateful_timers(key, None, Some(now_ns))
+                        }))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(key, "direct", "timer callback panicked"))
+                        })?;
+                        let written = write_pair_timer_outputs(
+                            registry,
+                            plan,
+                            left_key,
+                            right_key,
+                            &instruction_id,
+                            config,
+                            handle,
+                            firings,
+                            &mut left_session,
+                            &mut right_session,
+                        )?;
+                        if config.cancellation.load(Ordering::Acquire) {
+                            return Err(cancelled());
+                        }
+                        let state = registry.checkpoint_stateful_value(key)?;
+                        if state.len() > config.memory_budget_bytes {
+                            return Err(Error::resource(
+                                key,
+                                "stream timer state exceeds memory budget",
+                            ));
+                        }
+                        commit_stream_branch(left_key, &mut left_session)?;
+                        commit_stream_branch(right_key, &mut right_session)?;
+                        Ok((state, written))
+                    })();
+                    let (state, written) = match result {
+                        Ok(result) => result,
+                        Err(error) => {
+                            if let Some(session) = &mut left_session {
+                                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                            }
+                            if let Some(session) = &mut right_session {
+                                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                            }
+                            return Err(error);
+                        }
+                    };
+                    if let Some(checkpoint) = checkpoint {
+                        checkpoint.save_state(
+                            current_progress,
+                            &state,
+                            config.memory_budget_bytes,
+                        )?;
+                    }
+                    let total = handle
+                        .metrics
+                        .output_elements
+                        .fetch_add(written, Ordering::Relaxed)
+                        .saturating_add(written);
+                    handle.processed.store(total, Ordering::Relaxed);
+                    continue;
+                }
+            }
             std::thread::sleep(Duration::from_millis(10));
             continue;
         };
@@ -2824,6 +2938,35 @@ fn run_stream_pair(
                     right_events,
                     &mut right_session,
                     config,
+                )?);
+            }
+            if let Some(key) = &plan.stateful_key {
+                let processing_time_ns = if registry.next_stateful_timer_deadline(key)?.is_some() {
+                    Some(processing_time_now_ns(source.as_ref())?)
+                } else {
+                    None
+                };
+                let firings = catch_unwind(AssertUnwindSafe(|| {
+                    registry.drain_stateful_timers(
+                        key,
+                        batch.progress.event_time_ns,
+                        processing_time_ns,
+                    )
+                }))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(key, "direct", "timer callback panicked"))
+                })?;
+                written = written.saturating_add(write_pair_timer_outputs(
+                    registry,
+                    plan,
+                    left_key,
+                    right_key,
+                    &instruction_id,
+                    config,
+                    handle,
+                    firings,
+                    &mut left_session,
+                    &mut right_session,
                 )?);
             }
             if config.cancellation.load(Ordering::Acquire) {

@@ -69,6 +69,89 @@ pub fn streaming_event_timer_fixture(
         )
 }
 
+/// One shared event timer feeds two idempotent sink branches.
+pub fn streaming_event_timer_fanout_fixture(
+    pipeline: &Pipeline,
+    first: PathBuf,
+    second: PathBuf,
+) -> Result<(Sink<String>, Sink<String>), Error> {
+    let shared = pipeline
+        .test_stream_source(
+            "event-timer-fanout-source",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)]),
+                TestStreamEvent::Elements(vec![((1_i32, 4_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+            ],
+        )?
+        .stateful_timer_map_named::<i32, i32>(
+            "event-timer-fanout-state",
+            "prism-proof/event-timer-fanout-state",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, state, _| {
+                Ok(TimedStateResult {
+                    state: Some(state.unwrap_or(0) + value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: Some(1_000_000),
+                    }],
+                })
+            },
+            |_, state, event| {
+                if event.dynamic_tag != "flush" || event.output_timestamp_ns != 1_000_000 {
+                    return Err(Error::incompatible("unexpected fanout timer firing"));
+                }
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )?
+        .map_named("event-timer-fanout-label", |(key, value)| {
+            format!("{key}:{value}")
+        })?;
+    let first_directory = first.clone();
+    let first_sink = shared.sink_named_with_config(
+        "event-timer-fanout-first",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::Idempotent,
+            commit: true,
+        },
+        format!("event-timer-fanout-first:{}", first.display()),
+        move || {
+            Ok(Box::new(IdempotentStateLabelSink {
+                directory: first_directory.clone(),
+                pending: Vec::new(),
+            }))
+        },
+    )?;
+    let second_directory = second.clone();
+    let second_sink = shared
+        .map_named("event-timer-fanout-copy", |label| format!("copy:{label}"))?
+        .sink_named_with_config(
+            "event-timer-fanout-second",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("event-timer-fanout-second:{}", second.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: second_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )?;
+    Ok((first_sink, second_sink))
+}
+
 /// Processing-clock timer shared by Direct and the pinned local Prism worker.
 pub fn streaming_processing_timer_fixture(
     pipeline: &Pipeline,

@@ -145,14 +145,10 @@ fn prepare_routes(
         if !left[..common].contains(key) {
             return Err(Error::unsupported(key, "direct", "branch-stateful-stream"));
         }
-        let Some(Operation::StatefulParDo { contract, .. }) =
-            graph.node(key).map(|node| &node.operation)
+        let Some(Operation::StatefulParDo { .. }) = graph.node(key).map(|node| &node.operation)
         else {
             return Err(Error::graph(key, "stateful route node missing"));
         };
-        if !contract.timers.is_empty() || contract.on_window_expiration_timer.is_some() {
-            return Err(Error::unsupported(key, "direct", "paired-stream-timers"));
-        }
     }
     let split_key = &left[common - 1];
     if !registry.has_coder(split_key) {
@@ -221,6 +217,42 @@ pub(crate) fn process_event(
         return Err(cancelled());
     }
     let common = apply_stages(registry, vec![event], &plan.common_stages, config, metrics)?;
+    split_events(common, plan, registry, config, metrics)
+}
+
+pub(crate) fn process_timer_event(
+    event: Envelope,
+    plan: &PairPlan,
+    registry: &Registry,
+    config: &JobConfig,
+    metrics: &MetricsState,
+) -> Result<(Vec<Envelope>, Vec<Envelope>), Error> {
+    let key = plan
+        .stateful_key
+        .as_ref()
+        .ok_or_else(|| Error::graph(&plan.split_key, "timer output has no stateful stage"))?;
+    let position = plan
+        .common_stages
+        .iter()
+        .position(|stage| stage == key)
+        .ok_or_else(|| Error::graph(key, "stateful stage is not shared"))?;
+    let common = apply_stages(
+        registry,
+        vec![event],
+        &plan.common_stages[position + 1..],
+        config,
+        metrics,
+    )?;
+    split_events(common, plan, registry, config, metrics)
+}
+
+fn split_events(
+    common: Vec<Envelope>,
+    plan: &PairPlan,
+    registry: &Registry,
+    config: &JobConfig,
+    metrics: &MetricsState,
+) -> Result<(Vec<Envelope>, Vec<Envelope>), Error> {
     let mut left = Vec::new();
     let mut right = Vec::new();
     for event in common {

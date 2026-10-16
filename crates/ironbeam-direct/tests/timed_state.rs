@@ -320,6 +320,101 @@ fn fixed_windows_keep_same_key_and_timer_tag_isolated() {
 }
 
 #[test]
+fn shared_event_timer_fires_once_into_both_stream_sinks() {
+    let first_rows = Arc::new(Mutex::new(Vec::new()));
+    let second_rows = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let shared = pipeline
+        .test_stream_source(
+            "source",
+            vec![
+                TestStreamEvent::Elements(vec![((7_i32, 3_i32), 0)]),
+                TestStreamEvent::Elements(vec![((7_i32, 4_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+            ],
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "shared-timer",
+            "tests/shared-event-timer",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, state, _| {
+                Ok(TimedStateResult {
+                    state: Some(state.unwrap_or(0) + value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: Some(1_000_000),
+                    }],
+                })
+            },
+            |_, state, event| {
+                assert_eq!(event.output_timestamp_ns, 1_000_000);
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap();
+    let first = shared
+        .sink_named_with_config(
+            "first",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-timer-first-v1".into(),
+            {
+                let committed = Arc::clone(&first_rows);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let second = shared
+        .map_named("copy-label", |label| format!("copy:{label}"))
+        .unwrap()
+        .sink_named_with_config(
+            "second",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-timer-second-v1".into(),
+            {
+                let committed = Arc::clone(&second_rows);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink_pair(&first, &second, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*first_rows.lock().unwrap(), ["7:7"]);
+    assert_eq!(*second_rows.lock().unwrap(), ["copy:7:7"]);
+}
+
+#[test]
 fn window_expiration_callback_sees_each_key_and_window_before_state_cleanup() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let pipeline = Pipeline::default();
@@ -639,6 +734,145 @@ fn armed_event_timer_and_state_resume_from_one_source_checkpoint() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Both sink branches must recover the same armed timer and cursor.
+fn shared_event_timer_and_both_sinks_resume_from_checkpoint() {
+    let directory = tempfile::tempdir().unwrap();
+    let first_rows = Arc::new(Mutex::new(Vec::new()));
+    let second_rows = Arc::new(Mutex::new(Vec::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let shared = pipeline
+        .unbounded_source_with_factory(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "shared-timed-recovery-source-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |cursor| {
+                    opens.lock().unwrap().push(cursor.clone());
+                    Ok(Box::new(RecoverySource {
+                        cursor,
+                        emitted: false,
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                }
+            },
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/shared-recovered-event-timer",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap();
+    let first = shared
+        .sink_named_with_config(
+            "first",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-recovered-first-v1".into(),
+            {
+                let committed = Arc::clone(&first_rows);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let second = shared
+        .map_named("copy-label", |label| format!("copy:{label}"))
+        .unwrap()
+        .sink_named_with_config(
+            "second",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-recovered-second-v1".into(),
+            {
+                let committed = Arc::clone(&second_rows);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 2,
+            recover: true,
+            binary_build_id: "shared-timed-recovery-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let first_run = DirectRunner
+        .start_stream_sink_pair(&first, &second, &config())
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while first_run
+        .progress()
+        .and_then(|progress| progress.checkpoint_position)
+        != Some(vec![1])
+    {
+        assert_ne!(first_run.handle().status(), JobStatus::Failed);
+        assert!(
+            Instant::now() < deadline,
+            "shared timer was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    first_run.cancel();
+    assert!(first_run.wait().is_err());
+    DirectRunner
+        .start_stream_sink_pair(&first, &second, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
+    assert_eq!(*first_rows.lock().unwrap(), ["7:3"]);
+    assert_eq!(*second_rows.lock().unwrap(), ["copy:7:3"]);
+}
+
+#[test]
 fn failed_timer_sink_commit_retries_from_armed_checkpoint() {
     let directory = tempfile::tempdir().unwrap();
     let committed = Arc::new(Mutex::new(Vec::new()));
@@ -831,6 +1065,123 @@ fn idle_source_fires_wall_clock_processing_timer_without_another_batch() {
     job.cancel();
     assert!(job.wait().is_err());
     assert_eq!(*committed.lock().unwrap(), ["5:8"]);
+    assert!(polls.load(Ordering::SeqCst) > 1);
+}
+
+#[test]
+fn idle_shared_processing_timer_reaches_both_stream_sinks() {
+    let first_rows = Arc::new(Mutex::new(Vec::new()));
+    let second_rows = Arc::new(Mutex::new(Vec::new()));
+    let polls = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let shared = pipeline
+        .unbounded_source_with_factory(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "wall-pending-pair-timer-source-v1".into(),
+            0,
+            {
+                let polls = Arc::clone(&polls);
+                move |_| {
+                    Ok(Box::new(WallPendingSource {
+                        emitted: false,
+                        polls: Arc::clone(&polls),
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                }
+            },
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/idle-shared-processing-timer",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("process".into(), UserTimerDomain::ProcessingTime)]),
+            |_, value, _, _| {
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                let deadline = i64::try_from(now.as_nanos()).unwrap() + 50_000_000;
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "process".into(),
+                        dynamic_tag: "idle".into(),
+                        fire_timestamp_ns: deadline - deadline % 1_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, event| {
+                assert_eq!(event.dynamic_tag, "idle");
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap();
+    let first = shared
+        .sink_named_with_config(
+            "first",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "idle-pair-first-v1".into(),
+            {
+                let committed = Arc::clone(&first_rows);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let second = shared
+        .map_named("copy-label", |label| format!("copy:{label}"))
+        .unwrap()
+        .sink_named_with_config(
+            "second",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "idle-pair-second-v1".into(),
+            {
+                let committed = Arc::clone(&second_rows);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let job = DirectRunner
+        .start_stream_sink_pair(&first, &second, &JobConfig::default())
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while second_rows.lock().unwrap().is_empty() {
+        assert_ne!(job.handle().status(), JobStatus::Failed);
+        assert!(Instant::now() < deadline, "idle pair timer did not fire");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    job.cancel();
+    assert!(job.wait().is_err());
+    assert_eq!(*first_rows.lock().unwrap(), ["5:8"]);
+    assert_eq!(*second_rows.lock().unwrap(), ["copy:5:8"]);
     assert!(polls.load(Ordering::SeqCst) > 1);
 }
 

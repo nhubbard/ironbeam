@@ -45,6 +45,65 @@ async fn prism_matches_direct_event_timer_callback_and_output() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_shared_event_timer_fanout() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_first = directory.path().join("direct-event-fanout-first");
+    let direct_second = directory.path().join("direct-event-fanout-second");
+    let portable_first = directory.path().join("portable-event-fanout-first");
+    let portable_second = directory.path().join("portable-event-fanout-second");
+    let direct = Pipeline::default();
+    let (first_sink, second_sink) = ironbeam_prism_proof::streaming_event_timer_fanout_fixture(
+        &direct,
+        direct_first.clone(),
+        direct_second.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink_pair(&first_sink, &second_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let rows = |path: &Path| {
+        std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&direct_first), ["1:7"]);
+    assert_eq!(rows(&direct_second), ["copy:1:7"]);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_event_timer_fanout_fixture(
+        &portable,
+        portable_first.clone(),
+        portable_second.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "shared-event-timer-fanout",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_EVENT_TIMER_FANOUT_FIRST".into(),
+                portable_first.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_EVENT_TIMER_FANOUT_SECOND".into(),
+                portable_second.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism event fanout failed: {terminal:?}");
+    assert_eq!(rows(&portable_first), ["1:7"]);
+    assert_eq!(rows(&portable_second), ["copy:1:7"]);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_processing_timer_callback_and_hold_timestamp() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
