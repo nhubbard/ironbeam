@@ -138,9 +138,32 @@ pub fn runner_split_offset_sdf_fixture(
     path: PathBuf,
     trace: PathBuf,
 ) -> Result<Sink<i32>, Error> {
+    runner_split_offset_input(
+        pipeline.from_vec("runner-split-input", vec![100_i32])?,
+        path,
+        trace,
+    )
+}
+
+/// A resumable production source feeding a runner-split user callback.
+pub fn production_runner_split_offset_sdf_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    trace: PathBuf,
+) -> Result<Sink<i32>, Error> {
+    let input = production_offset_source(pipeline)?
+        .filter_named("runner-split-select-seven", |value| *value == 7)?
+        .map_named("runner-split-seed", |_| 100_i32)?;
+    runner_split_offset_input(input, path, trace)
+}
+
+fn runner_split_offset_input(
+    input: PCollection<i32>,
+    path: PathBuf,
+    trace: PathBuf,
+) -> Result<Sink<i32>, Error> {
     let sink_path = path.clone();
-    pipeline
-        .from_vec("runner-split-input", vec![100_i32])?
+    input
         .splittable_flat_map_named(
             "runner-split-offsets",
             "prism-proof/runner-split-offsets",
