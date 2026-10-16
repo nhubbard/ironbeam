@@ -712,6 +712,119 @@ async fn prism_requests_fractional_split_after_resumable_production_source() {
 }
 
 #[tokio::test]
+async fn prism_commits_supervised_fractional_split_after_production_source() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("supervised-production-split.txt");
+    let trace = directory
+        .path()
+        .join("supervised-production-split-trace.txt");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::production_runner_split_offset_sdf_fixture(
+        &pipeline,
+        output.clone(),
+        trace.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "supervised-production-fractional-offset-split",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_PRODUCTION_RUNNER_SPLIT".into(),
+                output.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_RUNNER_SPLIT_TRACE".into(),
+                trace.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "supervised split job failed: {terminal:?}");
+    let rows = std::fs::read_to_string(&output).unwrap();
+    assert_eq!(
+        rows.lines().collect::<Vec<_>>(),
+        ["100", "101", "102", "103", "104", "105", "106", "107"]
+    );
+    let traced = std::fs::read_to_string(&trace).unwrap();
+    assert!(traced.lines().any(|range| range == "0..8"), "{traced}");
+    assert!(traced.lines().any(|range| range == "4..8"), "{traced}");
+}
+
+#[tokio::test]
+async fn prism_retries_supervised_fractional_split_after_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("replayed-production-split.txt");
+    let trace = directory.path().join("replayed-production-split-trace.txt");
+    let trigger = directory.path().join("split-child-trigger");
+    let killed = directory.path().join("split-child-killed");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::production_runner_split_offset_sdf_fixture(
+        &pipeline,
+        output.clone(),
+        trace.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "replayed-production-fractional-offset-split",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_PRODUCTION_RUNNER_SPLIT".into(),
+                output.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_RUNNER_SPLIT_TRACE".into(),
+                trace.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            ("IRONBEAM_TEST_KILL_RUNNER_SPLIT_CHILD".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "replayed split job failed: {terminal:?}");
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap(),
+        "the split attempt did not lose its selected child"
+    );
+    let rows = std::fs::read_to_string(&output).unwrap();
+    assert_eq!(
+        rows.lines().collect::<Vec<_>>(),
+        ["100", "101", "102", "103", "104", "105", "106", "107"]
+    );
+    let traced = std::fs::read_to_string(&trace).unwrap();
+    assert!(
+        traced.lines().any(|range| {
+            range
+                .strip_suffix("..8")
+                .and_then(|start| start.parse::<i64>().ok())
+                .is_some_and(|start| (1..8).contains(&start))
+        }),
+        "the successful retry did not run a split residual: {traced}"
+    );
+}
+
+#[tokio::test]
 async fn prism_replays_user_offset_callback_after_execution_child_loss() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

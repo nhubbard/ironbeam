@@ -36,6 +36,21 @@ impl Drop for ActiveSdfGuard<'_> {
 }
 
 impl V5BundleExecutor {
+    pub(crate) fn offset_split_ready(&self, instruction_id: &str) -> Result<bool> {
+        let active = self
+            .active_sdf
+            .lock()
+            .map_err(|_| anyhow!("v5 SDF active bundle registry poisoned"))?;
+        let Some(bundle) = active.get(instruction_id) else {
+            return Ok(false);
+        };
+        let work = bundle
+            .offset_work
+            .lock()
+            .map_err(|_| anyhow!("v5 SDF offset work registry poisoned"))?;
+        Ok(work.is_some())
+    }
+
     fn window_for_pc(&self, pc: &str) -> Result<Window> {
         if pc == "v5_impulse_pc" {
             return Ok(Window::Global);

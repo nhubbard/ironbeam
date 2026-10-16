@@ -98,7 +98,7 @@ async fn serve_v5_inner(
             supervision::validate_pipeline(pipeline)?;
         }
         let runner: Arc<dyn executor::BundleRunner> = Arc::new(
-            supervision::SupervisedV5Runner::new(cache.clone(), worker_id)?,
+            supervision::SupervisedV5Runner::new(cache.clone(), worker_id, pipeline)?,
         );
         return serve_inner(endpoints, 0, Some(runner), true, cache).await;
     }

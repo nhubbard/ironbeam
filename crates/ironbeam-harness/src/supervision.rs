@@ -3,7 +3,9 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
@@ -15,9 +17,9 @@ use beam_proto::pipeline_v1::ParDoPayload;
 use ironbeam_core::{Operation, Pipeline, Replay};
 use prost::Message;
 use tokio::process::Command;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{oneshot, watch, Mutex as AsyncMutex};
 
-use crate::bundle::{self, BundlePlan, Step};
+use crate::bundle::{self, BundlePlan, SdfStage, Step};
 use crate::data::DataClient;
 use crate::dispatch::PbdCache;
 use crate::endpoints::normalize_endpoint;
@@ -30,6 +32,45 @@ const MAX_ATTEMPTS: usize = 2;
 const CHILD_REQUEST: &str = "IRONBEAM_V5_CHILD_REQUEST";
 const CHILD_RESPONSE: &str = "IRONBEAM_V5_CHILD_RESPONSE";
 const SPLIT_SIGNAL: &str = "IRONBEAM_V5_SPLIT_SIGNAL";
+
+#[derive(Clone)]
+enum SplitOutcome {
+    Pending,
+    Complete(Option<ProcessBundleSplitResponse>),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SplitMode {
+    Unset,
+    Checkpoint,
+    Fractional,
+}
+
+struct ActiveBundle {
+    source_id: String,
+    signal: PathBuf,
+    request: PathBuf,
+    fractional_eligible: bool,
+    split_mode: Mutex<SplitMode>,
+    outcome: watch::Sender<SplitOutcome>,
+    // The parent holds its bundle response until the split caller accepts the roots.
+    acknowledgment: Mutex<Option<oneshot::Receiver<()>>>,
+}
+
+fn route_split_roots(
+    response: &mut ProcessBundleResponse,
+    split: Option<ProcessBundleSplitResponse>,
+    waiting_for_split_response: bool,
+) -> Option<ProcessBundleSplitResponse> {
+    if waiting_for_split_response {
+        return split;
+    }
+    if let Some(split) = split {
+        // A canceled split request must not strand the residual in the child.
+        response.residual_roots.extend(split.residual_roots);
+    }
+    None
+}
 
 #[derive(Clone, PartialEq, Message)]
 struct ReplayRequest {
@@ -65,6 +106,8 @@ struct ReplayResult {
     outputs: Vec<ReplayOutput>,
     #[prost(string, tag = "3")]
     error: String,
+    #[prost(message, optional, tag = "4")]
+    split_response: Option<ProcessBundleSplitResponse>,
 }
 
 fn declared_timer_families(
@@ -107,17 +150,26 @@ pub(crate) struct SupervisedV5Runner {
     worker_id: String,
     executable: PathBuf,
     args: Vec<OsString>,
-    active: Mutex<HashMap<String, PathBuf>>,
+    user_sdf_keys: HashSet<String>,
+    active: Mutex<HashMap<String, Arc<ActiveBundle>>>,
     data_clients: AsyncMutex<HashMap<String, DataClient>>,
 }
 
 impl SupervisedV5Runner {
-    pub(crate) fn new(cache: PbdCache, worker_id: String) -> Result<Self> {
+    pub(crate) fn new(cache: PbdCache, worker_id: String, pipeline: &Pipeline) -> Result<Self> {
+        let (graph, _) = pipeline.snapshot()?;
+        let user_sdf_keys = graph
+            .nodes
+            .iter()
+            .filter(|node| matches!(node.operation, Operation::SplittableParDo))
+            .map(|node| node.key.clone())
+            .collect();
         Ok(Self {
             cache,
             worker_id,
             executable: std::env::current_exe().context("supervised worker executable")?,
             args: std::env::args_os().skip(1).collect(),
+            user_sdf_keys,
             active: Mutex::new(HashMap::new()),
             data_clients: AsyncMutex::new(HashMap::new()),
         })
@@ -220,10 +272,25 @@ impl SupervisedV5Runner {
         let source_client = self.data_client(source_endpoint).await?;
         let directory = tempfile::tempdir().context("create split signal directory")?;
         let split_signal = directory.path().join("split");
+        let (outcome, _) = watch::channel(SplitOutcome::Pending);
+        let active_bundle = Arc::new(ActiveBundle {
+            source_id: source_id.clone(),
+            request: directory.path().join("split-request.pb"),
+            signal: split_signal.clone(),
+            fractional_eligible: plan.steps.iter().any(|step| {
+                matches!(step,
+                    Step::Sdf { stage: SdfStage::ProcessSizedElements, node_ref, .. }
+                    if self.user_sdf_keys.contains(&node_ref.key)
+                )
+            }),
+            split_mode: Mutex::new(SplitMode::Unset),
+            outcome,
+            acknowledgment: Mutex::new(None),
+        });
         self.active
             .lock()
             .map_err(|_| anyhow!("supervised active bundle registry poisoned"))?
-            .insert(instruction_id.into(), split_signal.clone());
+            .insert(instruction_id.into(), Arc::clone(&active_bundle));
         let result = self
             .run_registered_bundle(
                 instruction_id,
@@ -234,11 +301,45 @@ impl SupervisedV5Runner {
                 &split_signal,
             )
             .await;
+        let result = match result {
+            Ok((mut response, split)) => {
+                let acknowledgment = active_bundle
+                    .acknowledgment
+                    .lock()
+                    .ok()
+                    .and_then(|mut acknowledgment| acknowledgment.take());
+                let split = match (split, acknowledgment) {
+                    (Some(split), Some(acknowledgment)) => {
+                        // Only a successful child can release split roots. Wait for
+                        // the Control reply path to take them before returning the
+                        // ProcessBundle response.
+                        active_bundle
+                            .outcome
+                            .send_replace(SplitOutcome::Complete(Some(split.clone())));
+                        let delivered = acknowledgment.await.is_ok();
+                        route_split_roots(&mut response, Some(split), delivered)
+                    }
+                    (split, _) => {
+                        active_bundle
+                            .outcome
+                            .send_replace(SplitOutcome::Complete(None));
+                        route_split_roots(&mut response, split, false)
+                    }
+                };
+                Ok((response, split))
+            }
+            Err(error) => {
+                active_bundle
+                    .outcome
+                    .send_replace(SplitOutcome::Complete(None));
+                Err(error)
+            }
+        };
         self.active
             .lock()
             .ok()
             .map(|mut active| active.remove(instruction_id));
-        result
+        result.map(|(response, _)| response)
     }
 
     async fn run_registered_bundle(
@@ -249,7 +350,7 @@ impl SupervisedV5Runner {
         source_client: &DataClient,
         source_id: &str,
         split_signal: &Path,
-    ) -> Result<ProcessBundleResponse> {
+    ) -> Result<(ProcessBundleResponse, Option<ProcessBundleSplitResponse>)> {
         let mut reader = source_client.open_read(instruction_id, source_id);
         let mut input_chunks = Vec::new();
         let mut input_bytes = 0_usize;
@@ -308,6 +409,14 @@ impl SupervisedV5Runner {
         }
         let response = ProcessBundleResponse::decode(result.response.as_slice())
             .context("decode child ProcessBundleResponse")?;
+        if result
+            .split_response
+            .as_ref()
+            .is_some_and(|split| !split.residual_roots.is_empty())
+            && !response.residual_roots.is_empty()
+        {
+            bail!("supervised child reported the same residual in split and bundle responses");
+        }
         let mut clients = HashMap::new();
         for step in &plan.steps {
             if let Step::Sink {
@@ -402,7 +511,7 @@ impl SupervisedV5Runner {
             client.flush_outbound().await?;
         }
         source_client.flush_outbound().await?;
-        Ok(response)
+        Ok((response, result.split_response))
     }
 
     async fn run_attempts(
@@ -465,16 +574,75 @@ impl BundleRunner for SupervisedV5Runner {
         &self,
         request: &ProcessBundleSplitRequest,
     ) -> Result<ProcessBundleSplitResponse> {
-        let path = self
+        let active = self
             .active
             .lock()
             .map_err(|_| anyhow!("supervised active bundle registry poisoned"))?
             .get(&request.instruction_id)
             .cloned();
-        if let Some(path) = path {
-            std::fs::write(path, b"split")?;
+        let Some(active) = active else {
+            return Ok(ProcessBundleSplitResponse::default());
+        };
+        let Some(desired) = request.desired_splits.get(&active.source_id) else {
+            return Ok(ProcessBundleSplitResponse::default());
+        };
+        if desired.fraction_of_remainder == 0.0 && desired.allowed_split_points.is_empty() {
+            let mut mode = active
+                .split_mode
+                .lock()
+                .map_err(|_| anyhow!("supervised split mode poisoned"))?;
+            if *mode != SplitMode::Unset {
+                return Ok(ProcessBundleSplitResponse::default());
+            }
+            std::fs::write(&active.signal, b"split")?;
+            *mode = SplitMode::Checkpoint;
+            return Ok(ProcessBundleSplitResponse::default());
         }
-        Ok(ProcessBundleSplitResponse::default())
+        if !active.fractional_eligible || !(0.0..1.0).contains(&desired.fraction_of_remainder) {
+            return Ok(ProcessBundleSplitResponse::default());
+        }
+        {
+            let mut mode = active
+                .split_mode
+                .lock()
+                .map_err(|_| anyhow!("supervised split mode poisoned"))?;
+            if *mode != SplitMode::Unset {
+                return Ok(ProcessBundleSplitResponse::default());
+            }
+            *mode = SplitMode::Fractional;
+        }
+        let mut outcome = active.outcome.subscribe();
+        if matches!(&*outcome.borrow(), SplitOutcome::Complete(_)) {
+            return Ok(ProcessBundleSplitResponse::default());
+        }
+        let (acknowledgment_sender, acknowledgment_receiver) = oneshot::channel();
+        *active
+            .acknowledgment
+            .lock()
+            .map_err(|_| anyhow!("supervised split acknowledgment registry poisoned"))? =
+            Some(acknowledgment_receiver);
+        let mut acknowledgment_sender = Some(acknowledgment_sender);
+        let pending = active.request.with_extension("pending");
+        if let Err(error) = std::fs::write(&pending, request.encode_to_vec())
+            .and_then(|()| std::fs::rename(&pending, &active.request))
+        {
+            if matches!(&*outcome.borrow(), SplitOutcome::Complete(_)) {
+                return Ok(ProcessBundleSplitResponse::default());
+            }
+            return Err(error.into());
+        }
+        loop {
+            match outcome.borrow_and_update().clone() {
+                SplitOutcome::Complete(response) => {
+                    if let Some(sender) = acknowledgment_sender.take() {
+                        let _ = sender.send(());
+                    }
+                    return Ok(response.unwrap_or_default());
+                }
+                SplitOutcome::Pending => {}
+            }
+            outcome.changed().await?;
+        }
     }
 
     async fn finalize_bundle(&self, instruction_id: &str) -> Result<()> {
@@ -498,6 +666,36 @@ impl BundleRunner for SupervisedV5Runner {
     }
 }
 
+async fn monitor_fractional_request(
+    runner: Arc<V5BundleExecutor>,
+    instruction_id: String,
+    request_path: PathBuf,
+    stop: Arc<AtomicBool>,
+) -> Result<Option<ProcessBundleSplitResponse>> {
+    // Atomic file rename is the request boundary between the Control owner
+    // and its isolated execution child.
+    loop {
+        if stop.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        match std::fs::read(&request_path) {
+            Ok(bytes) => {
+                let request = ProcessBundleSplitRequest::decode(bytes.as_slice())
+                    .context("decode supervised split request")?;
+                if request.instruction_id != instruction_id {
+                    bail!("supervised split request targets another bundle");
+                }
+                if runner.offset_split_ready(&instruction_id)? {
+                    return runner.split_bundle(&request).await.map(Some);
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 /// Worker binary entry point for a single isolated execution attempt.
 pub(crate) async fn run_child(
     endpoints: &Endpoints,
@@ -510,7 +708,7 @@ pub(crate) async fn run_child(
     let bytes = std::fs::read(request_path).context("read bundle replay request")?;
     let request =
         ReplayRequest::decode(bytes.as_slice()).context("decode bundle replay request")?;
-    let runner = if let Some((stores, uri)) = object_journal {
+    let runner = Arc::new(if let Some((stores, uri)) = object_journal {
         V5BundleExecutor::new_for_worker_with_object_journal(
             pipeline,
             binary_build_id,
@@ -520,7 +718,7 @@ pub(crate) async fn run_child(
         )?
     } else {
         V5BundleExecutor::new_for_worker(pipeline, binary_build_id, Some(&endpoints.id))?
-    };
+    });
     let result = if request.finalize {
         match runner.finalize_bundle(&request.instruction_id).await {
             Ok(()) => ReplayResult::default(),
@@ -547,7 +745,36 @@ pub(crate) async fn run_child(
             request.timer_inputs,
         );
         runner.use_replay_client(&plan, client).await?;
-        match runner.run(&request.instruction_id, &plan).await {
+        let stop = Arc::new(AtomicBool::new(false));
+        let monitor = plan
+            .steps
+            .iter()
+            .any(|step| {
+                matches!(
+                    step,
+                    Step::Sdf {
+                        stage: SdfStage::ProcessSizedElements,
+                        ..
+                    }
+                )
+            })
+            .then(|| std::env::var_os(SPLIT_SIGNAL))
+            .flatten()
+            .map(|signal| {
+                tokio::spawn(monitor_fractional_request(
+                    Arc::clone(&runner),
+                    request.instruction_id.clone(),
+                    PathBuf::from(signal).with_file_name("split-request.pb"),
+                    Arc::clone(&stop),
+                ))
+            });
+        let execution = runner.run(&request.instruction_id, &plan).await;
+        stop.store(true, Ordering::Release);
+        let split_response = match monitor {
+            Some(task) => task.await.context("join supervised split monitor")??,
+            None => None,
+        };
+        match execution {
             Ok(response) => {
                 let mut outputs = Vec::new();
                 while let Ok(elements) = outbound.try_recv() {
@@ -568,6 +795,7 @@ pub(crate) async fn run_child(
                     response: response.encode_to_vec(),
                     outputs,
                     error: String::new(),
+                    split_response,
                 }
             }
             Err(error) => ReplayResult {

@@ -188,6 +188,9 @@ fn runner_split_offset_input(
                     context.emit(*value + offset as i32, offset * 1_000_000)?;
                     if restriction.start == 0 && offset == 0 {
                         std::thread::sleep(Duration::from_millis(1_500));
+                        if std::env::var_os("IRONBEAM_TEST_KILL_RUNNER_SPLIT_CHILD").is_some() {
+                            super::await_supervised_source_replacement(Some(&[1]))?;
+                        }
                     }
                 }
                 Ok(())
