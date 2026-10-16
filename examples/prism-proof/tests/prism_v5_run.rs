@@ -78,8 +78,8 @@ use ironbeam_prism_proof::{
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
     finalization_probe_sink, finalization_probe_store,
     global_accumulating_early_cogroup_collection, global_accumulating_early_cogroup_fixture,
-    global_count_collection, global_count_fixture, global_fold_fixture,
-    global_group_output_time_fixture, global_keyed_batches_fixture,
+    global_count_collection, global_count_fixture, global_count_output_time_fixture,
+    global_fold_fixture, global_group_output_time_fixture, global_keyed_batches_fixture,
     global_keyed_batches_with_upstream_trigger_fixture, global_keyed_combine_collection,
     global_keyed_combine_fixture, global_vector_fixture, group_end_time_fixture,
     group_latest_time_fixture, group_time_fixture, heterogeneous_late_count_cogroup_collection,
@@ -8216,6 +8216,114 @@ async fn prism_matches_direct_global_count_group_and_combine_panes() {
         assert_eq!(
             portable, direct,
             "accumulating: {accumulating}, combine: {combine}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_global_count_output_time_panes() {
+    let directory = tempfile::tempdir().unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    for (policy, accumulating, env_name, expected_times) in [
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            false,
+            "IRONBEAM_V5_PRISM_GLOBAL_COUNT_END_TIME",
+            [i64::MAX, i64::MAX],
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            false,
+            "IRONBEAM_V5_PRISM_GLOBAL_COUNT_LATEST_TIME",
+            [3_000_000, 4_000_000],
+        ),
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            true,
+            "IRONBEAM_V5_PRISM_GLOBAL_ACCUMULATING_COUNT_END_TIME",
+            [i64::MAX, i64::MAX],
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            true,
+            "IRONBEAM_V5_PRISM_GLOBAL_ACCUMULATING_COUNT_LATEST_TIME",
+            [3_000_000, 4_000_000],
+        ),
+    ] {
+        let label = match policy {
+            ironbeam_core::WindowOutputTime::EndOfWindow => "end",
+            ironbeam_core::WindowOutputTime::LatestInPane => "latest",
+            ironbeam_core::WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let direct_path = directory
+            .path()
+            .join(format!("direct-global-count-{label}-{accumulating}"));
+        let portable_path = directory
+            .path()
+            .join(format!("portable-global-count-{label}-{accumulating}"));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = global_count_output_time_fixture(
+            &direct_pipeline,
+            direct_path.clone(),
+            policy,
+            accumulating,
+        )
+        .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let direct = read_rows(&direct_path);
+        assert_eq!(direct.len(), 2);
+        let mut actual_times = direct
+            .iter()
+            .map(|row| row.split(':').nth(2).unwrap().parse::<i64>().unwrap())
+            .collect::<Vec<_>>();
+        actual_times.sort_unstable();
+        assert_eq!(actual_times, expected_times);
+        assert!(direct
+            .iter()
+            .any(|row| row.contains("[2, 3]") && row.contains(":Early:0:false")));
+        let final_values = if accumulating { "[2, 3, 4]" } else { "[4]" };
+        assert!(direct
+            .iter()
+            .any(|row| row.contains(final_values) && row.contains(":OnTime:1:true")));
+
+        let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+            continue;
+        };
+        let _prism_job = prism_job_lock().lock().await;
+        let portable_pipeline = Pipeline::default();
+        global_count_output_time_fixture(
+            &portable_pipeline,
+            portable_path.clone(),
+            policy,
+            accumulating,
+        )
+        .unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &portable_pipeline,
+            "global-count-output-time",
+            HashMap::from([(
+                env_name.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "global count {label} state: {terminal:?}");
+        assert_eq!(
+            read_rows(&portable_path),
+            direct,
+            "global count {label} panes"
         );
     }
 }

@@ -31,17 +31,17 @@ use ironbeam_prism_proof::{
     early_sliding_windowed_wait_fixture, early_windowed_wait_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
     finalization_probe_sink, global_accumulating_early_cogroup_fixture, global_count_fixture,
-    global_fold_fixture, global_group_output_time_fixture, global_keyed_batches_fixture,
-    global_keyed_batches_with_upstream_trigger_fixture, global_keyed_combine_fixture,
-    global_vector_fixture, group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
-    heterogeneous_late_count_cogroup_fixture, heterogeneous_windowed_wait_fixture,
-    homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
-    idle_source_window_group_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
-    large_group_rows, large_group_summary, late_count_fixture, late_count_join_fixture,
-    late_count_join_kind_fixture, late_distinct_window_fixture, late_keyed_batches_fixture,
-    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
-    mixed_boundedness_join_cogroup_fixture, mixed_flatten_fixture,
-    mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
+    global_count_output_time_fixture, global_fold_fixture, global_group_output_time_fixture,
+    global_keyed_batches_fixture, global_keyed_batches_with_upstream_trigger_fixture,
+    global_keyed_combine_fixture, global_vector_fixture, group_end_time_fixture,
+    group_latest_time_fixture, group_time_fixture, heterogeneous_late_count_cogroup_fixture,
+    heterogeneous_windowed_wait_fixture, homogeneous_twelve_way_cogroup_fixture,
+    homogeneous_twelve_way_session_fixture, idle_source_window_group_fixture,
+    invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
+    late_count_fixture, late_count_join_fixture, late_count_join_kind_fixture,
+    late_distinct_window_fixture, late_keyed_batches_fixture, latest_tie_duplicate_fixture,
+    latest_tie_empty_fixture, latest_tie_fixture, mixed_boundedness_join_cogroup_fixture,
+    mixed_flatten_fixture, mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
     pane_metadata_fixture_with_accumulating_count, pane_metadata_fixture_with_trigger,
@@ -898,6 +898,30 @@ async fn main() -> anyhow::Result<()> {
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_COUNT_DISCARDING") {
         return global_count_fixture(pipeline, path.into(), false)
             .map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_COUNT_END_TIME") {
+        return global_count_output_time_fixture(
+            pipeline, path.into(), ironbeam_core::WindowOutputTime::EndOfWindow,
+            false,
+        ).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_COUNT_LATEST_TIME") {
+        return global_count_output_time_fixture(
+            pipeline, path.into(), ironbeam_core::WindowOutputTime::LatestInPane,
+            false,
+        ).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_ACCUMULATING_COUNT_END_TIME") {
+        return global_count_output_time_fixture(
+            pipeline, path.into(), ironbeam_core::WindowOutputTime::EndOfWindow,
+            true,
+        ).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_ACCUMULATING_COUNT_LATEST_TIME") {
+        return global_count_output_time_fixture(
+            pipeline, path.into(), ironbeam_core::WindowOutputTime::LatestInPane,
+            true,
+        ).map(|_| ()).map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_KEYED_BATCHES_UPSTREAM_TRIGGER") {
         return global_keyed_batches_with_upstream_trigger_fixture(pipeline, path.into())

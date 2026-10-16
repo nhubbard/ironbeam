@@ -519,7 +519,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         self.output_time,
                         *timestamp_ns,
                         self.latest_timestamps.get(&scope).copied(),
-                        Some(interval),
+                        *assigned_window,
                     ),
                     window: window.clone(),
                     assigned_window: *assigned_window,
@@ -562,7 +562,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     contains_element_metadata: false,
                 },
                 value: Box::new((key, values)),
-                timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, Some(interval)),
+                timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, assigned_window),
                 window,
                 assigned_window,
             });

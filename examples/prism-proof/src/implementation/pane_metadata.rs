@@ -733,6 +733,45 @@ pub fn global_count_collection(
         })
 }
 
+/// A count-triggered global group with explicit output time and pane metadata.
+pub fn global_count_output_time_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+    accumulating: bool,
+) -> Result<Sink<String>, Error> {
+    let values = global_count_values(pipeline)?;
+    let values = match policy {
+        ironbeam_core::WindowOutputTime::EndOfWindow => {
+            values.end_of_window_output_time_named("global-count-output-policy")?
+        }
+        ironbeam_core::WindowOutputTime::LatestInPane => {
+            values.latest_in_pane_output_time_named("global-count-output-policy")?
+        }
+        ironbeam_core::WindowOutputTime::EarliestInPane => values,
+    };
+    let sink_directory = directory.clone();
+    let values = if accumulating {
+        values.accumulating_count_trigger_named("global-count-output-trigger", 2)?
+    } else {
+        values.early_count_trigger_named("global-count-output-trigger", 2)?
+    };
+    values
+        .group_by_key_named("global-count-output-group")?
+        .reify_timestamps_named("global-count-output-timestamp")?
+        .reify_panes_named("global-count-output-pane")?
+        .map_named("global-count-output-row", |(pane, (time, (key, mut values)))| {
+            values.sort_unstable();
+            format!("{key}:{values:?}:{time}:{:?}:{}:{}", pane.timing, pane.index, pane.is_last)
+        })?
+        .sink_named_with_config(
+            "global-count-output-capture",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("global-count-output:{accumulating}:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink { directory: sink_directory.clone(), pending: Vec::new() })),
+        )
+}
+
 /// A keyed combine uses each count-triggered global group pane.
 pub fn global_keyed_combine_collection(
     pipeline: &Pipeline,

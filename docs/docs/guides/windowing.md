@@ -172,6 +172,11 @@ nanosecond range used inside Ironbeam, so timestamp reification reports
 that sentinel back to Beam's timestamp on the wire. Latest-in-pane remains
 the latest input event time; for global inputs at 2 ms and 7 ms, it is 7 ms.
 Direct and the pinned local Prism runner agree on both global cases.
+They also agree when a count trigger produces an early pane before source
+completion. In a discarding group, the early pane keeps the latest input time
+from its first two elements and the final pane uses the remaining element's
+time. In an accumulating group, the final pane keeps all three elements.
+End-of-window reports the global sentinel for both panes.
 
 Both policies are part of the graph identity and Beam windowing strategy.
 Window sizes, periods, offsets, and session gaps must be whole milliseconds. In
