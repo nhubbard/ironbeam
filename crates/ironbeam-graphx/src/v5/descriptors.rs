@@ -312,6 +312,8 @@ pub struct TranslatedV5 {
     pub chain: Vec<String>,
     /// Sink ParDos that require the runner's postcommit bundle callback.
     pub finalization_sinks: HashSet<String>,
+    /// Production source ParDos that require the same callback.
+    pub finalization_sources: HashSet<String>,
     /// Expected primitive payloads, retained for contract validation.
     pub test_stream_payloads: HashMap<String, TestStreamPayload>,
 }

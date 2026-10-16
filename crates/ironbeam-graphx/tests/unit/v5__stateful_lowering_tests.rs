@@ -63,6 +63,7 @@ fn stateful_pardo_lowers_with_kv_input_state_spec_and_requirement() {
         identity,
         chain: vec!["pairs".into(), "running".into(), "result".into()],
         finalization_sinks: HashSet::new(),
+        finalization_sources: HashSet::new(),
         test_stream_payloads: HashMap::new(),
     };
     validate_beam_contract(&graph, &translated).unwrap();
@@ -131,6 +132,7 @@ fn stateful_pardo_registers_beam_timer_coder() {
         identity,
         chain: vec!["pairs".into(), "running".into(), "result".into()],
         finalization_sinks: HashSet::new(),
+        finalization_sources: HashSet::new(),
         test_stream_payloads: HashMap::new(),
     };
     validate_beam_contract(&graph, &translated).unwrap();

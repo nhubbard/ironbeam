@@ -6,6 +6,82 @@ impl<T: Element> UnboundedSource<Timestamped<T>> for ProductionSource<T> {
     }
 }
 
+struct SourceAckSink;
+
+impl TypedSink<i32> for SourceAckSink {
+    fn write(&mut self, _: i32) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+/// One finite source batch with a post-commit callback visible to the driver.
+pub fn source_finalization_fixture(
+    pipeline: &Pipeline,
+    directory: impl AsRef<Path>,
+) -> Result<(), Error> {
+    let directory = directory.as_ref().to_path_buf();
+    let marker = directory.join("source-acknowledged");
+    pipeline
+        .unbounded_source_with_finalizer(
+            "source-ack-events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            format!("source-ack-fixture-v1:{}", directory.display()),
+            0,
+            |_| {
+                let batch = UnboundedPoll::Ready(UnboundedBatch {
+                    elements: vec![Timestamped {
+                        value: 7_i32,
+                        timestamp_ns: 1_000_000,
+                    }],
+                    progress: ProgressSignal {
+                        source_key: "source-ack-events".into(),
+                        split_id: "split-0".into(),
+                        checkpoint_position: Some(vec![7]),
+                        event_time_ns: Some(1_000_000),
+                        completed: true,
+                    },
+                });
+                Ok(Box::new(ProductionSource([batch].into())) as TypedUnboundedSourceReader<i32>)
+            },
+            move |progress| {
+                if progress.checkpoint_position.as_deref() != Some(&[7][..]) {
+                    return Err(Error::recovery(
+                        "source-ack-events",
+                        "unexpected finalization cursor",
+                    ));
+                }
+                std::fs::create_dir_all(&directory)
+                    .and_then(|()| std::fs::write(&marker, b"7"))
+                    .map_err(|error| {
+                        Error::io("source-ack-events", "prism", error.to_string())
+                    })
+            },
+        )?
+        .sink_named_with_config(
+            "source-ack-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "source-ack-sink-v1".into(),
+            || Ok(Box::new(SourceAckSink)),
+        )?;
+    Ok(())
+}
+
 fn streaming_window_source(
     pipeline: &Pipeline,
     include_late_row: bool,

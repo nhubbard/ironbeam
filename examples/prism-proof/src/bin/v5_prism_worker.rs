@@ -65,7 +65,7 @@ use ironbeam_prism_proof::{
     shared_accumulating_early_cogroup_fixture, shared_accumulating_late_cogroup_fixture,
     shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
     sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_main_side_view_fixture,
-    sliding_window_group_fixture, streaming_count_per_element_fixture,
+    sliding_window_group_fixture, source_finalization_fixture, streaming_count_per_element_fixture,
     streaming_distinct_window_fixture, streaming_dual_session_lateness_fixture,
     streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
     streaming_partition_fixture, streaming_representative_distinct_fixture,
@@ -1600,6 +1600,9 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
     }
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_CAPTURE") {
         return production_stream_fixture(pipeline, directory).map_err(Into::into);
+    }
+    if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_SOURCE_FINALIZATION") {
+        return source_finalization_fixture(pipeline, directory).map_err(Into::into);
     }
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_VALUE_STATE") {
         return ironbeam_prism_proof::production_value_state_fixture(pipeline, directory.into())

@@ -1472,3 +1472,65 @@ fn translator_accepts_registered_unbounded_reader_without_opening_it() {
     validate_beam_contract(&pipeline.snapshot().unwrap().0, &translated).unwrap();
     assert_eq!(opens.load(Ordering::Relaxed), 0);
 }
+
+#[test]
+fn finalized_source_sets_beam_process_flag_and_changes_source_identity() {
+    use beam_prost::Message;
+    use beam_proto::pipeline_v1::ParDoPayload;
+    let build = |finalized| {
+        let pipeline = Pipeline::default();
+        let progress = SourceProgress {
+            stable_split_id: true,
+            replay: Replay::AtLeastOnce,
+            reports_event_time: true,
+        };
+        if finalized {
+            pipeline
+                .unbounded_source_with_finalizer::<i32>(
+                    "events",
+                    progress,
+                    "same-source-v1".into(),
+                    0,
+                    |_| Err(Error::incompatible("reader must not open")),
+                    |_| Ok(()),
+                )
+                .unwrap()
+                .output("result")
+                .unwrap();
+        } else {
+            pipeline
+                .unbounded_source_with_factory::<i32>(
+                    "events",
+                    progress,
+                    "same-source-v1".into(),
+                    0,
+                    |_| Err(Error::incompatible("reader must not open")),
+                )
+                .unwrap()
+                .output("result")
+                .unwrap();
+        }
+        pipeline
+    };
+    let ordinary = translate_v5(&build(false), IMAGE, BUILD).unwrap();
+    let pipeline = build(true);
+    let finalized = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&pipeline.snapshot().unwrap().0, &finalized).unwrap();
+    assert_ne!(
+        ordinary.identity.source_config_digest,
+        finalized.identity.source_config_digest
+    );
+    assert!(finalized.finalization_sources.contains("events"));
+    let transform = finalized
+        .pipeline
+        .components
+        .as_ref()
+        .unwrap()
+        .transforms
+        .values()
+        .find(|transform| transform.unique_name == "events")
+        .unwrap();
+    let payload =
+        ParDoPayload::decode(transform.spec.as_ref().unwrap().payload.as_slice()).unwrap();
+    assert!(payload.requests_finalization);
+}

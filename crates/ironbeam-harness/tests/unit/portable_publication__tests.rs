@@ -45,6 +45,7 @@ fn plan_requires_one_outputless_finalizing_transform_per_sink() {
         identity: identity(),
         chain: Vec::new(),
         finalization_sinks: ["sink".into()].into(),
+        finalization_sources: Default::default(),
         test_stream_payloads: Default::default(),
     };
     assert!(PortablePublicationPlan::from_translated(&translated).is_err());

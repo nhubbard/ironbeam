@@ -74,7 +74,7 @@ fn lower(
     chain: &[String],
     identity: &ExecutionIdentity,
     container_image: &str,
-    finalization_sinks: &HashSet<String>,
+    finalization_nodes: &HashSet<String>,
     test_streams: &HashMap<String, Vec<EncodedTestStreamEvent>>,
 ) -> Result<(BeamPipeline, HashMap<String, TestStreamPayload>), V5Error> {
     let mut transforms = HashMap::new();
@@ -657,7 +657,7 @@ fn lower(
                     payload: node_ref.encode()?,
                 }),
                 side_inputs: expected_side_input_specs(graph, node)?,
-                requests_finalization: finalization_sinks.contains(key),
+                requests_finalization: finalization_nodes.contains(key),
                 restriction_coder_id: if is_production_source(node)
                     || matches!(node.operation, Operation::SplittableParDo)
                 {

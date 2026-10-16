@@ -200,6 +200,18 @@ pub fn translate_v5(
                 && registry.sink_requires_bundle_finalization(&node.key)
         })
         .map(|node| node.key.clone())
+        .collect::<HashSet<_>>();
+    let finalization_sources = graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            is_production_source(node) && registry.source_requires_finalization(&node.key)
+        })
+        .map(|node| node.key.clone())
+        .collect::<HashSet<_>>();
+    let finalization_nodes = finalization_sinks
+        .union(&finalization_sources)
+        .cloned()
         .collect();
     let test_stream_payloads = graph
         .nodes
@@ -221,7 +233,7 @@ pub fn translate_v5(
         &chain,
         &identity,
         container_image,
-        &finalization_sinks,
+        &finalization_nodes,
         &test_stream_payloads,
     )?;
     Ok(TranslatedV5 {
@@ -229,6 +241,7 @@ pub fn translate_v5(
         identity,
         chain,
         finalization_sinks,
+        finalization_sources,
         test_stream_payloads: payloads,
     })
 }
@@ -847,7 +860,10 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
                     "SDF restriction coder differs for {key}"
                 )));
             }
-            if pardo.requests_finalization != translated.finalization_sinks.contains(key) {
+            if pardo.requests_finalization
+                != (translated.finalization_sinks.contains(key)
+                    || translated.finalization_sources.contains(key))
+            {
                 return Err(V5Error::Wire(format!(
                     "bundle finalization contract differs for {key}"
                 )));
