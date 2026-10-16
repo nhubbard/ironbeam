@@ -65,6 +65,7 @@ fixture with two shards of one hot key produces the same batches on Direct and
 the pinned local Prism runner. A fixed-window TestStream also produces one
 full batch per shard on both runners. A Direct job has resumed two open shard
 batches from a source checkpoint and committed each completed batch once.
-Portable failed-bundle recovery and byte-limited unbounded batches still need
-proofs. The
+Portable failed-bundle recovery and the combination of explicit sharding
+with unbounded byte limits still need proofs. Unsharded unbounded byte batches
+have separate Direct and Prism fixtures. The
 [Beam semantics inventory](../concepts/beam-semantics.md) tracks those cases.

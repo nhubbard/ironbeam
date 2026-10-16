@@ -593,8 +593,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
         self.group_into_batches_with_delay(key, batch_size, Some(delay_ns))
     }
-    /// Split a bounded keyed group when either its element count or encoded
-    /// value bytes reach a limit. A single oversized value forms one batch.
+    /// Split a keyed group when either its element count or encoded value
+    /// bytes reach a limit. Unbounded inputs keep a coded partial batch per
+    /// key and window until a limit or the window's event-time end.
+    /// A single oversized value forms one batch.
     pub fn group_into_batches_with_limits_named(
         &self,
         key: &str,
@@ -607,11 +609,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 "batch count and encoded byte limits must be positive",
             ));
         }
-        if self.parent()?.boundedness != Boundedness::Bounded {
-            return Err(Error::graph(
-                key,
-                "encoded byte batching currently requires a bounded input",
-            ));
+        if self.parent()?.boundedness == Boundedness::Unbounded {
+            return stream_byte_limited_batches(self, key, max_count, max_encoded_bytes);
         }
         let semantic_id =
             format!("ironbeam/group-into-batches/limits/{max_count}/{max_encoded_bytes}");

@@ -40,6 +40,7 @@ include!("stateful_multimap_collection.rs");
 include!("stateful_ordered_list_collection.rs");
 include!("stateful_combining_collection.rs");
 include!("keyed.rs");
+include!("keyed_stream_byte_batches.rs");
 include!("co_group_homogeneous.rs");
 include!("output.rs");
 

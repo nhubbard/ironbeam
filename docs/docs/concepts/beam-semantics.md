@@ -56,9 +56,12 @@ compatible fields, including fields inside nested rows, arrays, iterables,
 and maps. The streaming execution proof covers an integer/string projection;
 the wider nested cases have byte-level tests but no streaming runner proof.
 
-Bounded keyed batching can also use encoded-value byte and count limits. The
-byte-limited method rejects unbounded input until a stateful streaming
-implementation exists.
+Keyed batching can use encoded-value byte and count limits. On unbounded
+input, Ironbeam retains a coded partial batch per key and window and flushes it
+when either limit is reached. A fixed-window event timer flushes the remainder
+when the window closes. Direct and pinned Prism agree on a five-batch streaming
+fixture, and Direct restores a partial batch from a checkpoint. Global-window
+partial batches remain open without a closing trigger.
 
 A bounded RowCoder fixture carries Beam date, time, and UUID logical fields
 through a reshuffle. Direct and the pinned local Prism job produce the same
@@ -642,9 +645,8 @@ inputs, then marks the final Late pane as `is_last`. An ignored live test record
 the difference while the expected cross-runner behavior remains unresolved.
 
 The [portable execution guide](../guides/portable.md) describes how to run the
-local proof. Bounded keyed batching can also use encoded-value byte and count limits. The
-byte-limited method rejects unbounded input until a stateful streaming
-implementation exists.
+local proof. Byte-limited unbounded batches use keyed state and event-time timers. The
+[transform guide](../guides/transforms.md) describes their flushing rules.
 
 The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md)
 records the exact test corpus and unresolved gates.

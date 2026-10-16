@@ -330,6 +330,51 @@ pub fn streaming_two_branch_value_state_fixture(
     streaming_branch_value_state_fixture_impl(pipeline, left_directory, right_directory, true)
 }
 
+/// A keyed TestStream flushes byte-limited batches and a final window batch.
+pub fn streaming_byte_limited_batches_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    let short_bytes = "a".to_owned().encoded_len()?;
+    pipeline
+        .test_stream_source(
+            "byte-batch-input",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, "a".to_owned()), 1_000_000),
+                    ((1, "bbb".to_owned()), 2_000_000),
+                    ((1, "c".to_owned()), 3_000_000),
+                    ((1, "d".to_owned()), 4_000_000),
+                    ((1, "oversized".to_owned()), 5_000_000),
+                    ((1, "e".to_owned()), 6_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .fixed_windows("byte-batch-window", 10_000_000)?
+        .group_into_batches_with_limits_named("byte-batches", 2, short_bytes * 2)?
+        .reify_timestamps_named("byte-batch-timestamps")?
+        .map_named("byte-batch-label", |(timestamp, (key, values))| {
+            format!("{key}:{timestamp}:{values:?}")
+        })?
+        .sink_named_with_config(
+            "byte-batch-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("byte-batch-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 fn streaming_branch_value_state_fixture_impl(
     pipeline: &Pipeline,
     stateful_directory: PathBuf,

@@ -156,9 +156,16 @@ splits a key's values at two elements or 4,096 encoded value bytes, whichever
 comes first. The byte count excludes the key and Beam's window envelope. A
 single value larger than the limit forms a one-value batch. Direct and local
 Prism produce the same batch values in the tested bounded job. The method
-also assigns each batch its own earliest value timestamp. It rejects
-unbounded input because byte-triggered streaming requires keyed
-state and timers that this helper does not yet provide.
+also assigns each batch its own earliest value timestamp. On unbounded input,
+it keeps a coded partial batch per key and window. Count and byte limits flush
+immediately; an event-time timer flushes the remainder at the end of a
+millisecond-aligned fixed window. Direct checkpoints the partial batch with
+the source cursor. A global-window partial batch stays open until a limit is
+reached because it has no finite window end. The tested unbounded Direct and
+Prism jobs agree on five batches, including an oversized singleton and the
+final fixed-window remainder. Aligned sliding windows are accepted but have
+no byte-batch runner proof yet. Session windows and windows whose ends are not
+whole milliseconds are rejected.
 
 `co_group_homogeneous_named` groups collections whose keys and values have
 the same types. The result is a key and one value vector

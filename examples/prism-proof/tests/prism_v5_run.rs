@@ -6608,6 +6608,57 @@ async fn prism_matches_direct_byte_and_keyed_batch_helpers() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_unbounded_byte_limited_batches() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-stream-byte-batches");
+    let portable_path = directory.path().join("portable-stream-byte-batches");
+    let direct = Pipeline::default();
+    let direct_sink =
+        ironbeam_prism_proof::streaming_byte_limited_batches_fixture(&direct, direct_path.clone())
+            .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_byte_limited_batches_fixture(&portable, portable_path.clone())
+        .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "streaming-byte-limited-batches",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_BYTE_LIMITED_BATCHES".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism byte batches failed: {terminal:?}");
+    let rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = [
+        "1:1000000:[\"a\"]",
+        "1:2000000:[\"bbb\"]",
+        "1:3000000:[\"c\", \"d\"]",
+        "1:5000000:[\"oversized\"]",
+        "1:6000000:[\"e\"]",
+    ];
+    assert_eq!(rows(&direct_path), expected);
+    assert_eq!(rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_unbounded_beam_rows_through_keyed_shuffle() {
     let directory = tempfile::tempdir().unwrap();
     let direct_path = directory.path().join("direct-stream-rows");
