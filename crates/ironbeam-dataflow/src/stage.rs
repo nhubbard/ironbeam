@@ -14,8 +14,10 @@ use crate::auth::TokenSource;
 
 #[async_trait::async_trait]
 pub trait Stager: Send + Sync {
+    /// Upload bytes under `key` and return their staged artifact location.
     async fn put(&self, key: &str, bytes: Vec<u8>) -> anyhow::Result<StagedArtifact>;
 
+    /// Upload a local file under `key` and return its staged artifact location.
     async fn put_file(&self, key: &str, path: &Path) -> anyhow::Result<StagedArtifact> {
         let bytes = tokio::fs::read(path)
             .await

@@ -83,12 +83,14 @@ impl<T: Element> OrderedFoldFn<T, Reservoir<T>, Vec<T>> for PriorityReservoir {
 }
 
 pub trait SamplingExt<T: Element> {
+    /// Collect up to `k` seeded reservoir samples in one vector.
     fn sample_reservoir_vec_named(
         &self,
         key: &str,
         k: usize,
         seed: u64,
     ) -> Result<PCollection<Vec<T>>, Error>;
+    /// Emit the seeded reservoir samples as individual values.
     fn sample_reservoir_named(
         &self,
         sample_key: &str,
@@ -96,7 +98,9 @@ pub trait SamplingExt<T: Element> {
         k: usize,
         seed: u64,
     ) -> Result<PCollection<T>, Error>;
+    /// Sample up to `k` values using the default seed.
     fn sample_globally_named(&self, key: &str, k: usize) -> Result<PCollection<Vec<T>>, Error>;
+    /// Sample up to `k` values using a caller-provided seed.
     fn sample_globally_with_seed_named(
         &self,
         key: &str,
@@ -137,6 +141,7 @@ impl<T: Element> SamplingExt<T> for PCollection<T> {
 }
 
 pub trait KeyedSamplingExt<K: Element + Eq + Hash + Clone, V: Element> {
+    /// Collect up to `k` seeded reservoir samples per key.
     fn sample_values_reservoir_vec_named(
         &self,
         group_key: &str,
@@ -144,6 +149,7 @@ pub trait KeyedSamplingExt<K: Element + Eq + Hash + Clone, V: Element> {
         k: usize,
         seed: u64,
     ) -> Result<PCollection<(K, Vec<V>)>, Error>;
+    /// Emit seeded per-key samples as individual key-value pairs.
     fn sample_values_reservoir_named(
         &self,
         group_key: &str,
@@ -152,12 +158,14 @@ pub trait KeyedSamplingExt<K: Element + Eq + Hash + Clone, V: Element> {
         k: usize,
         seed: u64,
     ) -> Result<PCollection<(K, V)>, Error>;
+    /// Sample up to `k` values per key using the default seed.
     fn sample_per_key_named(
         &self,
         group_key: &str,
         key: &str,
         k: usize,
     ) -> Result<PCollection<(K, Vec<V>)>, Error>;
+    /// Sample up to `k` values per key using a caller-provided seed.
     fn sample_per_key_with_seed_named(
         &self,
         group_key: &str,

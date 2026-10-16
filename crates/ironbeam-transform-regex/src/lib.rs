@@ -9,13 +9,16 @@ fn compile(key: &str, pattern: &str) -> Result<Regex, Error> {
 }
 
 pub trait RegexExt {
+    /// Keep strings containing a match for the pattern.
     fn regex_matches_named(&self, key: &str, pattern: &str) -> Result<PCollection<String>, Error>;
+    /// Emit the selected capture group for each matching string.
     fn regex_extract_named(
         &self,
         key: &str,
         pattern: &str,
         group: usize,
     ) -> Result<PCollection<String>, Error>;
+    /// Emit two selected capture groups as a key-value pair.
     fn regex_extract_kv_named(
         &self,
         key: &str,
@@ -23,13 +26,16 @@ pub trait RegexExt {
         key_group: usize,
         value_group: usize,
     ) -> Result<PCollection<(String, String)>, Error>;
+    /// Emit the first matching substring from each input.
     fn regex_find_named(&self, key: &str, pattern: &str) -> Result<PCollection<String>, Error>;
+    /// Replace every match in each input with `replacement`.
     fn regex_replace_all_named(
         &self,
         key: &str,
         pattern: &str,
         replacement: &str,
     ) -> Result<PCollection<String>, Error>;
+    /// Split each string at pattern matches.
     fn regex_split_named(
         &self,
         key: &str,

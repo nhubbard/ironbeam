@@ -261,12 +261,14 @@ impl<T: Element + Into<f64>> CombineFn<T, TDigest, f64> for Median {
 }
 
 pub trait StatisticalExt<T: Element + Into<f64>> {
+    /// Estimate selected global quantiles with a t-digest.
     fn approx_quantiles_named(
         &self,
         key: &str,
         quantiles: Vec<f64>,
         compression: f64,
     ) -> Result<PCollection<Vec<f64>>, Error>;
+    /// Estimate the global median with a t-digest.
     fn approx_median_named(&self, key: &str, compression: f64) -> Result<PCollection<f64>, Error>;
 }
 
@@ -294,6 +296,7 @@ impl<T: Element + Into<f64>> StatisticalExt<T> for PCollection<T> {
 }
 
 pub trait KeyedStatisticalExt<K: Element + Eq + Hash + Clone, V: Element + Into<f64>> {
+    /// Estimate selected value quantiles per key with a t-digest.
     fn approx_quantiles_per_key_named(
         &self,
         group_key: &str,
@@ -301,6 +304,7 @@ pub trait KeyedStatisticalExt<K: Element + Eq + Hash + Clone, V: Element + Into<
         quantiles: Vec<f64>,
         compression: f64,
     ) -> Result<PCollection<(K, Vec<f64>)>, Error>;
+    /// Estimate the value median per key with a t-digest.
     fn approx_median_per_key_named(
         &self,
         group_key: &str,

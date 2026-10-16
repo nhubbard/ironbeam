@@ -77,8 +77,11 @@ impl<T: Element + Hash> CombineFn<T, HllSketch<T>, u64> for Hll {
 }
 
 pub trait ApproxDistinctExt<T: Element + Hash> {
+    /// Estimate global distinct count with a KMV sketch of at least four samples.
     fn approx_distinct_count_named(&self, key: &str, k: usize) -> Result<PCollection<f64>, Error>;
+    /// Estimate global distinct count with the default `HyperLogLog` precision.
     fn approx_count_distinct_named(&self, key: &str) -> Result<PCollection<u64>, Error>;
+    /// Estimate global distinct count with a target relative error.
     fn approx_count_distinct_with_error_named(
         &self,
         key: &str,
@@ -103,17 +106,20 @@ impl<T: Element + Hash> ApproxDistinctExt<T> for PCollection<T> {
 }
 
 pub trait KeyedApproxDistinctExt<K: Element + Eq + Hash + Clone, V: Element + Hash> {
+    /// Estimate distinct values per key with a KMV sketch of at least four samples.
     fn approx_distinct_count_per_key_named(
         &self,
         group_key: &str,
         key: &str,
         k: usize,
     ) -> Result<PCollection<(K, f64)>, Error>;
+    /// Estimate distinct values per key with default `HyperLogLog` precision.
     fn approx_count_distinct_per_key_named(
         &self,
         group_key: &str,
         key: &str,
     ) -> Result<PCollection<(K, u64)>, Error>;
+    /// Estimate distinct values per key with a target relative error.
     fn approx_count_distinct_per_key_with_error_named(
         &self,
         group_key: &str,

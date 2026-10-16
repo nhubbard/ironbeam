@@ -54,6 +54,7 @@ fn validate(classify_key: &str, prefix: &str, partitions: usize) -> Result<(), E
 /// a retry, so it must be deterministic and free of observable side effects.
 /// Each output has the stable graph key `{prefix}/{index}`.
 pub trait PartitionExt<T: Element> {
+    /// Route each element to one numbered output using a stable classifier.
     fn partition_named(
         &self,
         classify_key: &str,

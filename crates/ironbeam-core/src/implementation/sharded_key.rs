@@ -13,7 +13,9 @@ pub trait BeamPortableKey: Clone + Send + Sync + 'static {
     const CODER_URN: &'static str;
     const TYPE_ID: &'static str;
 
+    /// Borrow the bytes placed inside Beam's sharded-key wrapper.
     fn key_bytes(&self) -> &[u8];
+    /// Reconstruct a key from those bytes, validating its declared format.
     fn from_key_bytes(bytes: &[u8]) -> Result<Self, Error>
     where
         Self: Sized;

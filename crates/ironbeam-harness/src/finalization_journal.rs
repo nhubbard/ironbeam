@@ -46,8 +46,11 @@ impl CompletedFinalizationManifest {
 /// Implementations must durably bind each record to the execution identity,
 /// reject conflicting replays, and make completion idempotent across workers.
 pub trait FinalizationJournal: Send + Sync {
+    /// Durably record the exact sink set for one accepted bundle attempt.
     fn record(&self, bundle_id: &str, sinks: &[String]) -> Result<()>;
+    /// Load a recorded attempt, or return `None` for an unknown bundle ID.
     fn load(&self, bundle_id: &str) -> Result<Option<JournalEntry>>;
+    /// Mark a recorded bundle callback complete; repeated calls are idempotent.
     fn complete(&self, bundle_id: &str) -> Result<()>;
 }
 

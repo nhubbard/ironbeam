@@ -111,6 +111,7 @@ pub mod validators {
 }
 
 pub trait Validate {
+    /// Return validation errors for this value, or success when it is valid.
     fn validate(&self) -> ValidationResult;
 }
 
@@ -282,13 +283,16 @@ fn accepted(
 }
 
 pub trait ValidationExt<T: Element + Validate> {
+    /// Validate each value using `mode` and optionally collect errors.
     fn validate_with_mode_named(
         &self,
         key: &str,
         mode: ValidationMode,
         collector: Option<Arc<Mutex<ErrorCollector>>>,
     ) -> Result<PCollection<T>, Error>;
+    /// Drop invalid values and keep valid values.
     fn validate_skip_invalid_named(&self, key: &str) -> Result<PCollection<T>, Error>;
+    /// Fail execution when an invalid value is encountered.
     fn validate_fail_fast_named(&self, key: &str) -> Result<PCollection<T>, Error>;
 }
 impl<T: Element + Validate> ValidationExt<T> for PCollection<T> {
@@ -322,12 +326,14 @@ impl<T: Element + Validate> ValidationExt<T> for PCollection<T> {
 }
 
 pub trait KeyedValidationExt<K: Element, V: Element + Validate> {
+    /// Validate each pair's value using `mode` and optionally collect errors.
     fn validate_values_with_mode_named(
         &self,
         key: &str,
         mode: ValidationMode,
         collector: Option<Arc<Mutex<ErrorCollector>>>,
     ) -> Result<PCollection<(K, V)>, Error>;
+    /// Drop pairs whose value fails validation.
     fn validate_values_skip_invalid_named(&self, key: &str) -> Result<PCollection<(K, V)>, Error>;
 }
 impl<K: Element, V: Element + Validate> KeyedValidationExt<K, V> for PCollection<(K, V)> {

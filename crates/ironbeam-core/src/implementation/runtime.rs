@@ -39,6 +39,8 @@ pub struct UnboundedBatch<T> {
 /// A resumable, nonblocking reader. `Pending` lets a runner check cancellation
 /// and schedule another poll without trapping a worker thread in the source.
 pub trait UnboundedSource<T>: Send {
+    /// Poll up to `max_elements` values and return durable source progress.
+    /// `Pending` means the reader can be polled again later.
     fn poll(&mut self, max_elements: usize) -> Result<UnboundedPoll<T>, Error>;
 
     /// Cumulative processing time advanced by a scripted source, if known.
@@ -214,14 +216,21 @@ type OrderedGlobalGroups<Q, T> =
     BTreeMap<Option<i64>, (BTreeMap<Q, (T, i64)>, Option<WindowInterval>)>;
 type LatestTieGlobalGroups<Q> = BTreeMap<Option<i64>, (BTreeSet<(i64, Q)>, Envelope)>;
 pub trait CombineFn<V, A, O>: Send + Sync + 'static {
+    /// Create the accumulator for a new key or window.
     fn create(&self) -> A;
+    /// Add one input value to an accumulator.
     fn add_input(&self, accumulator: &mut A, value: V);
+    /// Merge a partial accumulator into another partial accumulator.
     fn merge(&self, accumulator: &mut A, other: A);
+    /// Convert the completed accumulator to an output value.
     fn finish(&self, accumulator: A) -> O;
 }
 pub trait OrderedFoldFn<V, A, O>: Send + Sync + 'static {
+    /// Create the accumulator for an ordered fold.
     fn create(&self) -> A;
+    /// Add the next value in the fold's declared order.
     fn add_input(&self, accumulator: &mut A, value: V);
+    /// Convert the completed ordered accumulator to an output value.
     fn finish(&self, accumulator: A) -> O;
 }
 trait FoldLogic<V, A, O>: Send + Sync + 'static {
@@ -254,6 +263,7 @@ impl<V, A, O, C: OrderedFoldFn<V, A, O>> FoldLogic<V, A, O> for OrderedAdapter<C
     }
 }
 pub trait FoldSession: Send {
+    /// Add one windowed input to the open fold.
     fn add(&mut self, event: Envelope) -> Result<(), Error>;
     /// Resolve an incoming window against active keyed state before a runner
     /// checks expiry. Merging folds may extend the assigned interval.
@@ -312,6 +322,7 @@ pub trait FoldSession: Send {
     fn accepts_timed_vec_batch(&self, _batch_type: TypeId) -> bool {
         false
     }
+    /// Feed a typed batch and derive each value's event timestamp.
     fn add_timed_vec_batch(
         &mut self,
         _values: Payload,
@@ -324,6 +335,7 @@ pub trait FoldSession: Send {
             "typed-timestamp-batch",
         ))
     }
+    /// Complete the fold and return all remaining output envelopes.
     fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error>;
     /// Drain completed output without requiring a second whole-result vector.
     fn finish_into(
@@ -506,8 +518,11 @@ pub trait SinkSession: Send {
     fn begin_bundle(&mut self, _instruction_id: &str) -> Result<(), Error> {
         Ok(())
     }
+    /// Stage one windowed value in the current bundle.
     fn write(&mut self, event: Envelope) -> Result<(), Error>;
+    /// Commit the staged bundle; retries must not duplicate its effect.
     fn commit(&mut self) -> Result<(), Error>;
+    /// Discard a staged bundle after an unsuccessful attempt.
     fn abort(&mut self) -> Result<(), Error>;
     /// Whether this committed bundle needs a runner callback before its side
     /// effect is considered accepted.
@@ -530,23 +545,31 @@ pub trait SinkSession: Send {
     }
 }
 pub trait TypedSink<T: Element>: Send {
+    /// Bind a stable bundle-attempt ID before writing any values.
     fn begin_bundle(&mut self, _instruction_id: &str) -> Result<(), Error> {
         Ok(())
     }
+    /// Stage one typed value in the current bundle.
     fn write(&mut self, value: T) -> Result<(), Error>;
     /// Write a value with its event-time and window context. Existing sinks
     /// can continue implementing `write`; metadata-aware sinks override this.
     fn write_with_metadata(&mut self, value: T, _metadata: ElementMetadata) -> Result<(), Error> {
         self.write(value)
     }
+    /// Commit the staged bundle; retries must not duplicate its effect.
     fn commit(&mut self) -> Result<(), Error>;
+    /// Discard a staged bundle after an unsuccessful attempt.
     fn abort(&mut self) -> Result<(), Error>;
+    /// Report whether runner acceptance is required after commit.
     fn requires_bundle_finalization(&self) -> bool {
         false
     }
+    /// Complete a committed bundle after runner acceptance.
+    /// Implementations must make retries idempotent.
     fn finalize_bundle(&mut self) -> Result<(), Error> {
         Err(Error::unsupported("sink", "runner", "bundle-finalization"))
     }
+    /// Recover a committed attempt for this ID from durable sink state.
     fn recover_bundle_finalization(&mut self, _instruction_id: &str) -> Result<(), Error> {
         Err(Error::unsupported(
             "sink",

@@ -7,10 +7,13 @@ use std::hash::Hash;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub trait DirectSortedExt<T: Element + Ord> {
+    /// Execute a bounded output and sort its values using `Ord`.
     fn collect_sorted_named(&self, key: &str, config: &JobConfig) -> Result<Vec<T>, Error>;
+    /// Collect sorted values with the default Direct configuration.
     fn collect_seq_sorted_named(&self, key: &str) -> Result<Vec<T>, Error> {
         self.collect_sorted_named(key, &JobConfig::default())
     }
+    /// Collect sorted values with the requested Direct parallelism.
     fn collect_par_sorted_named(&self, key: &str, parallelism: usize) -> Result<Vec<T>, Error> {
         self.collect_sorted_named(
             key,
@@ -31,6 +34,7 @@ impl<T: Element + Ord> DirectSortedExt<T> for PCollection<T> {
 }
 
 pub trait DirectKeyedCollectExt<K: Element + Eq + Hash, V: Element> {
+    /// Collect keyed values into a map; a later duplicate key replaces an earlier value.
     fn to_hashmap_named(&self, key: &str, config: &JobConfig) -> Result<HashMap<K, V>, Error>;
 }
 impl<K: Element + Eq + Hash, V: Element> DirectKeyedCollectExt<K, V> for PCollection<(K, V)> {
@@ -45,16 +49,19 @@ impl<K: Element + Eq + Hash, V: Element> DirectKeyedCollectExt<K, V> for PCollec
 }
 
 pub trait DirectKeySortedExt<K: Element + Ord, V: Element> {
+    /// Collect pairs and sort them by key using `Ord`.
     fn collect_sorted_by_key_named(
         &self,
         key: &str,
         config: &JobConfig,
     ) -> Result<Vec<(K, V)>, Error>;
 
+    /// Collect pairs sorted by key with the default Direct configuration.
     fn collect_seq_sorted_by_key_named(&self, key: &str) -> Result<Vec<(K, V)>, Error> {
         self.collect_sorted_by_key_named(key, &JobConfig::default())
     }
 
+    /// Collect pairs sorted by key with the requested Direct parallelism.
     fn collect_par_sorted_by_key_named(
         &self,
         key: &str,
@@ -83,10 +90,12 @@ impl<K: Element + Ord, V: Element> DirectKeySortedExt<K, V> for PCollection<(K, 
 }
 
 pub trait DirectFallibleExt<T: Element, E: Element + Display> {
+    /// Collect successful values or return the first element error.
     fn collect_fail_fast_named(&self, key: &str, config: &JobConfig) -> Result<Vec<T>, Error>;
 }
 
 pub trait DirectPartitionExt<T: Element, E: Element> {
+    /// Collect `Ok` and `Err` values into separate vectors.
     fn collect_partitioned_named(
         &self,
         key: &str,
@@ -117,6 +126,7 @@ pub type Partitioned4<A, B, C, D> = (Vec<A>, Vec<B>, Vec<C>, Vec<D>);
 /// The returned buckets can hold different types. This terminal does not
 /// execute downstream graph branches on each bucket.
 pub trait DirectPartitionByExt<T: Element> {
+    /// Classify one bounded result into three typed vectors after execution.
     fn collect_partitioned3_named<A, B, C>(
         &self,
         key: &str,
@@ -124,6 +134,7 @@ pub trait DirectPartitionByExt<T: Element> {
         classify: impl Fn(T) -> Partition3<A, B, C>,
     ) -> Result<Partitioned3<A, B, C>, Error>;
 
+    /// Classify one bounded result into four typed vectors after execution.
     fn collect_partitioned4_named<A, B, C, D>(
         &self,
         key: &str,
@@ -197,6 +208,7 @@ impl<T: Element, E: Element> DirectPartitionExt<T, E> for PCollection<Result<T, 
 }
 
 pub trait DirectFlatPartitionExt<T: Element, E: Element> {
+    /// Flatten successful vectors and collect errors separately.
     fn collect_flat_partitioned_named(
         &self,
         key: &str,

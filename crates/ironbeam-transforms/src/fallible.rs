@@ -2,11 +2,13 @@
 use ironbeam_core::{Element, Error, PCollection};
 
 pub trait TryProcessExt<T: Element> {
+    /// Map each input to a `Result` retained as a collection element.
     fn try_map_named<O: Element, E: Element>(
         &self,
         key: &str,
         f: impl Fn(&T) -> Result<O, E> + Send + Sync + 'static,
     ) -> Result<PCollection<Result<O, E>>, Error>;
+    /// Map each input to a `Result<Vec<_>, _>` retained as one element.
     fn try_flat_map_named<O: Element, E: Element>(
         &self,
         key: &str,

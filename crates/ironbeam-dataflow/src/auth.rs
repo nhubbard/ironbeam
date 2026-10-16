@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 #[async_trait::async_trait]
 pub trait TokenSource: Send + Sync + std::fmt::Debug {
+    /// Return a bearer token for an authenticated Dataflow request.
     async fn token(&self) -> anyhow::Result<String>;
 }
 

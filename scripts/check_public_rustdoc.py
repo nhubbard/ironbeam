@@ -37,7 +37,8 @@ def main() -> int:
             continue
         data = json.loads(report.read_text())
         checked += 1
-        for item in data["index"].values():
+        index = data["index"]
+        for item in index.values():
             if (
                 item["crate_id"] == 0
                 and item["visibility"] == "public"
@@ -49,6 +50,24 @@ def main() -> int:
                     f"{name}: {span.get('filename', '?')}:{(span.get('begin') or ['?'])[0]} "
                     f"{item.get('name') or '<anonymous>'} lacks Rustdoc"
                 )
+            if (
+                item["crate_id"] == 0
+                and item["visibility"] == "public"
+                and "trait" in item["inner"]
+            ):
+                for method_id in item["inner"]["trait"]["items"]:
+                    method = index.get(str(method_id))
+                    if method is None or "function" not in method["inner"]:
+                        continue
+                    if (method.get("docs") or "").strip():
+                        continue
+                    span = method.get("span") or {}
+                    failures.append(
+                        f"{name}: {span.get('filename', '?')}:"
+                        f"{(span.get('begin') or ['?'])[0]} "
+                        f"{item.get('name') or '<anonymous>'}::"
+                        f"{method.get('name') or '<anonymous>'} lacks Rustdoc"
+                    )
 
     if failures:
         print("\n".join(sorted(failures)), file=sys.stderr)

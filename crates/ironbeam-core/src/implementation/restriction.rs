@@ -200,14 +200,21 @@ pub trait RestrictionTracker: Send + Sync {
     type Position;
     type Restriction;
 
+    /// Claim one position, returning false when it falls outside remaining work.
     fn try_claim(&self, position: Self::Position) -> Result<bool, Error>;
+    /// Split unclaimed work into a current primary and a residual restriction.
+    /// Return `None` if no residual can be made.
     fn try_split(
         &self,
         fraction_of_remainder: f64,
     ) -> Result<RestrictionSplit<Self::Restriction>, Error>;
+    /// Return the current primary restriction after any split.
     fn restriction(&self) -> Result<Self::Restriction, Error>;
+    /// Return estimated completed and remaining work in that order.
     fn progress(&self) -> Result<(f64, f64), Error>;
+    /// Report whether the current primary restriction has been fully claimed.
     fn is_done(&self) -> Result<bool, Error>;
+    /// Reject a completed callback that left positions unclaimed.
     fn check_done(&self) -> Result<(), Error>;
 }
 

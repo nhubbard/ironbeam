@@ -29,6 +29,7 @@ const MAX_DEPTH: usize = 64;
 /// semantic row type changes; the serialized schema also enters graph identity.
 pub trait RowSchema: Send + Sync + 'static {
     const TYPE_ID: &'static str;
+    /// Return the fixed Beam schema used to validate and code this row type.
     fn schema() -> Schema;
 }
 

@@ -7,18 +7,21 @@ use std::ops::Add;
 pub type KeyedWindowedGroups<K, V> = ((K, WindowInterval), Vec<V>);
 
 pub trait WindowedExt<T: Element> {
+    /// Pair each value with its assigned fixed-window interval.
     fn key_by_window_named(
         &self,
         key: &str,
         size_ns: i64,
         offset_ns: i64,
     ) -> Result<PCollection<(WindowInterval, T)>, Error>;
+    /// Collect values by fixed-window interval.
     fn group_by_window_named(
         &self,
         key: &str,
         size_ns: i64,
         offset_ns: i64,
     ) -> Result<PCollection<(WindowInterval, Vec<T>)>, Error>;
+    /// Apply `f` to values grouped in each fixed window.
     fn combine_per_window_named<U: Element>(
         &self,
         key: &str,
@@ -26,6 +29,7 @@ pub trait WindowedExt<T: Element> {
         offset_ns: i64,
         f: impl Fn(Vec<T>) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<(WindowInterval, U)>, Error>;
+    /// Sum values in each fixed window.
     fn sum_per_window_named(
         &self,
         key: &str,
@@ -34,12 +38,14 @@ pub trait WindowedExt<T: Element> {
     ) -> Result<PCollection<(WindowInterval, T)>, Error>
     where
         T: Default + Add<Output = T>;
+    /// Count values in each fixed window.
     fn count_per_window_named(
         &self,
         key: &str,
         size_ns: i64,
         offset_ns: i64,
     ) -> Result<PCollection<(WindowInterval, u64)>, Error>;
+    /// Return the least value in each fixed window.
     fn min_per_window_named(
         &self,
         key: &str,
@@ -48,6 +54,7 @@ pub trait WindowedExt<T: Element> {
     ) -> Result<PCollection<(WindowInterval, T)>, Error>
     where
         T: Ord;
+    /// Return the greatest value in each fixed window.
     fn max_per_window_named(
         &self,
         key: &str,
@@ -56,6 +63,7 @@ pub trait WindowedExt<T: Element> {
     ) -> Result<PCollection<(WindowInterval, T)>, Error>
     where
         T: Ord;
+    /// Return the arithmetic mean in each fixed window as `f64`.
     fn average_per_window_named(
         &self,
         key: &str,
@@ -166,18 +174,21 @@ impl<T: Element> WindowedExt<T> for PCollection<T> {
 }
 
 pub trait KeyedWindowedExt<K: Element, V: Element> {
+    /// Pair each keyed value with its assigned fixed-window interval.
     fn key_by_key_and_window_named(
         &self,
         key: &str,
         size_ns: i64,
         offset_ns: i64,
     ) -> Result<PCollection<KeyedWindowed<K, V>>, Error>;
+    /// Collect values by key and fixed-window interval.
     fn group_by_key_and_window_named(
         &self,
         key: &str,
         size_ns: i64,
         offset_ns: i64,
     ) -> Result<PCollection<KeyedWindowedGroups<K, V>>, Error>;
+    /// Apply `f` to values grouped by key and fixed window.
     fn combine_per_key_and_window_named<U: Element>(
         &self,
         key: &str,
@@ -185,6 +196,7 @@ pub trait KeyedWindowedExt<K: Element, V: Element> {
         offset_ns: i64,
         f: impl Fn(Vec<V>) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<KeyedWindowed<K, U>>, Error>;
+    /// Sum values by key and fixed window.
     fn sum_per_key_and_window_named(
         &self,
         key: &str,
@@ -193,12 +205,14 @@ pub trait KeyedWindowedExt<K: Element, V: Element> {
     ) -> Result<PCollection<KeyedWindowed<K, V>>, Error>
     where
         V: Default + Add<Output = V>;
+    /// Count values by key and fixed window.
     fn count_per_key_and_window_named(
         &self,
         key: &str,
         size_ns: i64,
         offset_ns: i64,
     ) -> Result<PCollection<KeyedWindowed<K, u64>>, Error>;
+    /// Return the least value by key and fixed window.
     fn min_per_key_and_window_named(
         &self,
         key: &str,
@@ -207,6 +221,7 @@ pub trait KeyedWindowedExt<K: Element, V: Element> {
     ) -> Result<PCollection<KeyedWindowed<K, V>>, Error>
     where
         V: Ord;
+    /// Return the greatest value by key and fixed window.
     fn max_per_key_and_window_named(
         &self,
         key: &str,
@@ -215,6 +230,7 @@ pub trait KeyedWindowedExt<K: Element, V: Element> {
     ) -> Result<PCollection<KeyedWindowed<K, V>>, Error>
     where
         V: Ord;
+    /// Return the arithmetic mean by key and fixed window as `f64`.
     fn average_per_key_and_window_named(
         &self,
         key: &str,

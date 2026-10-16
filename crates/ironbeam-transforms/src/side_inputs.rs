@@ -46,48 +46,56 @@ pub fn side_multimap<K: Element + Eq + Hash + Sync, V: Element + Sync>(
 }
 
 pub trait ConstantSideInputExt<T: Element> {
+    /// Map each value using the supplied immutable side vector.
     fn map_with_side_vec_named<S: Element + Sync, U: Element>(
         &self,
         key: &str,
         side: &SideVec<S>,
         f: impl Fn(&T, &[S]) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error>;
+    /// Keep values selected using the supplied immutable side vector.
     fn filter_with_side_vec_named<S: Element + Sync>(
         &self,
         key: &str,
         side: &SideVec<S>,
         f: impl Fn(&T, &[S]) -> bool + Send + Sync + 'static,
     ) -> Result<PCollection<T>, Error>;
+    /// Map each value using the supplied immutable side map.
     fn map_with_side_map_named<K: Element + Eq + Hash + Sync, V: Element + Sync, U: Element>(
         &self,
         key: &str,
         side: &SideMap<K, V>,
         f: impl Fn(&T, &HashMap<K, V>) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error>;
+    /// Keep values selected using the supplied immutable side map.
     fn filter_with_side_map_named<K: Element + Eq + Hash + Sync, V: Element + Sync>(
         &self,
         key: &str,
         side: &SideMap<K, V>,
         f: impl Fn(&T, &HashMap<K, V>) -> bool + Send + Sync + 'static,
     ) -> Result<PCollection<T>, Error>;
+    /// Map each value using one supplied side value.
     fn map_with_singleton_named<S: Element + Sync, U: Element>(
         &self,
         key: &str,
         side: &SideSingleton<S>,
         f: impl Fn(&T, &S) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error>;
+    /// Keep values selected using one supplied side value.
     fn filter_with_singleton_named<S: Element + Sync>(
         &self,
         key: &str,
         side: &SideSingleton<S>,
         f: impl Fn(&T, &S) -> bool + Send + Sync + 'static,
     ) -> Result<PCollection<T>, Error>;
+    /// Map each value using the supplied key-to-values side map.
     fn map_with_side_multimap_named<K: Element + Eq + Hash + Sync, V: Element + Sync, U: Element>(
         &self,
         key: &str,
         side: &SideMultimap<K, V>,
         f: impl Fn(&T, &HashMap<K, Vec<V>>) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error>;
+    /// Keep values selected using the supplied key-to-values side map.
     fn filter_with_side_multimap_named<K: Element + Eq + Hash + Sync, V: Element + Sync>(
         &self,
         key: &str,
@@ -177,36 +185,42 @@ impl<T: Element> ConstantSideInputExt<T> for PCollection<T> {
 
 /// Side views computed from bounded collections in the same pipeline.
 pub trait DynamicSideInputExt<T: Element> {
+    /// Map main values using a singleton computed by a side collection.
     fn map_with_dynamic_singleton_named<S: Element, U: Element>(
         &self,
         key: &str,
         side: &PCollection<S>,
         f: impl Fn(T, &S) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error>;
+    /// Map main values using a map computed by a side collection.
     fn map_with_dynamic_map_named<K: Element + Eq + Hash, V: Element, U: Element>(
         &self,
         key: &str,
         side: &PCollection<(K, V)>,
         f: impl Fn(T, &HashMap<K, V>) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error>;
+    /// Map main values using a multimap computed by a side collection.
     fn map_with_dynamic_multimap_named<K: Element + Eq + Hash, V: Element, U: Element>(
         &self,
         key: &str,
         side: &PCollection<(K, V)>,
         f: impl Fn(T, &HashMap<K, Vec<V>>) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error>;
+    /// Keep main values selected by a computed singleton side input.
     fn filter_with_dynamic_singleton_named<S: Element>(
         &self,
         key: &str,
         side: &PCollection<S>,
         f: impl Fn(&T, &S) -> bool + Send + Sync + 'static,
     ) -> Result<PCollection<T>, Error>;
+    /// Keep main values selected by a computed map side input.
     fn filter_with_dynamic_map_named<K: Element + Eq + Hash, V: Element>(
         &self,
         key: &str,
         side: &PCollection<(K, V)>,
         f: impl Fn(&T, &HashMap<K, V>) -> bool + Send + Sync + 'static,
     ) -> Result<PCollection<T>, Error>;
+    /// Keep main values selected by a computed multimap side input.
     fn filter_with_dynamic_multimap_named<K: Element + Eq + Hash, V: Element>(
         &self,
         key: &str,

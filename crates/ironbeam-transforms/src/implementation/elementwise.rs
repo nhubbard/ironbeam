@@ -9,6 +9,7 @@ use crate::basic_fold::{
 };
 use crate::collections::CollectVec;
 pub trait MeanOutput: Element + Default + Add<Output = Self> {
+    /// Divide an accumulated total by its input count.
     fn divide_count(total: Self, count: usize) -> Self;
 }
 impl MeanOutput for f32 {
@@ -29,33 +30,43 @@ impl MeanOutput for f64 {
 }
 
 pub trait ElementwiseExt<T: Element> {
+    /// Pair each input with a key derived from it.
     fn key_by_named<K: Element>(
         &self,
         key: &str,
         f: impl Fn(&T) -> K + Send + Sync + 'static,
     ) -> Result<PCollection<(K, T)>, Error>;
+    /// Alias for `key_by_named`, using the same key derivation.
     fn with_keys_named<K: Element>(
         &self,
         key: &str,
         f: impl Fn(&T) -> K + Send + Sync + 'static,
     ) -> Result<PCollection<(K, T)>, Error>;
+    /// Drop `None` results and emit the mapped values from `Some`.
     fn filter_map_named<U: Element>(
         &self,
         key: &str,
         f: impl Fn(T) -> Option<U> + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error>;
+    /// Count all inputs through a global combine.
     fn count_globally_named(&self, key: &str) -> Result<PCollection<u64>, Error>;
+    /// Pair each input with a clone of `constant`.
     fn with_constant_key_named<K: Element + Clone + Sync>(
         &self,
         key: &str,
         constant: K,
     ) -> Result<PCollection<(K, T)>, Error>;
+    /// Format each input with its `Display` implementation.
     fn to_display_string_named(&self, key: &str) -> Result<PCollection<String>, Error>
     where
         T: Display;
+    /// Collect all values into a vector in Direct encounter order.
     fn to_list_globally_named(&self, key: &str) -> Result<PCollection<Vec<T>>, Error>;
+    /// Emit at most `limit` values in Direct encounter order.
     fn take_named(&self, key: &str, limit: usize) -> Result<PCollection<T>, Error>;
+    /// Emit the first value in Direct encounter order, if any.
     fn first_named(&self, key: &str) -> Result<PCollection<T>, Error>;
+    /// Keep the first occurrence of each value in Direct encounter order.
     fn distinct_named(&self, key: &str) -> Result<PCollection<T>, Error>
     where
         T: Eq + Hash + Clone;
@@ -64,12 +75,15 @@ pub trait ElementwiseExt<T: Element> {
     fn distinct_per_window_named(&self, key: &str) -> Result<PCollection<T>, Error>
     where
         T: Eq + Hash + Clone;
+    /// Count occurrences of each distinct input value.
     fn count_per_element_named(&self, key: &str) -> Result<PCollection<(T, u64)>, Error>
     where
         T: Eq + Hash + Clone;
+    /// Count distinct values through a global combine.
     fn distinct_count_globally_named(&self, key: &str) -> Result<PCollection<u64>, Error>
     where
         T: Eq + Hash;
+    /// Keep the first value for each derived key in Direct encounter order.
     fn distinct_by_named<K: Eq + Hash + Send + 'static>(
         &self,
         key: &str,
@@ -85,18 +99,23 @@ pub trait ElementwiseExt<T: Element> {
         key: &str,
         by: impl Fn(&T) -> K + Send + Sync + 'static,
     ) -> Result<PCollection<T>, Error>;
+    /// Sum all values, using `Default` as the empty-input identity.
     fn sum_globally_named(&self, key: &str) -> Result<PCollection<T>, Error>
     where
         T: Add<Output = T> + Default;
+    /// Return the arithmetic mean of all values as `f64`.
     fn average_globally_named(&self, key: &str) -> Result<PCollection<f64>, Error>
     where
         T: Into<f64>;
+    /// Return the arithmetic mean using the requested output type.
     fn mean_globally_named<O: MeanOutput>(&self, key: &str) -> Result<PCollection<O>, Error>
     where
         T: Into<O>;
+    /// Return the least value under `Ord`.
     fn min_globally_named(&self, key: &str) -> Result<PCollection<T>, Error>
     where
         T: Ord;
+    /// Return the greatest value under `Ord`.
     fn max_globally_named(&self, key: &str) -> Result<PCollection<T>, Error>
     where
         T: Ord;
@@ -255,18 +274,23 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
 }
 
 pub trait KeyedExt<K: Element, V: Element> {
+    /// Drop values and retain each pair's key.
     fn keys_named(&self, key: &str) -> Result<PCollection<K>, Error>;
+    /// Drop keys and retain each pair's value.
     fn values_named(&self, key: &str) -> Result<PCollection<V>, Error>;
+    /// Map each value while keeping its key.
     fn map_values_named<W: Element>(
         &self,
         key: &str,
         f: impl Fn(V) -> W + Send + Sync + 'static,
     ) -> Result<PCollection<(K, W)>, Error>;
+    /// Keep pairs whose value satisfies the predicate.
     fn filter_values_named(
         &self,
         key: &str,
         f: impl Fn(&V) -> bool + Send + Sync + 'static,
     ) -> Result<PCollection<(K, V)>, Error>;
+    /// Count input pairs per key.
     fn count_per_key_named(
         &self,
         group_key: &str,
@@ -274,6 +298,7 @@ pub trait KeyedExt<K: Element, V: Element> {
     ) -> Result<PCollection<(K, u64)>, Error>
     where
         K: Eq + Hash + Clone;
+    /// Keep one occurrence of each value per key.
     fn distinct_per_key_named(
         &self,
         group_key: &str,
@@ -282,6 +307,7 @@ pub trait KeyedExt<K: Element, V: Element> {
     where
         K: Eq + Hash + Clone,
         V: Eq + Hash + Clone;
+    /// Count distinct values per key.
     fn distinct_count_per_key_named(
         &self,
         group_key: &str,
@@ -290,19 +316,24 @@ pub trait KeyedExt<K: Element, V: Element> {
     where
         K: Eq + Hash + Clone,
         V: Eq + Hash;
+    /// Exchange the key and value in each pair.
     fn swap_named(&self, key: &str) -> Result<PCollection<(V, K)>, Error>;
+    /// Sum values per key, using `Default` as the identity.
     fn sum_per_key_named(&self, key: &str) -> Result<PCollection<(K, V)>, Error>
     where
         K: Eq + Hash + Clone,
         V: Add<Output = V> + Default;
+    /// Return the least value per key under `Ord`.
     fn min_per_key_named(&self, group_key: &str, key: &str) -> Result<PCollection<(K, V)>, Error>
     where
         K: Eq + Hash + Clone,
         V: Ord;
+    /// Return the greatest value per key under `Ord`.
     fn max_per_key_named(&self, group_key: &str, key: &str) -> Result<PCollection<(K, V)>, Error>
     where
         K: Eq + Hash + Clone,
         V: Ord;
+    /// Return the arithmetic mean of values per key as `f64`.
     fn average_per_key_named(
         &self,
         group_key: &str,
@@ -311,6 +342,7 @@ pub trait KeyedExt<K: Element, V: Element> {
     where
         K: Eq + Hash + Clone,
         V: Into<f64>;
+    /// Return the arithmetic mean of values per key in output type `O`.
     fn mean_per_key_named<O: MeanOutput>(
         &self,
         group_key: &str,

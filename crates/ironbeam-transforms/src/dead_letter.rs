@@ -75,16 +75,19 @@ impl<T: Element> Element for DeadLetter<T> {
 }
 
 pub trait DeadLetterExt<T: Element> {
+    /// Keep a fallible mapping's success or rejected input as a `Result` value.
     fn classify_catching_named<O: Element, E: Display>(
         &self,
         key: &str,
         f: impl Fn(&T) -> Result<O, E> + Send + Sync + 'static,
     ) -> Result<PCollection<Classified<T, O>>, Error>;
+    /// Keep a fallible vector mapping's success or rejected input as a `Result`.
     fn classify_flat_map_catching_named<O: Element, E: Display>(
         &self,
         key: &str,
         f: impl Fn(&T) -> Result<Vec<O>, E> + Send + Sync + 'static,
     ) -> Result<PCollection<Classified<T, Vec<O>>>, Error>;
+    /// Split successful mapped values and rejected inputs into two branches.
     fn map_catching_named<O: Element, E: Display>(
         &self,
         classify_key: &str,
@@ -92,6 +95,7 @@ pub trait DeadLetterExt<T: Element> {
         error_key: &str,
         f: impl Fn(&T) -> Result<O, E> + Send + Sync + 'static,
     ) -> Result<(PCollection<O>, PCollection<DeadLetter<T>>), Error>;
+    /// Split successful vector outputs and rejected inputs into two branches.
     fn flat_map_catching_named<O: Element, E: Display>(
         &self,
         classify_key: &str,

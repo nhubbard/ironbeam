@@ -9,10 +9,12 @@ pub trait Element: Send + 'static {
     const TYPE_ID: &'static str;
     const CODER_ID: &'static str;
     const CODER_VERSION: Version = crate::CODER_VERSION;
+    /// Return the stable semantic type ID used in graph identity.
     #[must_use]
     fn type_identity() -> String {
         Self::TYPE_ID.into()
     }
+    /// Return the stable wire coder ID used in graph identity.
     #[must_use]
     fn coder_identity() -> String {
         Self::CODER_ID.into()
@@ -23,10 +25,12 @@ pub trait Element: Send + 'static {
     fn coder_payload() -> Vec<u8> {
         Vec::new()
     }
+    /// Report whether this element supplies an executable wire coder.
     #[must_use]
     fn supports_coder() -> bool {
         false
     }
+    /// Encode this value with the declared coder, or reject an absent coder.
     fn encode(&self) -> Result<Vec<u8>, Error> {
         Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"))
     }
@@ -49,6 +53,7 @@ pub trait Element: Send + 'static {
     fn fixed_encoded_len() -> Option<usize> {
         None
     }
+    /// Decode one value with the declared coder, or reject an absent coder.
     fn decode(_bytes: &[u8]) -> Result<Self, Error>
     where
         Self: Sized,
@@ -68,25 +73,33 @@ pub type Partition = Box<dyn Any + Send + Sync>;
 /// migration. They do not change v5 execution or graph identity; batch size
 /// and semantic version are the execution contract.
 pub trait DynOp: Send + Sync {
+    /// Transform one owned batch and return an owned output batch.
     fn apply(&self, input: Partition) -> Partition;
+    /// Indicate whether this operation keeps each input key unchanged.
     fn key_preserving(&self) -> bool {
         false
     }
+    /// Indicate whether this operation changes only values in keyed input.
     fn value_only(&self) -> bool {
         false
     }
+    /// Indicate whether a value-only operation may move across ordering stages.
     fn reorder_safe_with_value_only(&self) -> bool {
         false
     }
+    /// Return a planning cost hint; v5 execution does not use this hint.
     fn cost_hint(&self) -> u8 {
         10
     }
+    /// Indicate whether output cardinality can be lower than input cardinality.
     fn cardinality_reducing(&self) -> bool {
         false
     }
+    /// Return an optional output limit hint; v5 execution does not use it.
     fn limit_n(&self) -> Option<usize> {
         None
     }
+    /// Return an output cardinality hint; v5 execution does not use it.
     fn cardinality_multiplier_hint(&self) -> f64 {
         1.0
     }

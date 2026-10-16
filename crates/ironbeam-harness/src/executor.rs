@@ -12,6 +12,7 @@ use crate::bundle::BundlePlan;
 /// Control-loop-facing contract for a planned Fn API bundle.
 #[async_trait]
 pub trait BundleRunner: Send + Sync {
+    /// Execute one planned bundle under the runner's instruction ID.
     async fn run(&self, instruction_id: &str, plan: &BundlePlan) -> Result<ProcessBundleResponse>;
 
     /// Respond while the named bundle is still running. An empty response
