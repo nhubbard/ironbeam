@@ -251,3 +251,44 @@ fn grouped_beam_timer_windows_expand_and_invalid_times_fail() {
         .to_firings("process", UserTimerDomain::ProcessingTime, false)
         .is_err());
 }
+
+#[test]
+fn beam_global_expiration_maps_only_the_runner_owned_sentinel() {
+    let record = TimerRecord {
+        encoded_key: nested_string("key"),
+        dynamic_tag: String::new(),
+        encoded_windows: vec![Vec::new()],
+        clear: false,
+        fire_timestamp_millis: Some(9_223_371_950_454_775),
+        hold_timestamp_millis: Some(9_223_371_950_454_775),
+        pane: Some(PaneInfo::NO_FIRING),
+    };
+    assert!(record
+        .to_firings("expire", UserTimerDomain::EventTime, true)
+        .is_err());
+    let firings = record
+        .to_global_expiration_firings("expire", UserTimerDomain::EventTime)
+        .unwrap();
+    assert_eq!(firings.len(), 1);
+    assert_eq!(firings[0].identity.window, None);
+    assert_eq!(
+        firings[0].schedule.fire_timestamp_ns,
+        i64::MAX - i64::MAX.rem_euclid(1_000_000)
+    );
+    assert_eq!(
+        firings[0].schedule.hold_timestamp_ns,
+        firings[0].schedule.fire_timestamp_ns
+    );
+    assert!(TimerRecord {
+        hold_timestamp_millis: Some(0),
+        ..record.clone()
+    }
+    .to_global_expiration_firings("expire", UserTimerDomain::EventTime)
+    .is_err());
+    assert!(TimerRecord {
+        encoded_windows: vec![vec![0]],
+        ..record
+    }
+    .to_global_expiration_firings("expire", UserTimerDomain::EventTime)
+    .is_err());
+}

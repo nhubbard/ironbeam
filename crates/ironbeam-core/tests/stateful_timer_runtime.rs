@@ -792,7 +792,58 @@ fn expiration_timer_and_value_cell_restore_together_before_window_cleanup() {
 }
 
 #[test]
-fn expiration_registration_requires_aligned_finite_windows_and_event_family() {
+fn global_expiration_fires_only_at_terminal_watermark() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)])],
+        )
+        .unwrap()
+        .stateful_timer_map_with_window_expiration_named::<i32, i32>(
+            "expiry",
+            "tests/global-window-expiration",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("expire".into(), UserTimerDomain::EventTime)]),
+            "expire",
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: Vec::new(),
+                })
+            },
+            |_, state, event| {
+                assert_eq!(event.family_id, "expire");
+                assert!(event.window.is_none());
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.apply_many("expiry", input(3)).unwrap().is_empty());
+    assert!(
+        registry
+            .drain_stateful_timers("expiry", Some(i64::MAX - 1_000_000), None)
+            .unwrap()
+            .is_empty()
+    );
+    let output = registry
+        .drain_stateful_timers("expiry", Some(i64::MAX), None)
+        .unwrap();
+    assert_eq!(output.len(), 1);
+    assert_eq!(
+        *output[0].value.downcast_ref::<(i32, i32)>().unwrap(),
+        (1, 3)
+    );
+}
+
+#[test]
+fn expiration_registration_accepts_global_and_requires_aligned_finite_windows() {
     let register = |input: &PCollection<(i32, i32)>, families, expiration_family_id, key: &str| {
         input.stateful_timer_map_with_window_expiration_named::<i32, i32>(
             key,
@@ -821,7 +872,7 @@ fn expiration_registration_requires_aligned_finite_windows_and_event_family() {
         .test_stream_source("source", vec![TestStreamEvent::Elements(vec![((1, 2), 0)])])
         .unwrap();
     let event = || BTreeMap::from([("expire".into(), UserTimerDomain::EventTime)]);
-    assert!(register(&stream, event(), "expire", "global").is_err());
+    assert!(register(&stream, event(), "expire", "global").is_ok());
     let submillisecond = stream.fixed_windows("tiny", 500_000).unwrap();
     assert!(register(&submillisecond, event(), "expire", "tiny-expiry").is_err());
     let fixed = stream.fixed_windows("fixed", 10_000_000).unwrap();

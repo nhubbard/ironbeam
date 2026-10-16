@@ -160,10 +160,10 @@ requires both limits to be between 1 and `i64::MAX - 1`, matching Beam's
 reserved maximum sentinel. Each batch receives its earliest value timestamp.
 On unbounded input,
 it keeps a coded partial batch per key and window. Count and byte limits flush
-immediately; an event-time timer flushes the remainder at the end of a
-millisecond-aligned fixed window. Direct checkpoints the partial batch with
-the source cursor. A global-window partial batch stays open until a limit is
-reached because it has no finite window end. The tested unbounded Direct and
+immediately; window expiration flushes the remainder when a finite window
+closes or a finite global source completes. Direct checkpoints the partial
+batch with the source cursor. A global-window partial batch on a source that
+never completes stays open until a limit is reached. The tested unbounded Direct and
 Prism jobs agree on five batches, including an oversized singleton and the
 final fixed-window remainder. A separate Direct and local Prism job confirms
 that two values assigned to overlapping sliding windows stay in their three
@@ -186,7 +186,9 @@ schedule downstream work after its scripted processing-time advances, so the
 production-source fixture is the timing proof for that runner.
 For a finite global stream, partial batches need a buffering duration if they
 must be emitted before source completion. A production-source fixture confirms
-that two such partial batches flush on their timers on both runners.
+that two such partial batches flush on their timers on both runners. Without a
+duration, a shared Direct and Prism fixture confirms that one final partial
+batch is emitted when the source completes.
 
 `group_into_batches_with_limits_and_sharded_key_named` applies the same count
 and byte limits after a caller supplied selector assigns each value to a

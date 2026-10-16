@@ -54,9 +54,10 @@ where
         )
     }
 
-    /// Run the timer callback once for each key when its fixed window expires.
+    /// Run the timer callback once for each key when its global or fixed window expires.
     /// `expiration_family_id` must name a declared event-time family. The
-    /// callback receives that family ID and the window's maximum timestamp.
+    /// callback receives that family ID and a terminal event-time timestamp.
+    /// Global expiration runs only when a finite source completes.
     /// Pinned local Prism can omit a callback when one key spans two windows
     /// in one source batch; see the Beam semantics guide for the tested scope.
     #[allow(clippy::too_many_arguments)]
@@ -113,10 +114,11 @@ where
                         && size_ns % 1_000_000 == 0
                         && offset_ns % 1_000_000 == 0
                 }
-                Window::Global | Window::Sliding { .. } | Window::Session { .. } => false,
+                Window::Global => true,
+                Window::Sliding { .. } | Window::Session { .. } => false,
             };
             if !aligned {
-                return Err(Error::graph(key, "window expiration requires millisecond-aligned fixed windows"));
+                return Err(Error::graph(key, "window expiration requires global or millisecond-aligned fixed windows"));
             }
         }
         if families.is_empty() || !K::supports_coder() || !V::supports_coder()

@@ -2620,17 +2620,18 @@ fn run_stream(
                 }
             }
             if let Some(key) = stateful_key {
+                let event_watermark_ns = batch
+                    .progress
+                    .completed
+                    .then_some(i64::MAX)
+                    .or(batch.progress.event_time_ns);
                 let processing_time_ns = if registry.next_stateful_timer_deadline(key)?.is_some() {
                     Some(processing_time_now_ns(source.as_ref())?)
                 } else {
                     None
                 };
                 let firings = catch_unwind(AssertUnwindSafe(|| {
-                    registry.drain_stateful_timers(
-                        key,
-                        batch.progress.event_time_ns,
-                        processing_time_ns,
-                    )
+                    registry.drain_stateful_timers(key, event_watermark_ns, processing_time_ns)
                 }))
                 .unwrap_or_else(|_| {
                     Err(Error::execution(key, "direct", "timer callback panicked"))
@@ -2652,7 +2653,12 @@ fn run_stream(
             }
             let state = stateful_key
                 .map(|key| {
-                    registry.expire_stateful_value(key, batch.progress.event_time_ns)?;
+                    let event_watermark_ns = batch
+                        .progress
+                        .completed
+                        .then_some(i64::MAX)
+                        .or(batch.progress.event_time_ns);
+                    registry.expire_stateful_value(key, event_watermark_ns)?;
                     registry.checkpoint_stateful_value(key)
                 })
                 .transpose()?;
@@ -2970,17 +2976,18 @@ fn run_stream_pair(
                 )?);
             }
             for key in &plan.timer_keys {
+                let event_watermark_ns = batch
+                    .progress
+                    .completed
+                    .then_some(i64::MAX)
+                    .or(batch.progress.event_time_ns);
                 let processing_time_ns = if registry.next_stateful_timer_deadline(key)?.is_some() {
                     Some(processing_time_now_ns(source.as_ref())?)
                 } else {
                     None
                 };
                 let firings = catch_unwind(AssertUnwindSafe(|| {
-                    registry.drain_stateful_timers(
-                        key,
-                        batch.progress.event_time_ns,
-                        processing_time_ns,
-                    )
+                    registry.drain_stateful_timers(key, event_watermark_ns, processing_time_ns)
                 }))
                 .unwrap_or_else(|_| {
                     Err(Error::execution(key, "direct", "timer callback panicked"))
@@ -3003,7 +3010,12 @@ fn run_stream_pair(
                 return Err(cancelled());
             }
             for key in &plan.timer_keys {
-                registry.expire_stateful_value(key, batch.progress.event_time_ns)?;
+                let event_watermark_ns = batch
+                    .progress
+                    .completed
+                    .then_some(i64::MAX)
+                    .or(batch.progress.event_time_ns);
+                registry.expire_stateful_value(key, event_watermark_ns)?;
             }
             let state = pair_state::snapshot(plan, registry, config.memory_budget_bytes)?;
             commit_stream_branch(left_key, &mut left_session)?;

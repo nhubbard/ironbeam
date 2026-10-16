@@ -409,6 +409,7 @@ pub fn streaming_global_byte_batches_fixture(
                     ((1, "b".to_owned()), 3_000_000),
                     ((2, "y".to_owned()), 4_000_000),
                 ]),
+                TestStreamEvent::Elements(vec![((3, "c".to_owned()), 6_000_000)]),
             ],
         )?
         .group_into_batches_with_limits_named("global-byte-batches", 10, one * 2)?

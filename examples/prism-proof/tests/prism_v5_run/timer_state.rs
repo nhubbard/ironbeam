@@ -737,6 +737,56 @@ async fn prism_matches_direct_window_expiration_callbacks() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_global_window_expiration_on_completion() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-global-expiration");
+    let portable_path = directory.path().join("portable-global-expiration");
+    let direct = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::streaming_global_window_expiration_fixture(
+        &direct,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_global_window_expiration_fixture(
+        &portable,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "global-window-expiration",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_GLOBAL_EXPIRATION".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism global expiration failed: {terminal:?}"
+    );
+    let rows = |path: &Path| {
+        std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&direct_path), ["1:3"]);
+    assert_eq!(rows(&portable_path), ["1:3"]);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_multi_key_window_expiration_callbacks() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

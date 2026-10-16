@@ -552,6 +552,68 @@ fn window_expiration_callback_sees_each_key_and_window_before_state_cleanup() {
 }
 
 #[test]
+fn global_window_expiration_flushes_when_finite_stream_completes() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((7_i32, 3_i32), 1_000_000)])],
+        )
+        .unwrap()
+        .stateful_timer_map_with_window_expiration_named::<i32, i32>(
+            "timer",
+            "tests/global-window-expiration-callback",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("expiry".into(), UserTimerDomain::EventTime)]),
+            "expiry",
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: Vec::new(),
+                })
+            },
+            |_, state, event| {
+                assert!(event.window.is_none());
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "tests/global-window-expiration-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*committed.lock().unwrap(), ["7:3"]);
+}
+
+#[test]
 fn timer_callback_panic_fails_the_job_with_transform_context() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let pipeline = Pipeline::default();

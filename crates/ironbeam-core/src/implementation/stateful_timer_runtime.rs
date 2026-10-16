@@ -255,15 +255,20 @@ impl StatefulTimerTransform {
         let change = self.invoke_element(input, cells.get(&cell).map(Vec::as_slice), processing_time_ns)?;
         let mut mutations = change.timers;
         if let Some(family_id) = &self.contract.on_window_expiration_timer {
-            let window = cell.0.ok_or_else(|| Error::incompatible("expiration timer has no window"))?;
-            let fire_timestamp_ns = window.end_ns.checked_sub(1_000_000)
-                .ok_or_else(|| Error::incompatible("expiration timestamp underflows"))?;
+            let fire_timestamp_ns = match cell.0 {
+                Some(window) => window.end_ns.checked_sub(1_000_000)
+                    .ok_or_else(|| Error::incompatible("expiration timestamp underflows"))?,
+                None if self.window == Window::Global => {
+                    i64::MAX - i64::MAX.rem_euclid(1_000_000)
+                }
+                None => return Err(Error::incompatible("expiration timer has no window")),
+            };
             mutations.push(TimerMutation::Set(
                 TimerIdentity {
                     family_id: family_id.clone(),
                     dynamic_tag: String::new(),
                     encoded_key: key,
-                    window: Some(window),
+                    window: cell.0,
                 },
                 TimerSchedule {
                     fire_timestamp_ns,

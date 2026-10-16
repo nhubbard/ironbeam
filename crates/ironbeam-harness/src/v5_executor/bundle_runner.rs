@@ -433,7 +433,14 @@ impl BundleRunner for V5BundleExecutor {
                 );
                 let consumer = async {
                     while let Some(record) = records.recv().await {
-                        for firing in record.to_firings(family_id, family.domain, global)? {
+                        let firings = if global
+                            && contract.on_window_expiration_timer.as_deref() == Some(family_id)
+                        {
+                            record.to_global_expiration_firings(family_id, family.domain)?
+                        } else {
+                            record.to_firings(family_id, family.domain, global)?
+                        };
+                        for firing in firings {
                             let state = state.as_ref().expect("connected for timed state");
                             let fired = self
                                 .apply_timed_firing_cell(

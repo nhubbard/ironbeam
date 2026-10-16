@@ -681,9 +681,7 @@ fn run_unbounded_byte_batches(windowed: bool) {
         "1:3000000:[\"c\", \"d\"]",
         "1:5000000:[\"oversized\"]",
     ];
-    if windowed {
-        expected.push("1:6000000:[\"e\"]");
-    }
+    expected.push("1:6000000:[\"e\"]");
     assert_eq!(actual, expected);
 }
 

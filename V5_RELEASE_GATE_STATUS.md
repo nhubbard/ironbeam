@@ -620,14 +620,14 @@ can be claimed.
 | Keyed batches by count | `group_into_batches_named` splits groups into fixed-size vectors and rejects zero or sizes at or above Beam's `i64::MAX` sentinel. Unbounded inputs set their own discarding count trigger at the batch size, replacing an earlier accumulating or smaller count policy; Direct, Graphx, and local Prism prove the override. With allowed lateness, Direct and pinned Prism both flush a late pair at the same batch count after an earlier full pane, including matching pane timing and indices; Graphx lowers both counts as discarding Beam firings. Both runners also agree on a full early batch and final partial batch in global and fixed windows. Direct restores a partial batch and source cursor. Both runners assign 1 ms to `[x, y]` and 8 ms to the later `[z]` batch from one key. | The helper uses GroupByKey and a registered splitter rather than Beam's native stateful GroupIntoBatches. Prove broader key and window schedules. |
 | Keyed batches by time | `group_into_batches_with_max_buffering_duration_named` adds a count-or-processing-time trigger. Core validates and fingerprints the delay; Graphx lowers Beam `AfterAny`. Direct fires both paths and cancels the old timer when count wins. Pinned Prism completes a timed partial batch followed by a count batch after one more clock advance. With positive allowed lateness in a finite window, the combined policy lowers repeated count-or-time early firings and repeated late count firings. Direct and pinned Prism match a count pane, timed partial pane, and late count pane with the same pane indices. Direct does not re-arm the early timer after window closure. A separate Direct fixture checkpoints after the count pane, restores the armed timer and source cursor, then commits the timed and late panes once. Direct also proves retained values across early, on-time, and late panes in the accumulating form. | Pinned Prism panics if the tested window closes immediately after a count firing while the old timer remains queued. Broader mixed schedules remain conditional on runner scheduling; the accumulating combined trigger has the live mismatch recorded below. |
 | Accumulating count-or-time panes | The general trigger retains values across a time pane, a count pane, and on-time closure in Direct. A two-source co-group fires count then time while retaining both branches. Its composite timer survives a Direct checkpoint, retries the same failed sink bundle ID, and reopens only the unfinished source. Graphx sets Beam accumulating mode. An ignored live test now compares a fixed-window count-or-time early trigger followed by a late-count trigger: Direct emits four accumulating panes, while pinned Prism reproducibly emits six. | Pinned Prism adds an Early and OnTime pane after the late inputs and marks its final Late pane `is_last`; Direct emits one nonfinal Late pane. The separate two-source test also gains an extra Prism early pane. |
-| Byte-limited batches | Bounded and streaming count/encoded-byte limits, overlapping windows, explicit shards, Direct checkpoints, Prism worker recovery, and a production-clock buffering-time fixture have evidence below. | Global partial batches without a duration, submillisecond holds, and automatic sharding remain open. |
+| Byte-limited batches | Bounded and streaming count/encoded-byte limits, overlapping windows, explicit shards, Direct checkpoints, Prism worker recovery, a production-clock buffering-time fixture, and finite global partial-batch completion have evidence below. | Submillisecond holds and automatic sharding remain open. |
 
 ## Byte-limited batch evidence
 
 | Case | Verified result |
 | --- | --- |
 | Count and bytes | Bounded Direct and pinned Prism agree on count and encoded-value byte thresholds, an oversized singleton, and per-batch earliest timestamps. Both limits reject zero and Beam's reserved `i64::MAX` sentinel without adding graph nodes. The unbounded fixed-window fixture emits six exact batches across two interleaved keys. A separate same-batch out-of-order fixture uses `c` at 4 ms before `d` at 3 ms; both runners assign the batch a 3 ms timestamp. |
-| Windows | Fixed, sliding, offset, and global schedules have shared Direct/Prism fixtures. A finite global stream also flushes two partial batches through processing timers on both runners, including the final `[c]` batch before source completion. Supervised Prism replaces a lost worker at the residual source cursor and publishes both global batches once. Global partial batches without a buffering duration remain open. |
+| Windows | Fixed, sliding, offset, and global schedules have shared Direct/Prism fixtures. A finite global stream flushes two partial batches through processing timers on both runners, including the final `[c]` batch before source completion. Supervised Prism replaces a lost worker at the residual source cursor and publishes both global batches once. Without a buffering duration, another finite global fixture commits two complete batches and one partial batch at source completion on both runners. |
 | Processing-time expiry | The combined count/byte/duration helper flushes `[a,b]` on a 20 ms processing timer and `[c]` at the fixed window end from a delayed, replayable production source on Direct and pinned Prism. Direct tests cover count and encoded-byte limits, bounded final-partial flushing, and an overdue timer encountered by the next element. A Direct checkpoint test restores one partial batch, its armed processing timer, and the source cursor; the timer commits `[a]` once, then window closure commits `[b]` once. A supervised Prism run kills and replaces the execution child at the residual source cursor, then commits `[a,b]` and `[c]` once each. The source cursor carries its absolute delay deadline so reopened workers cannot reset the wait. The harness closes timer output families after every family callback has run, allowing one family's callback to clear a previously visited family. A TestStream attempt produced `[a,b,c]` together on Prism because its downstream stage ran after the scripted processing-time advances; that schedule is not counted as a parity proof. The exact local coverage gates before the recovery-only test passed unchanged: core **6,842/7,122 lines (96.07%)** and **1,451/1,678 branches (86.47%)**; Direct **6,488/7,119 lines (91.14%)** and **1,846/2,050 branches (90.05%)**. |
 | Explicit shards and recovery | A versioned selector splits one hot key into two stable shard IDs with independent byte counts. A shared unbounded fixed-window pipeline yields three exact shard, timestamp, and batch rows on Direct and pinned Prism. Direct restores two open shard cells and one source cursor after restart, without rereading the first source batch. Pinned Prism replaces an execution child lost during sharded output and commits those three rows once. A separate nonsharded byte-batch child-loss fixture also commits its six batches once. |
 | Wire and quality gates | Graphx and the harness retain KV coder framing across the reshuffle that Prism may elide; a keyed TestStream also retains KV framing when an ordinary reshuffle precedes stateful ParDo. Direct treats only the explicit shard boundary as an identity in its single-process stream plan; an ordinary reshuffle remains a materialization boundary. Local core coverage passes at **6,714/6,990 lines (96.05%)** and **1,409/1,630 branches (86.44%)**; Direct passed at **6,476/7,106 lines (91.13%)** and **1,844/2,048 branches (90.04%)** before the later recovery-only test. |
@@ -645,25 +645,17 @@ sorts members only for its comparison rows. Unbounded timer output holds
 require whole-millisecond event timestamps, and session windows or window
 ends that do not align to whole milliseconds are rejected.
 
-Completing a stream with a partial global batch remains open. Direct finished
-both exploratory schedules. Two global-window probes left one pending value
-after two full batches. One advanced the watermark near its terminal value;
-the other ended the finite TestStream without an explicit terminal advance.
-Prism failed both with
-`negative watermark hold count -1 for time 1` in its hold tracker. Those
-runner failures are not counted as passing behavior.
-
-A smaller probe with only one pending global value finished without output on
-both runners. One key with a full batch followed by a partial batch reproduced
-the Prism hold-tracker failure. This narrows the failure to the timer transition
-between batches; it does not establish whether the fault is in Prism's hold
-accounting or in Ironbeam's timer mutations.
-
-The pinned Java `GroupIntoBatches` uses an event-time timer only to hold the
-watermark when no buffering duration is configured; it flushes the batch in
-`@OnWindowExpiration`. Ironbeam currently uses its `window-end` timer callback
-for both the hold and the flush. An explicit portable window-expiration callback
-is the next contract to test for this remaining no-duration global case.
+Finite global batches now flush pending values through a runner-owned window
+expiration callback. Direct advances its stateful stream to the terminal event
+watermark when the source completes. The portable harness maps Beam's global
+expiration sentinel only for that runner-owned timer family. The callback
+reifies the earliest buffered element timestamp before output. A global
+watermark-hold timer caused pinned Prism to panic when a complete batch was
+followed by a partial batch; the passing implementation relies on the runner's
+expiration callback without that redundant hold. The shared test covers two
+full batches, an intermediate watermark, and one final partial batch. Wider
+global schedules and unbounded streams that never complete remain outside this
+proof.
 
 The clock-aware stateful callback now receives Direct's source processing clock
 or the portable worker's wall clock, without changing existing callback

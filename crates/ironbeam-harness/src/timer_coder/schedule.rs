@@ -27,6 +27,31 @@ fn encoded_window(window: Option<WindowInterval>) -> Result<Vec<u8>> {
 }
 
 impl TimerRecord {
+    /// Map Beam's global-window expiration sentinel into Ironbeam's signed
+    /// nanosecond span. Ordinary timers still reject timestamps that overflow.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the timer is not Beam's global expiration sentinel
+    /// or its encoded window is invalid.
+    pub fn to_global_expiration_firings(
+        &self,
+        family_id: &str,
+        domain: UserTimerDomain,
+    ) -> Result<Vec<TimerFiring>> {
+        const BEAM_GLOBAL_WINDOW_MAX_MILLIS: i64 = 9_223_371_950_454_775;
+        if self.fire_timestamp_millis != Some(BEAM_GLOBAL_WINDOW_MAX_MILLIS)
+            || self.hold_timestamp_millis != Some(BEAM_GLOBAL_WINDOW_MAX_MILLIS)
+        {
+            bail!("runner global expiration has an unexpected timestamp");
+        }
+        let sentinel_millis = i64::MAX / 1_000_000;
+        let mut mapped = self.clone();
+        mapped.fire_timestamp_millis = Some(sentinel_millis);
+        mapped.hold_timestamp_millis = Some(sentinel_millis);
+        mapped.to_firings(family_id, domain, true)
+    }
+
     /// Build an outbound Beam TimerCoder record from one runner timer firing.
     pub fn from_firing(firing: &TimerFiring) -> Result<Self> {
         let schedule = firing.schedule;

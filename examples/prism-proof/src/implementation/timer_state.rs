@@ -586,6 +586,72 @@ fn windowed_timer_hold_fixture(
         )
 }
 
+/// Runner-owned expiration callback when a finite global stream completes.
+pub fn streaming_global_window_expiration_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "global-expiration-source",
+            vec![
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+                TestStreamEvent::Elements(vec![((1_i32, 3_i32), 6_000_000)]),
+            ],
+        )?
+        .stateful_timer_map_with_window_expiration_named::<(i64, i32), (i64, i32)>(
+            "global-expiration-state",
+            "prism-proof/global-window-expiration-state",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("expiry".into(), UserTimerDomain::EventTime)]),
+            "expiry",
+            |_, value, _, metadata| {
+                Ok(TimedStateResult {
+                    state: Some((metadata.timestamp_ns, value)),
+                    outputs: Vec::new(),
+                    timers: Vec::new(),
+                })
+            },
+            |_, state, event| {
+                if event.family_id != "expiry" || event.window.is_some() {
+                    return Err(Error::incompatible("global expiration metadata differs"));
+                }
+                let value = state.ok_or_else(|| {
+                    Error::incompatible("global expiration callback lost its keyed state")
+                })?;
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![value],
+                    timers: Vec::new(),
+                })
+            },
+        )?
+        .map_named(
+            "global-expiration-time-pair",
+            |(key, (timestamp, value))| (timestamp, (key, value)),
+        )?
+        .timestamps_from_pairs_in_window_named("global-expiration-timestamp")?
+        .map_named("global-expiration-label", |(key, value)| {
+            format!("{key}:{value}")
+        })?
+        .sink_named_with_config(
+            "global-expiration-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("global-expiration-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Runner-owned expiration callbacks for two disjoint fixed windows.
 pub fn streaming_window_expiration_fixture(
     pipeline: &Pipeline,

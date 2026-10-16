@@ -6702,7 +6702,11 @@ async fn prism_matches_direct_global_byte_batches_after_watermark() {
         rows.sort();
         rows
     };
-    let expected = ["1:1000000:[\"a\", \"b\"]", "2:2000000:[\"x\", \"y\"]"];
+    let expected = [
+        "1:1000000:[\"a\", \"b\"]",
+        "2:2000000:[\"x\", \"y\"]",
+        "3:6000000:[\"c\"]",
+    ];
     assert_eq!(rows(&direct_path), expected);
     assert_eq!(rows(&portable_path), expected);
 }
