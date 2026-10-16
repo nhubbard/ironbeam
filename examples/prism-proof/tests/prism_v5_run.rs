@@ -481,6 +481,67 @@ async fn prism_matches_direct_streaming_offset_sdf() {
     assert_eq!(rows(&portable_path), rows(&direct_path));
 }
 
+#[tokio::test]
+async fn prism_replays_user_offset_callback_after_execution_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    for (name, streaming) in [("bounded", false), ("streaming", true)] {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("replayed-offsets.txt");
+        let trigger = directory.path().join("offset-child-trigger");
+        let killed = directory.path().join("killed-offset-child");
+        let pipeline = Pipeline::default();
+        if streaming {
+            ironbeam_prism_proof::streaming_offset_sdf_fixture(&pipeline, output.clone()).unwrap();
+        } else {
+            ironbeam_prism_proof::bounded_offset_sdf_fixture(&pipeline, output.clone()).unwrap();
+        }
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &pipeline,
+            &format!("{name}-offset-sdf-recovery"),
+            HashMap::from([
+                (
+                    if streaming {
+                        "IRONBEAM_V5_PRISM_STREAM_OFFSET_SDF"
+                    } else {
+                        "IRONBEAM_V5_PRISM_OFFSET_SDF"
+                    }
+                    .into(),
+                    output.to_string_lossy().into_owned(),
+                ),
+                ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+                ("IRONBEAM_TEST_KILL_OFFSET_SDF_CHILD".into(), "1".into()),
+                (
+                    "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                    trigger.to_string_lossy().into_owned(),
+                ),
+                (
+                    "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                    killed.to_string_lossy().into_owned(),
+                ),
+            ]),
+        )
+        .await;
+        assert_eq!(
+            terminal.0, 3,
+            "{name} offset callback replay failed: {terminal:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&killed).unwrap(),
+            std::fs::read_to_string(&trigger).unwrap(),
+            "the {name} execution child was not replaced"
+        );
+        let rows = std::fs::read_to_string(&output).unwrap();
+        assert_eq!(
+            rows.lines().collect::<Vec<_>>(),
+            ["1", "2", "3", "10", "11", "12"]
+        );
+    }
+}
+
 #[cfg(feature = "database-proofs")]
 #[tokio::test]
 async fn prism_reads_and_writes_sqlite_through_the_v5_worker() {

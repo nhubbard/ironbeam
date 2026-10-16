@@ -94,6 +94,12 @@ fn offset_sdf_fixture(input: PCollection<i32>, path: PathBuf) -> Result<Sink<i32
                         break;
                     }
                     context.emit(*value + offset as i32, offset * 1_000_000)?;
+                    if *value == 1
+                        && offset == 1
+                        && std::env::var_os("IRONBEAM_TEST_KILL_OFFSET_SDF_CHILD").is_some()
+                    {
+                        super::await_supervised_source_replacement(Some(&[1]))?;
+                    }
                 }
                 Ok(())
             },
