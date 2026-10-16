@@ -92,6 +92,9 @@ The runner calls it after committing that bundle's output. When a source and
 sink share a bundle, Ironbeam runs its sink finalizers before the source
 callback. A shuffle or other stage boundary can place the downstream sink in
 a later bundle, so source finalization does not wait for that sink's commit.
+Bundle-finalized sinks require an immediate `Reshuffle`, which places them in
+a separate stage from the source. A local Prism job verifies two source
+callbacks and the accepted sink fragments across this boundary.
 The runner must retain the committed output for downstream retries.
 Supervised workers require a durable file or object journal so a replacement
 child can recover the callback. Bundle finalization is best effort: if the

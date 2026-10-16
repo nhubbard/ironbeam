@@ -6,29 +6,14 @@ impl<T: Element> UnboundedSource<Timestamped<T>> for ProductionSource<T> {
     }
 }
 
-struct SourceAckSink;
-
-impl TypedSink<i32> for SourceAckSink {
-    fn write(&mut self, _: i32) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn commit(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn abort(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
 /// Two finite source batches with post-commit callbacks visible to the driver.
 pub fn source_finalization_fixture(
     pipeline: &Pipeline,
     directory: impl AsRef<Path>,
 ) -> Result<(), Error> {
     let directory = directory.as_ref().to_path_buf();
-    pipeline
+    let finalization_dir = directory.clone();
+    let source = pipeline
         .unbounded_source_with_finalizer(
             "source-ack-events",
             SourceProgress {
@@ -67,23 +52,15 @@ pub fn source_finalization_fixture(
                         "unexpected finalization cursor",
                     )),
                 };
-                std::fs::create_dir_all(&directory)
-                    .and_then(|()| std::fs::write(directory.join(format!("source-acknowledged-{value}")), [value]))
+                std::fs::create_dir_all(&finalization_dir)
+                    .and_then(|()| std::fs::write(finalization_dir.join(format!("source-acknowledged-{value}")), [value]))
                     .map_err(|error| {
                         Error::io("source-ack-events", "prism", error.to_string())
                     })
             },
-        )?
-        .sink_named_with_config(
-            "source-ack-sink",
-            SinkSpec {
-                mode: SinkMode::Append,
-                replay: Replay::Idempotent,
-                commit: true,
-            },
-            "source-ack-sink-v1".into(),
-            || Ok(Box::new(SourceAckSink)),
         )?;
+    let staged = source.reshuffle_named("source-ack-boundary")?;
+    finalization_probe_sink(&staged, "source-ack-sink", directory.join("sink"))?;
     Ok(())
 }
 

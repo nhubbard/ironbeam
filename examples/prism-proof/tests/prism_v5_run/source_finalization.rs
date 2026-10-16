@@ -1,5 +1,5 @@
 use super::*;
-use ironbeam_prism_proof::source_finalization_fixture;
+use ironbeam_prism_proof::{finalization_probe_store, source_finalization_fixture};
 
 #[tokio::test]
 async fn prism_finalizes_each_replayable_source_bundle() {
@@ -35,7 +35,29 @@ async fn prism_finalizes_each_replayable_source_bundle() {
         .unwrap()
         .snapshot()
         .unwrap();
-    assert_eq!(records.len(), 2, "finalization journal: {records:?}");
+    assert_eq!(
+        records
+            .values()
+            .filter(|record| !record.sources.is_empty())
+            .count(),
+        2,
+        "finalization journal: {records:?}"
+    );
+    assert!(
+        records
+            .values()
+            .any(|record| !record.sinks.is_empty() && record.completed),
+        "finalization journal has no completed sink: {records:?}"
+    );
+    let fragments = finalization_probe_store(directory.path().join("sink"), "source-ack-sink")
+        .unwrap()
+        .accepted_fragments()
+        .unwrap();
+    assert_eq!(fragments.len(), 2);
+    assert_eq!(
+        fragments.iter().map(|fragment| fragment.rows).sum::<u64>(),
+        2
+    );
     for value in [7, 8] {
         let acknowledgment = std::fs::read(
             directory
