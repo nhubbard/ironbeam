@@ -73,7 +73,9 @@ records. It streams the second read into a temporary file, then decodes lines
 as requested. Temporary disk use grows with the object size; the provider
 reader and decoder do not hold the whole object in memory. A changed object
 fails recovery. A portable worker needs access to the same provider and
-credentials as the submitting process.
+credentials as the submitting process. A local Prism fixture has also reopened
+a JSONL object glob after an execution child was replaced and committed each
+row once.
 
 ## Reading TFRecord frames
 

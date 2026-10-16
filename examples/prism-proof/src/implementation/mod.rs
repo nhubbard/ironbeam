@@ -28,6 +28,7 @@ pub use sharded_key::*;
 mod sharded_batches;
 pub use sharded_batches::*;
 include!("object_avro.rs");
+include!("object_jsonl.rs");
 include!("object_parquet.rs");
 include!("tfrecord_source.rs");
 include!("multiway_and_batches.rs");
