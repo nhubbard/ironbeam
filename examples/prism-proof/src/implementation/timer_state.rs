@@ -197,7 +197,7 @@ pub fn streaming_windowed_timer_hold_fixture(
     windowed_timer_hold_fixture(pipeline, directory, false)
 }
 
-/// One event in two overlapping sliding windows, each with its own timer.
+/// Two same-key events in two overlapping sliding windows, each with one timer.
 pub fn streaming_sliding_timer_hold_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
@@ -213,7 +213,10 @@ fn windowed_timer_hold_fixture(
     let sink_directory = directory.clone();
     let events = if sliding {
         vec![
-            TestStreamEvent::Elements(vec![((1_i32, 3_i32), 7_000_000)]),
+            TestStreamEvent::Elements(vec![
+                ((1_i32, 3_i32), 7_000_000),
+                ((1_i32, 4_i32), 8_000_000),
+            ]),
             TestStreamEvent::AdvanceWatermark(20_000_000),
         ]
     } else {
@@ -239,12 +242,16 @@ fn windowed_timer_hold_fixture(
             semantic_id,
             Version { major: 1, minor: 0 },
             BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
-            move |_, value, _, metadata| {
+            move |_, value, state, metadata| {
                 let window = metadata
                     .assigned_window
                     .ok_or_else(|| Error::incompatible("windowed timer has no interval"))?;
                 Ok(TimedStateResult {
-                    state: Some(value),
+                    state: Some(if sliding {
+                        state.unwrap_or(0) + value
+                    } else {
+                        value
+                    }),
                     outputs: Vec::new(),
                     timers: vec![UserTimerRequest::Set {
                         family_id: "event".into(),

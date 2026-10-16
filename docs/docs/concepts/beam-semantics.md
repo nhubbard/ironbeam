@@ -514,8 +514,12 @@ accepts unbounded input with default global, fixed, or sliding windows and
 zero allowed lateness. Portable lowering declares standard Beam timer coders.
 The worker uses Fn State for the value cell and Fn Data for timer-family
 records. Pinned local Prism jobs match Direct after two global-window event
-timers fire and after a scripted processing-time timer fires. A supervised
-Prism job replaces the execution child after an event timer is armed; the
+timers fire and after a scripted processing-time timer fires. A sliding-window
+fixture sends two values for the same key in one source batch.
+Each value updates both overlapping cells and sets the same timer tag. Direct
+and pinned Prism fire one timer per window, with the accumulated value and
+the timer's output timestamp. A supervised Prism job replaces the execution
+child after an event timer is armed; the
 replacement processes the next source batch and emits one accumulated result
 at the timer deadline. The supervisor replays element and timer-family input
 and publishes timer mutations only from the accepted attempt. Fixed-window
