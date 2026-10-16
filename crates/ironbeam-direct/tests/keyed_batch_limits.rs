@@ -390,6 +390,114 @@ fn unbounded_byte_batch_restores_partial_state_with_source_cursor() {
 }
 
 #[test]
+fn timed_byte_batch_restores_armed_timer_and_source_cursor() {
+    let directory = tempfile::tempdir().unwrap();
+    let hold = Arc::new(AtomicBool::new(true));
+    let opened = Arc::new(Mutex::new(Vec::new()));
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let source_hold = Arc::clone(&hold);
+    let source_opened = Arc::clone(&opened);
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "values",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "tests/timed-byte-recovery-source-v1".into(),
+            0,
+            move |cursor| {
+                source_opened.lock().unwrap().push(cursor.clone());
+                Ok(Box::new(RecoveringByteSource {
+                    cursor,
+                    hold: Arc::clone(&source_hold),
+                })
+                    as TypedUnboundedSourceReader<(i32, String)>)
+            },
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap();
+    let captured = Arc::clone(&rows);
+    let sink = source
+        .group_into_batches_with_limits_and_max_buffering_duration_named(
+            "batches",
+            10,
+            1_000,
+            500_000_000,
+        )
+        .unwrap()
+        .reify_timestamps_named("timestamps")
+        .unwrap()
+        .map_named("row", |(timestamp, (key, values))| {
+            format!("{key}:{timestamp}:{values:?}")
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "tests/timed-byte-recovery-sink-v1".into(),
+            move || {
+                Ok(Box::new(Rows {
+                    committed: Arc::clone(&captured),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 2,
+            recover: true,
+            binary_build_id: "tests/timed-byte-recovery-build-v1".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let first = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while first
+        .progress()
+        .and_then(|progress| progress.checkpoint_position)
+        != Some(vec![1])
+    {
+        assert!(
+            Instant::now() < deadline,
+            "timed batch was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(rows.lock().unwrap().is_empty());
+    first.cancel();
+    assert!(first.wait().is_err());
+
+    let second = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while rows.lock().unwrap().is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "restored processing timer did not fire"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(*rows.lock().unwrap(), ["1:1000000:[\"a\"]"]);
+    hold.store(false, Ordering::SeqCst);
+    second.wait().unwrap();
+    assert_eq!(*opened.lock().unwrap(), [None, Some(vec![1])]);
+    assert_eq!(
+        *rows.lock().unwrap(),
+        ["1:1000000:[\"a\"]", "1:2000000:[\"b\"]"]
+    );
+}
+
+#[test]
 fn unbounded_byte_batch_timer_holds_earliest_out_of_order_timestamp() {
     let pipeline = Pipeline::default();
     let rows = Arc::new(Mutex::new(Vec::new()));
