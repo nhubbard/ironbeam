@@ -34,6 +34,7 @@ impl AvroFragmentStore {
         Ok(self)
     }
 
+    /// Return accepted Avro fragments after runner finalization.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }

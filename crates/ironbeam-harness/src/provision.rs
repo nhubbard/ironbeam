@@ -12,10 +12,12 @@ use tonic::transport::Channel;
 
 use crate::endpoints::{normalize_endpoint, worker_request};
 
+/// Fetch the runner's Beam Fn Provision information.
 pub async fn get_provision_info(endpoint: &str) -> Result<ProvisionInfo> {
     get_provision_info_inner(endpoint, None).await
 }
 
+/// Fetch Provision information while identifying the requesting worker.
 pub async fn get_provision_info_for_worker(
     endpoint: &str,
     worker_id: &str,

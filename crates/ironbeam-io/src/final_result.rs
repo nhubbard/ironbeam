@@ -80,6 +80,7 @@ impl AcceptedFragment {
         Ok(file.take(self.payload_len))
     }
 
+    /// Stream this accepted fragment's bytes to `output` and verify its length.
     pub fn copy_payload(&self, output: &mut impl Write) -> Result<(), Error> {
         let copied = std::io::copy(&mut self.open_payload()?, output).map_err(io)?;
         if copied != self.payload_len {
@@ -97,6 +98,9 @@ pub struct PublishedResult {
 }
 
 impl LocalFinalResult {
+    /// Bind a local staging directory to one job, graph, and sink identity.
+    ///
+    /// All three identities must be nonempty.
     pub fn new(
         staging: impl AsRef<Path>,
         job: &str,

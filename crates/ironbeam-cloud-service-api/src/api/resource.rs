@@ -14,6 +14,7 @@ pub struct ResourceId {
 }
 
 impl ResourceId {
+    /// Name a resource by provider, type, and provider-local name.
     pub fn new(
         provider: impl Into<String>,
         resource_type: impl Into<String>,
@@ -27,6 +28,7 @@ impl ResourceId {
         }
     }
 
+    /// Add an optional namespace to distinguish otherwise equal names.
     #[must_use]
     pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
         self.namespace = Some(namespace.into());

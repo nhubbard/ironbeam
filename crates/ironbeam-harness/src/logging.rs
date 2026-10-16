@@ -82,6 +82,7 @@ impl LoggingClient {
         Self::connect_for_worker(endpoint, None).await
     }
 
+    /// Connect Beam Fn Logging, attaching a worker ID when supplied.
     pub async fn connect_for_worker(endpoint: &str, worker_id: Option<&str>) -> Result<Self> {
         let url = normalize_endpoint(endpoint).context("logging endpoint")?;
         let channel = Channel::from_shared(url.clone())
@@ -117,10 +118,12 @@ impl LoggingClient {
         Ok(Self { tx })
     }
 
+    /// Queue a Beam log entry for the connected logging stream.
     pub fn send(&self, entry: LogEntry) {
         let _ = self.tx.send(entry);
     }
 
+    /// Queue an informational Beam log entry.
     pub fn info(&self, message: impl Into<String>) {
         self.send(LogEntry {
             severity: log_entry::severity::Enum::Info as i32,
@@ -129,6 +132,7 @@ impl LoggingClient {
         });
     }
 
+    /// Queue an error-severity Beam log entry.
     pub fn error(&self, message: impl Into<String>) {
         self.send(LogEntry {
             severity: log_entry::severity::Enum::Error as i32,
@@ -199,6 +203,7 @@ fn batched_log_stream(
 pub struct BeamFnLoggingLayer;
 
 impl BeamFnLoggingLayer {
+    /// Create a tracing layer that forwards events to Beam Fn Logging.
     pub fn new() -> Self {
         Self
     }

@@ -43,6 +43,7 @@ pub struct StaticTokenSource {
 }
 
 impl StaticTokenSource {
+    /// Create a fixed bearer token source for tests or explicit credentials.
     pub fn new(token: impl Into<String>) -> Self {
         Self {
             token: token.into(),
@@ -111,6 +112,7 @@ impl GcpAuthTokenSource {
         Self::with_scopes(&[CLOUD_PLATFORM_SCOPE]).await
     }
 
+    /// Discover application-default credentials with the requested scopes.
     pub async fn with_scopes(scopes: &[&str]) -> anyhow::Result<Self> {
         let provider = gcp_auth::provider()
             .await

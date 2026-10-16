@@ -41,6 +41,9 @@ pub struct DataflowOptions {
 }
 
 impl DataflowOptions {
+    /// Set the required project, region, job name, and GCS staging locations.
+    ///
+    /// Optional worker and networking settings retain their defaults.
     pub fn new(
         project: impl Into<String>,
         region: impl Into<String>,

@@ -34,6 +34,7 @@ fn write_jsonl<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
     }
     file.flush().map_err(|e| ironbeam_io::io("jsonl", e))
 }
+/// Read a bounded JSON Lines file into typed values.
 pub fn jsonl_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -61,6 +62,7 @@ fn read_jsonl_lazy<T: Element + DeserializeOwned>(
         });
     Ok(Box::new(rows))
 }
+/// Decode a bounded JSON Lines file one record at a time.
 pub fn jsonl_streaming_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -120,6 +122,7 @@ pub fn jsonl_sharded_source<T: Element + DeserializeOwned>(
         read_jsonl_range::<T>,
     )
 }
+/// Write typed values to a local JSON Lines file.
 pub fn jsonl_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
@@ -149,11 +152,13 @@ impl JsonlFragmentStore {
         Ok(self)
     }
 
+    /// Return accepted JSON Lines fragments after runner finalization.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
 }
 
+/// Open a local JSON Lines fragment store for one job and graph.
 pub fn jsonl_fragment_store(
     staging: impl AsRef<Path>,
     job: &str,

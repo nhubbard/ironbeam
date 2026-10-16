@@ -49,6 +49,7 @@ impl Mode {
         Mode::Driver
     }
 
+    /// Detect driver or harness mode from this process's arguments.
     pub fn from_env() -> Self {
         Self::detect(std::env::args().skip(1))
     }

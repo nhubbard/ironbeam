@@ -24,6 +24,7 @@ pub struct TimerRecord {
 }
 
 impl TimerRecord {
+    /// Encode this timer record in Beam TimerCoder wire order.
     pub fn encode(&self, output: &mut Vec<u8>) -> Result<()> {
         let window_count = i32::try_from(self.encoded_windows.len())
             .map_err(|_| anyhow!("timer record has too many windows"))?;

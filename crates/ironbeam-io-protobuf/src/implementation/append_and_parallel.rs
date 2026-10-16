@@ -43,6 +43,7 @@ pub fn protobuf_append_sink<T: Element + prost::Message>(
 }
 
 #[cfg(feature = "parallel-io")]
+/// Write Protobuf messages through parallel local output shards.
 pub fn protobuf_parallel_sink<T: Element + prost::Message + Sync>(
     input: &PCollection<T>,
     key: &str,
@@ -64,6 +65,7 @@ fn read_protobuf_range<T: Element + prost::Message + Default>(
 ) -> Result<TypedSourceIterator<T>, Error> {
     read_lazy_range(path, start, end, read_protobuf_lazy::<T>)
 }
+/// Split a bounded Protobuf file into stable record ranges.
 pub fn protobuf_sharded_source<T: Element + prost::Message + Default>(
     pipeline: &Pipeline,
     key: &str,

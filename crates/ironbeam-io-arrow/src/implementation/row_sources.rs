@@ -45,6 +45,7 @@ fn write_arrow_ipc<T: Serialize + DeserializeOwned>(
     writer.finish().map_err(|e| io("arrow-ipc", e))?;
     Ok(())
 }
+/// Read a bounded Arrow IPC file and decode its record batches into rows.
 pub fn arrow_ipc_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -186,6 +187,7 @@ pub fn arrow_ipc_batches_indexed_source(
         read_arrow_ipc_indexed_batches,
     )
 }
+/// Decode rows from a bounded Arrow IPC file incrementally.
 pub fn arrow_ipc_streaming_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -199,6 +201,7 @@ pub fn arrow_ipc_streaming_source<T: Element + DeserializeOwned>(
         read_arrow_ipc_lazy::<T>,
     )
 }
+/// Write typed rows to a local Arrow IPC file.
 pub fn arrow_ipc_sink<T: Element + Serialize + DeserializeOwned>(
     input: &PCollection<T>,
     key: &str,
@@ -226,6 +229,7 @@ pub struct ArrowIpcRowFragmentStore<T: Element> {
 }
 
 impl<T: Element> ArrowIpcRowFragmentStore<T> {
+    /// Require the named bundle attempts before final-result publication.
     pub fn require_bundle_attempts<I, S>(mut self, bundle_ids: I) -> Result<Self, Error>
     where
         I: IntoIterator<Item = S>,
@@ -235,6 +239,7 @@ impl<T: Element> ArrowIpcRowFragmentStore<T> {
         Ok(self)
     }
 
+    /// Return accepted row fragments after runner finalization.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }

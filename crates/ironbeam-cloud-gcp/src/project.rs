@@ -49,6 +49,7 @@ impl GcpProject {
         Ok(Self { id, location: None })
     }
 
+    /// Return the configured GCP project ID.
     #[must_use]
     pub fn id(&self) -> &str {
         &self.id
@@ -72,6 +73,7 @@ impl GcpProject {
         Ok(self)
     }
 
+    /// Return the configured BigQuery job location, if any.
     #[must_use]
     pub fn location(&self) -> Option<&str> {
         self.location.as_deref()

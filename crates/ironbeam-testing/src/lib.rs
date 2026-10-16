@@ -19,6 +19,7 @@ pub struct TestPipeline {
     pipeline: Pipeline,
 }
 impl TestPipeline {
+    /// Create an empty pipeline for local tests.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -44,6 +45,7 @@ impl TestPipeline {
             .map(|node| usize::from(node.input.is_some()) + node.additional_inputs.len())
             .sum())
     }
+    /// Borrow the underlying graph builder for ordinary pipeline operations.
     #[must_use]
     pub const fn pipeline(&self) -> &Pipeline {
         &self.pipeline

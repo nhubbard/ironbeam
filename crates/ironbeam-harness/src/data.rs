@@ -213,6 +213,7 @@ impl DataClient {
         Self::connect_for_worker(endpoint, None).await
     }
 
+    /// Connect Beam Fn Data with an optional worker identifier.
     pub async fn connect_for_worker(endpoint: &str, worker_id: Option<&str>) -> Result<Self> {
         let url = normalize_endpoint(endpoint).context("data endpoint")?;
         let channel = Channel::from_shared(url.clone())

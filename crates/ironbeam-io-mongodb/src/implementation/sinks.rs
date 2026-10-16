@@ -1,3 +1,4 @@
+/// Read MongoDB documents through stable caller-selected shards.
 pub fn mongodb_sharded_source<T>(
     pipeline: &Pipeline,
     key: &str,

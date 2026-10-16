@@ -1,3 +1,4 @@
+/// Open a local Arrow IPC row fragment store for one job.
 pub fn arrow_ipc_row_fragment_store<T: Element>(
     staging: impl AsRef<Path>,
     job: &str,
@@ -142,6 +143,7 @@ pub fn publish_arrow_ipc_row_fragments<T: Element + Serialize + DeserializeOwned
 }
 
 #[cfg(feature = "parallel-io")]
+/// Write typed rows through parallel Arrow IPC output shards.
 pub fn arrow_ipc_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
     input: &PCollection<T>,
     key: &str,

@@ -61,6 +61,7 @@ impl<T: TokenSource> GcsStager<T> {
     }
 }
 
+/// Split a `gs://bucket[/prefix]` staging URL into bucket and object prefix.
 pub fn parse_gs_url(url: &str) -> anyhow::Result<(String, String)> {
     let rest = url
         .strip_prefix("gs://")
@@ -133,6 +134,7 @@ pub struct MemoryStager {
 }
 
 impl MemoryStager {
+    /// Create an in-memory stager for local tests.
     pub fn new(bucket: impl Into<String>) -> Self {
         Self {
             bucket: bucket.into(),
@@ -140,6 +142,7 @@ impl MemoryStager {
         }
     }
 
+    /// Return a snapshot of staged object names and bytes.
     pub fn stored(&self) -> Vec<(String, Vec<u8>)> {
         self.inner.lock().unwrap().clone()
     }

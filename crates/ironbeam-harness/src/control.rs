@@ -138,6 +138,7 @@ pub struct ControlSession {
 }
 
 impl ControlSession {
+    /// Wait for the Fn Control stream to finish and return its error, if any.
     pub async fn join(self) -> Result<()> {
         match self.join.await {
             Ok(r) => r,
@@ -160,6 +161,7 @@ pub async fn start(
     start_for_worker(endpoint, dispatcher, runner, None).await
 }
 
+/// Start a Beam Fn Control stream for a specific worker ID.
 pub async fn start_for_worker(
     endpoint: &str,
     dispatcher: Arc<Dispatcher>,

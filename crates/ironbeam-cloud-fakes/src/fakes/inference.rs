@@ -11,6 +11,7 @@ pub struct FakeIntelligenceIO {
 
 impl FakeIntelligenceIO {
     #[must_use]
+    /// Create an empty in-memory inference service for tests.
     pub fn new() -> Self {
         Self {
             models: Arc::new(Mutex::new(HashMap::new())),

@@ -36,22 +36,27 @@ pub struct PbdCache {
 }
 
 impl PbdCache {
+    /// Create an empty process-bundle-descriptor cache.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Insert or replace a descriptor by its stable ID.
     pub fn insert(&self, pbd: ProcessBundleDescriptor) {
         self.inner.lock().unwrap().insert(pbd.id.clone(), pbd);
     }
 
+    /// Clone the cached descriptor with `id`, if present.
     pub fn get(&self, id: &str) -> Option<ProcessBundleDescriptor> {
         self.inner.lock().unwrap().get(id).cloned()
     }
 
+    /// Return the number of cached descriptors.
     pub fn len(&self) -> usize {
         self.inner.lock().unwrap().len()
     }
 
+    /// Return whether the cache contains no descriptors.
     pub fn is_empty(&self) -> bool {
         self.inner.lock().unwrap().is_empty()
     }
@@ -112,6 +117,7 @@ fn metric_metadata(id: &str) -> Option<MonitoringInfo> {
 }
 
 impl Dispatcher {
+    /// Bind a descriptor cache and local graph fingerprint for Fn Control.
     pub fn new(pbd_cache: PbdCache, local_fingerprint: u64) -> Self {
         Self {
             pbd_cache,

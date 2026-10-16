@@ -46,6 +46,7 @@ pub fn truncate_sized(source_key: &str, sized_body: &[u8]) -> Result<Option<Vec<
     Ok(None)
 }
 
+/// Encode an SDF element and restriction as two length-prefixed fields.
 pub fn encode_pair(pair: &SourcePair) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     encode_length_prefix(&pair.element, &mut output)?;
@@ -53,6 +54,7 @@ pub fn encode_pair(pair: &SourcePair) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+/// Decode one complete SDF pair and reject trailing or foreign bytes.
 pub fn decode_pair(source_key: &str, bytes: &[u8]) -> Result<SourcePair> {
     let (pair, consumed) = decode_pair_prefix(source_key, bytes)?;
     if consumed != bytes.len() {
@@ -76,6 +78,7 @@ fn decode_pair_prefix(source_key: &str, bytes: &[u8]) -> Result<(SourcePair, usi
     ))
 }
 
+/// Encode an SDF pair followed by its finite work-size estimate.
 pub fn encode_sized(value: &SizedSourcePair) -> Result<Vec<u8>> {
     validate_size(value.size)?;
     let mut output = encode_pair(&value.pair)?;
@@ -83,6 +86,7 @@ pub fn encode_sized(value: &SizedSourcePair) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+/// Decode an SDF pair and its work-size estimate for `source_key`.
 pub fn decode_sized(source_key: &str, bytes: &[u8]) -> Result<SizedSourcePair> {
     let (pair, consumed) = decode_pair_prefix(source_key, bytes)?;
     let tail = bytes
@@ -107,6 +111,7 @@ pub fn try_pair_body_len(bytes: &[u8]) -> Result<Option<usize>> {
     Ok(Some(first + second))
 }
 
+/// Return the size of a complete sized-pair body, or `None` if fragmented.
 pub fn try_sized_body_len(bytes: &[u8]) -> Result<Option<usize>> {
     let Some(pair_len) = try_pair_body_len(bytes)? else {
         return Ok(None);
@@ -117,6 +122,7 @@ pub fn try_sized_body_len(bytes: &[u8]) -> Result<Option<usize>> {
     Ok((bytes.len() >= end).then_some(end))
 }
 
+/// Return the size of a complete length-prefixed byte field, if available.
 pub fn try_bytes_body_len(bytes: &[u8]) -> Result<Option<usize>> {
     let mut value = 0_u64;
     for index in 0..10 {

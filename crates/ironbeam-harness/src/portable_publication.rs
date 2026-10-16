@@ -141,10 +141,12 @@ impl PortablePublicationPlan {
 }
 
 impl ReadyPublication {
+    /// Return accepted bundle attempts for one final-result sink.
     pub fn bundle_attempts(&self, sink: &str) -> Result<&[String]> {
         self.manifest.attempts_for_sink(sink)
     }
 
+    /// Return the runner-confirmed row count for one sink.
     pub fn committed_rows(&self, sink: &str) -> Result<u64> {
         self.rows
             .get(sink)
@@ -152,6 +154,7 @@ impl ReadyPublication {
             .with_context(|| format!("sink {sink:?} is absent from the publication plan"))
     }
 
+    /// Iterate over the sinks authorized for publication.
     pub fn sinks(&self) -> impl Iterator<Item = &str> {
         self.manifest.sinks()
     }

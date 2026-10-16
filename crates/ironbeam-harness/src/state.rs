@@ -41,6 +41,7 @@ impl Drop for PendingRequest {
 }
 
 impl StateClient {
+    /// Connect to the Beam Fn State service for one worker.
     pub async fn connect(endpoint: &str, worker_id: Option<&str>) -> Result<Self> {
         let url = normalize_endpoint(endpoint).context("state endpoint")?;
         let channel = Channel::from_shared(url.clone())?
@@ -76,6 +77,7 @@ impl StateClient {
         })
     }
 
+    /// Read every page of one state cell into a byte vector.
     pub async fn get_all(&self, instruction_id: &str, state_key: StateKey) -> Result<Vec<u8>> {
         let mut data = Vec::new();
         self.get_pages(instruction_id, state_key, |page| {

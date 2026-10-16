@@ -50,6 +50,7 @@ fn write_csv<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
     writer.flush().map_err(|e| io("csv", e))
 }
 
+/// Read a bounded CSV file into typed rows.
 pub fn csv_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -58,6 +59,7 @@ pub fn csv_source<T: Element + DeserializeOwned>(
     source(pipeline, key, path, "csv", read_csv::<T>)
 }
 
+/// Read every CSV file matching a local glob pattern.
 pub fn csv_glob_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -80,6 +82,7 @@ fn read_csv_lazy<T: Element + DeserializeOwned>(
     ))
 }
 
+/// Decode a bounded CSV file one row at a time.
 pub fn csv_streaming_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -164,11 +167,13 @@ impl CsvFragmentStore {
         Ok(self)
     }
 
+    /// Return accepted CSV fragments after runner finalization.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
 }
 
+/// Open a local CSV fragment store for one job and graph.
 pub fn csv_fragment_store(
     staging: impl AsRef<Path>,
     job: &str,

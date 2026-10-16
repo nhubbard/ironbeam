@@ -12,6 +12,7 @@ pub struct FakeDatabaseIO {
 
 impl FakeDatabaseIO {
     #[must_use]
+    /// Create an empty in-memory database service for tests.
     pub fn new() -> Self {
         Self {
             tables: Arc::new(Mutex::new(HashMap::new())),

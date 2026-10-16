@@ -27,6 +27,7 @@ pub struct CompletedFinalizationManifest {
 }
 
 impl CompletedFinalizationManifest {
+    /// Return committed attempt IDs for a declared sink.
     pub fn attempts_for_sink(&self, sink: &str) -> Result<&[String]> {
         self.attempts
             .get(sink)
@@ -34,6 +35,7 @@ impl CompletedFinalizationManifest {
             .with_context(|| format!("sink {sink:?} is absent from the finalization manifest"))
     }
 
+    /// Iterate over the declared final-result sink keys.
     pub fn sinks(&self) -> impl Iterator<Item = &str> {
         self.attempts.keys().map(String::as_str)
     }
@@ -205,6 +207,7 @@ pub struct FileFinalizationJournal {
 }
 
 impl FileFinalizationJournal {
+    /// Bind an absolute journal directory to one execution identity.
     pub fn new(root: impl AsRef<Path>, identity: ExecutionIdentity) -> Result<Self> {
         let root = root.as_ref();
         if !root.is_absolute() {
@@ -375,6 +378,9 @@ pub struct ObjectFinalizationJournal {
 }
 
 impl ObjectFinalizationJournal {
+    /// Bind an object-store prefix and execution identity to a journal.
+    ///
+    /// The URI must end in `/` and name a registered object-store provider.
     pub fn new(
         stores: Arc<ObjectStores>,
         base_uri: impl Into<String>,

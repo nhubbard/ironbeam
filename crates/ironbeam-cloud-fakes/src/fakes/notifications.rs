@@ -13,6 +13,7 @@ pub struct FakeNotificationIO {
 
 impl FakeNotificationIO {
     #[must_use]
+    /// Create an empty in-memory notifications service for tests.
     pub fn new() -> Self {
         Self {
             topics: Arc::new(Mutex::new(HashMap::new())),

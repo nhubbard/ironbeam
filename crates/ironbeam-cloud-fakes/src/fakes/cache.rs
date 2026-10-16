@@ -11,6 +11,7 @@ pub struct FakeCacheIO {
 
 impl FakeCacheIO {
     #[must_use]
+    /// Create an empty in-memory cache service for tests.
     pub fn new() -> Self {
         Self {
             cache: Arc::new(Mutex::new(HashMap::new())),

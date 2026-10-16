@@ -11,6 +11,7 @@ pub struct FakeConfigIO {
 
 impl FakeConfigIO {
     #[must_use]
+    /// Create an empty in-memory config service for tests.
     pub fn new() -> Self {
         Self {
             config: Arc::new(Mutex::new(HashMap::new())),

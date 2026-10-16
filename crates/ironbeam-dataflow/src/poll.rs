@@ -25,6 +25,7 @@ pub const TERMINAL_STATES: &[&str] = &[
     "JOB_STATE_DRAINED",
 ];
 
+/// Return whether a Dataflow job state is terminal.
 pub fn is_terminal(state: &str) -> bool {
     TERMINAL_STATES.contains(&state)
 }
@@ -51,6 +52,9 @@ impl Default for PollConfig {
     }
 }
 
+/// Poll one Dataflow job until it reaches a terminal state or times out.
+///
+/// `on_state` receives each observed state before the next poll.
 pub async fn poll_until_terminal<T, F>(
     base_url: &str,
     token_source: &T,

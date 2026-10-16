@@ -12,6 +12,7 @@ pub struct FakeQueueIO {
 
 impl FakeQueueIO {
     #[must_use]
+    /// Create an empty in-memory queue service for tests.
     pub fn new() -> Self {
         Self {
             queues: Arc::new(Mutex::new(HashMap::new())),

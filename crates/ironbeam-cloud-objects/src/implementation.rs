@@ -38,6 +38,7 @@ impl fmt::Display for CloudIOError {
 impl Error for CloudIOError {}
 
 impl CloudIOError {
+    /// Create a cloud I/O error with a kind and human-readable message.
     pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
@@ -46,6 +47,7 @@ impl CloudIOError {
         }
     }
 
+    /// Attach source context to the cloud I/O error.
     #[must_use]
     pub fn with_source(mut self, source: impl Into<String>) -> Self {
         self.source = Some(source.into());

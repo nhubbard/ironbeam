@@ -105,6 +105,7 @@ pub fn publish_parquet_fragments<T: Element + Serialize + DeserializeOwned>(
 }
 
 #[cfg(feature = "parallel-io")]
+/// Write typed rows through parallel Parquet output shards.
 pub fn parquet_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
     input: &PCollection<T>,
     key: &str,

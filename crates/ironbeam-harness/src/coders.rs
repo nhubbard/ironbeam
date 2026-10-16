@@ -25,6 +25,7 @@ pub use ironbeam_core::{PaneInfo, PaneTiming};
 
 // ---- VarInt ---------------------------------------------------------------
 
+/// Write an unsigned base-128 varint to `out`.
 pub fn encode_varint<W: Write>(mut n: u64, out: &mut W) -> Result<()> {
     loop {
         let b = (n & 0x7F) as u8;
@@ -37,6 +38,7 @@ pub fn encode_varint<W: Write>(mut n: u64, out: &mut W) -> Result<()> {
     }
 }
 
+/// Read an unsigned base-128 varint, rejecting truncation and overflow.
 pub fn decode_varint<R: Read>(r: &mut R) -> Result<u64> {
     let mut n = 0u64;
     for shift in (0..64).step_by(7) {
@@ -55,6 +57,7 @@ pub fn decode_varint<R: Read>(r: &mut R) -> Result<u64> {
 
 // ---- Length-prefix --------------------------------------------------------
 
+/// Write a varint byte length followed by `body`.
 pub fn encode_length_prefix<W: Write>(body: &[u8], out: &mut W) -> Result<()> {
     encode_varint(body.len() as u64, out)?;
     out.write_all(body)?;
@@ -500,6 +503,7 @@ pub fn decode_windowed_value(buf: &[u8]) -> Result<(WindowedValue<'_>, usize)> {
 // each self-delimiting via their respective nested coders. Callers wrap K
 // and V individually (e.g., in length_prefix) and then call this to stitch.
 
+/// Concatenate already encoded key and value bodies for a Beam KV coder.
 pub fn encode_kv<W: Write>(encoded_k: &[u8], encoded_v: &[u8], out: &mut W) -> Result<()> {
     out.write_all(encoded_k)?;
     out.write_all(encoded_v)?;

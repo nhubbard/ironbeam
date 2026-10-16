@@ -64,6 +64,7 @@ impl Endpoints {
         })
     }
 
+    /// Read launch arguments and resolve worker endpoints through Provision.
     pub async fn from_process_env() -> Result<Self> {
         Self::from_process_argv(std::env::args().skip(1)).await
     }
@@ -93,6 +94,7 @@ impl Endpoints {
         })
     }
 
+    /// Parse worker endpoints from the current process arguments.
     pub fn from_env() -> Result<Self> {
         Self::from_argv(std::env::args().skip(1))
     }

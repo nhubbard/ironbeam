@@ -67,6 +67,7 @@ pub struct ObjectStores {
 
 impl ObjectStores {
     #[must_use]
+    /// Create an empty registry of object-store providers.
     pub fn new() -> Self {
         Self::default()
     }

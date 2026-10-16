@@ -411,8 +411,10 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build docs
-        run: cargo doc --workspace --all-features --no-deps
+      - name: Check public Rustdoc
+        run: |
+          RUSTDOCFLAGS='-Z unstable-options --output-format json -D rustdoc::broken_intra_doc_links' cargo doc --workspace --all-features --no-deps --locked
+          python3 scripts/check_public_rustdoc.py
 
   examples:
     name: Examples

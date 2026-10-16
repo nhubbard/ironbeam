@@ -218,10 +218,14 @@ impl V5BundleExecutor {
                 .any(|parent| self.forwarding_input_reaches(parent, candidate))
     }
 
+    /// Construct an executor from the worker's rebuilt pipeline.
+    ///
+    /// `binary_build_id` must match the driver's declared execution identity.
     pub fn new(pipeline: &Pipeline, binary_build_id: &str) -> Result<Self> {
         Self::new_for_worker(pipeline, binary_build_id, None)
     }
 
+    /// Construct an executor bound to an optional Beam worker ID.
     pub fn new_for_worker(
         pipeline: &Pipeline,
         binary_build_id: &str,

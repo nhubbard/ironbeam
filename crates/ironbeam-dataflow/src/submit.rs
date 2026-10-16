@@ -147,6 +147,7 @@ pub struct SubmittedJob {
     pub raw: Value,
 }
 
+/// Submit a prepared Dataflow job request with the supplied token source.
 pub async fn submit_job<T: TokenSource + ?Sized>(
     base_url: &str,
     token_source: &T,

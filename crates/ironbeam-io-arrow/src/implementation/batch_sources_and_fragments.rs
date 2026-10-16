@@ -1,3 +1,4 @@
+/// Read a bounded Arrow IPC file as record batches.
 pub fn arrow_ipc_batches_source(
     pipeline: &Pipeline,
     key: &str,
@@ -19,6 +20,7 @@ fn read_arrow_ipc_batches_lazy(path: PathBuf) -> Result<TypedSourceIterator<Arro
         batch.map(ArrowBatch).map_err(|e| io("arrow-ipc", e))
     })))
 }
+/// Read record batches from an Arrow IPC file incrementally.
 pub fn arrow_ipc_batches_streaming_source(
     pipeline: &Pipeline,
     key: &str,
@@ -32,6 +34,7 @@ pub fn arrow_ipc_batches_streaming_source(
         read_arrow_ipc_batches_lazy,
     )
 }
+/// Write Arrow record batches to a local IPC file.
 pub fn arrow_ipc_batches_sink(
     input: &PCollection<ArrowBatch>,
     key: &str,
@@ -58,6 +61,7 @@ pub struct ArrowIpcBatchFragmentStore {
 }
 
 impl ArrowIpcBatchFragmentStore {
+    /// Require the named batch attempts before final-result publication.
     pub fn require_bundle_attempts<I, S>(mut self, bundle_ids: I) -> Result<Self, Error>
     where
         I: IntoIterator<Item = S>,
@@ -67,11 +71,13 @@ impl ArrowIpcBatchFragmentStore {
         Ok(self)
     }
 
+    /// Return accepted batch fragments after runner finalization.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
 }
 
+/// Open a local Arrow IPC batch fragment store for one job.
 pub fn arrow_ipc_batch_fragment_store(
     staging: impl AsRef<Path>,
     job: &str,
@@ -199,6 +205,7 @@ pub fn publish_arrow_ipc_batch_fragments(
 }
 
 #[cfg(feature = "parallel-io")]
+/// Write Arrow IPC batches through parallel local output shards.
 pub fn arrow_ipc_batches_parallel_sink(
     input: &PCollection<ArrowBatch>,
     key: &str,
@@ -223,6 +230,7 @@ pub fn arrow_ipc_batches_parallel_sink(
     })
 }
 
+/// Read Arrow IPC row files matching a local glob pattern.
 pub fn arrow_ipc_glob_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -232,6 +240,7 @@ pub fn arrow_ipc_glob_source<T: Element + DeserializeOwned>(
         arrow_ipc_source(pipeline, key, path)
     })
 }
+/// Read Arrow IPC batch files matching a local glob pattern.
 pub fn arrow_ipc_batches_glob_source(
     pipeline: &Pipeline,
     key: &str,
@@ -251,6 +260,7 @@ fn read_arrow_ipc_range<T: Element + DeserializeOwned>(
 ) -> Result<TypedSourceIterator<T>, Error> {
     read_lazy_range(path, start, end, read_arrow_ipc_lazy::<T>)
 }
+/// Split decoded Arrow IPC rows into stable record ranges.
 pub fn arrow_ipc_sharded_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -277,6 +287,7 @@ fn read_arrow_batches_range(
 ) -> Result<TypedSourceIterator<ArrowBatch>, Error> {
     read_lazy_range(path, start, end, read_arrow_ipc_batches_lazy)
 }
+/// Split Arrow IPC batches into stable indexed ranges.
 pub fn arrow_ipc_batches_sharded_source(
     pipeline: &Pipeline,
     key: &str,

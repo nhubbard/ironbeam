@@ -43,6 +43,7 @@ impl<S: Stager, T: TokenSource> Driver<S, T> {
             .await
     }
 
+    /// Create a Dataflow driver with staging and credential providers.
     pub fn new(stager: S, token_source: T) -> Self {
         Self {
             stager,
@@ -52,11 +53,13 @@ impl<S: Stager, T: TokenSource> Driver<S, T> {
         }
     }
 
+    /// Override the Dataflow API base URL, chiefly for local wire tests.
     pub fn with_dataflow_base_url(mut self, url: impl Into<String>) -> Self {
         self.dataflow_base_url = url.into();
         self
     }
 
+    /// Set the interval, timeout, and message policy used when polling jobs.
     pub fn with_poll_config(mut self, cfg: PollConfig) -> Self {
         self.poll_config = cfg;
         self

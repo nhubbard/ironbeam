@@ -14,6 +14,7 @@ use ironbeam_io::{
 };
 use std::path::{Path, PathBuf};
 
+/// Read Protobuf files matching a local glob pattern.
 pub fn protobuf_glob_source<T: Element + prost::Message + Default>(
     pipeline: &Pipeline,
     key: &str,
@@ -39,6 +40,7 @@ fn write_protobuf<T: prost::Message>(path: &Path, values: &[T]) -> Result<(), Er
     }
     Ok(())
 }
+/// Read length-delimited Protobuf messages from a bounded file.
 pub fn protobuf_source<T: Element + prost::Message + Default>(
     pipeline: &Pipeline,
     key: &str,
@@ -106,6 +108,7 @@ fn read_protobuf_lazy<T: Element + prost::Message + Default>(
         Some(item)
     })))
 }
+/// Decode length-delimited Protobuf messages incrementally.
 pub fn protobuf_streaming_source<T: Element + prost::Message + Default>(
     pipeline: &Pipeline,
     key: &str,
@@ -119,6 +122,7 @@ pub fn protobuf_streaming_source<T: Element + prost::Message + Default>(
         read_protobuf_lazy::<T>,
     )
 }
+/// Write length-delimited Protobuf messages to a local file.
 pub fn protobuf_sink<T: Element + prost::Message>(
     input: &PCollection<T>,
     key: &str,
@@ -148,11 +152,13 @@ impl ProtobufFragmentStore {
         Ok(self)
     }
 
+    /// Return accepted Protobuf fragments after runner finalization.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
 }
 
+/// Open a local Protobuf fragment store for one job and graph.
 pub fn protobuf_fragment_store(
     staging: impl AsRef<Path>,
     job: &str,
@@ -173,6 +179,7 @@ fn write_protobuf_record<T: prost::Message>(
         .map_err(|error| io("protobuf-fragment", error))
 }
 
+/// Stage Protobuf records as replay-safe bundle fragments.
 pub fn protobuf_fragment_sink<T: Element + prost::Message>(
     input: &PCollection<T>,
     key: &str,

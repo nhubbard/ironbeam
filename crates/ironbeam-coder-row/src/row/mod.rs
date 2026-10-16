@@ -61,11 +61,13 @@ impl<S: RowSchema> BeamRow<S> {
         })
     }
 
+    /// Borrow the validated row without changing its schema.
     #[must_use]
     pub const fn as_row(&self) -> &Row {
         &self.value
     }
 
+    /// Take ownership of the validated row value.
     #[must_use]
     pub fn into_row(self) -> Row {
         self.value

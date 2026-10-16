@@ -40,6 +40,7 @@ pub struct SourcePoller<'a> {
 }
 
 impl<'a> SourcePoller<'a> {
+    /// Open a registered unbounded source at a validated restriction cursor.
     pub fn open(
         graph: &Graph,
         registry: &'a Registry,

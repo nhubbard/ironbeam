@@ -34,6 +34,7 @@ pub enum FingerprintStatus {
     Mismatch { driver: u64, local: u64 },
 }
 
+/// Compare an optional driver fingerprint with the worker's local value.
 pub fn compare(driver: Option<u64>, local: u64) -> FingerprintStatus {
     match driver {
         None => FingerprintStatus::Missing,
@@ -42,6 +43,7 @@ pub fn compare(driver: Option<u64>, local: u64) -> FingerprintStatus {
     }
 }
 
+/// Log the fingerprint comparison result at its appropriate severity.
 pub fn log(status: FingerprintStatus) {
     match status {
         FingerprintStatus::Match => info!("pipeline fingerprint verified"),

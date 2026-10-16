@@ -11,6 +11,7 @@ pub struct FakeKeyValueIO {
 
 impl FakeKeyValueIO {
     #[must_use]
+    /// Create an empty in-memory key value service for tests.
     pub fn new() -> Self {
         Self {
             collections: Arc::new(Mutex::new(HashMap::new())),

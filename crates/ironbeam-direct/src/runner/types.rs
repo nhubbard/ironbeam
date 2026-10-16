@@ -90,6 +90,7 @@ impl JobHandle {
     pub fn metrics(&self) -> JobMetrics {
         self.metrics.snapshot()
     }
+    /// Borrow the optional custom metrics collector for this job.
     #[cfg(feature = "metrics")]
     #[must_use]
     pub const fn custom_metrics(&self) -> Option<&ironbeam_metrics::MetricsCollector> {

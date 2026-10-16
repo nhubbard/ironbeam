@@ -11,6 +11,7 @@ pub struct FakeMetricIO {
 
 impl FakeMetricIO {
     #[must_use]
+    /// Create an empty in-memory metrics service for tests.
     pub fn new() -> Self {
         Self {
             metrics: Arc::new(Mutex::new(HashMap::new())),

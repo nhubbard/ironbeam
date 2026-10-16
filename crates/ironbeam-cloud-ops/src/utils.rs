@@ -290,6 +290,7 @@ pub struct ConnectionPool<T> {
 }
 
 impl<T> ConnectionPool<T> {
+    /// Create a local pool that holds at most `max_size` idle connections.
     #[must_use]
     pub fn new(max_size: usize) -> Self {
         Self {
@@ -310,12 +311,14 @@ impl<T> ConnectionPool<T> {
         self.connections.pop().map_or_else(create, |conn| Ok(conn))
     }
 
+    /// Return a connection to the pool, dropping it when the pool is full.
     pub fn release(&mut self, connection: T) {
         if self.connections.len() < self.max_size {
             self.connections.push(connection);
         }
     }
 
+    /// Return the number of idle connections currently retained.
     #[must_use]
     pub const fn size(&self) -> usize {
         self.connections.len()

@@ -46,6 +46,7 @@ fn write_parquet<T: Serialize + DeserializeOwned>(path: &Path, values: &[T]) -> 
     writer.close().map_err(|e| io("parquet", e))?;
     Ok(())
 }
+/// Read a bounded Parquet file into typed rows.
 pub fn parquet_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -70,6 +71,7 @@ pub fn read_parquet_lazy<T: Element + DeserializeOwned>(
         Err(error) => vec![Err(io("parquet", error))],
     })))
 }
+/// Decode a bounded Parquet file incrementally.
 pub fn parquet_streaming_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -171,6 +173,7 @@ pub fn parquet_row_group_sharded_source<T: Element + DeserializeOwned>(
         first.flatten_named(key, &sources)
     }
 }
+/// Write typed rows to a local Parquet file.
 pub fn parquet_sink<T: Element + Serialize + DeserializeOwned>(
     input: &PCollection<T>,
     key: &str,
@@ -212,11 +215,13 @@ impl<T: Element> ParquetFragmentStore<T> {
         Ok(self)
     }
 
+    /// Return accepted Parquet fragments after runner finalization.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
 }
 
+/// Open a local Parquet fragment store for one job and graph.
 pub fn parquet_fragment_store<T: Element>(
     staging: impl AsRef<Path>,
     job: &str,

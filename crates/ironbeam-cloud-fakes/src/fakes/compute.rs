@@ -12,6 +12,7 @@ pub struct FakeComputeIO {
 
 impl FakeComputeIO {
     #[must_use]
+    /// Create an empty in-memory compute service for tests.
     pub fn new() -> Self {
         Self {
             functions: Arc::new(Mutex::new(HashMap::new())),

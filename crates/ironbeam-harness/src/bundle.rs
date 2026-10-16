@@ -340,6 +340,7 @@ pub struct BundlePlan {
     pub side_inputs: HashMap<String, String>,
 }
 
+/// Validate a ProcessBundleDescriptor and order its executable transforms.
 pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
     // 1. Categorize every transform.
     let mut kinds: HashMap<&str, TransformKind> = HashMap::new();

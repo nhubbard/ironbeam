@@ -21,6 +21,7 @@ pub struct TimerFamilyScope<'a> {
 }
 
 impl<'a> TimerFamilyScope<'a> {
+    /// Bind a declared timer family to one bundle and transform.
     pub fn new(
         client: &'a DataClient,
         contract: &StatefulParDoContract,

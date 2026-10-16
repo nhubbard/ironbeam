@@ -25,6 +25,7 @@ struct Subscription {
 
 impl FakePubSubIO {
     #[must_use]
+    /// Create an empty in-memory pubsub service for tests.
     pub fn new() -> Self {
         Self::default()
     }

@@ -431,6 +431,7 @@ pub struct OperationBuilder {
 }
 
 impl OperationBuilder {
+    /// Create an operation builder without retry or timeout settings.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -439,12 +440,14 @@ impl OperationBuilder {
         }
     }
 
+    /// Retry failed operations using `config`.
     #[must_use]
     pub const fn with_retry(mut self, config: RetryConfig) -> Self {
         self.retry_config = Some(config);
         self
     }
 
+    /// Reject operations whose elapsed duration exceeds `timeout`.
     #[must_use]
     pub const fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
@@ -491,6 +494,7 @@ pub struct OperationContext {
 }
 
 impl OperationContext {
+    /// Start timing an operation and initialize its retry count.
     #[must_use]
     pub fn new(operation_name: impl Into<String>) -> Self {
         Self {
@@ -501,15 +505,18 @@ impl OperationContext {
         }
     }
 
+    /// Insert or replace an operation metadata field.
     pub fn add_metadata(&mut self, key: impl Into<String>, value: impl Into<String>) {
         self.metadata.insert(key.into(), value.into());
     }
 
+    /// Return the time elapsed since this context was created.
     #[must_use]
     pub fn elapsed(&self) -> Duration {
         self.start_time.elapsed()
     }
 
+    /// Record one additional retry attempt.
     pub const fn increment_retry(&mut self) {
         self.retry_count += 1;
     }
@@ -720,6 +727,7 @@ pub struct CloudIOExecutor {
 }
 
 impl CloudIOExecutor {
+    /// Create an executor without retry or timeout settings.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -728,12 +736,14 @@ impl CloudIOExecutor {
         }
     }
 
+    /// Retry failed cloud operations using `config`.
     #[must_use]
     pub const fn with_retry(mut self, config: RetryConfig) -> Self {
         self.retry_config = Some(config);
         self
     }
 
+    /// Reject cloud operations whose elapsed duration exceeds `timeout`.
     #[must_use]
     pub const fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);

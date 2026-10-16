@@ -12,6 +12,7 @@ pub struct FakeWarehouseIO {
 
 impl FakeWarehouseIO {
     #[must_use]
+    /// Create an empty in-memory warehouse service for tests.
     pub fn new() -> Self {
         Self {
             tables: Arc::new(Mutex::new(HashMap::new())),

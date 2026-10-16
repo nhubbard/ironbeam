@@ -11,6 +11,7 @@ pub struct FakeSearchIO {
 
 impl FakeSearchIO {
     #[must_use]
+    /// Create an empty in-memory search service for tests.
     pub fn new() -> Self {
         Self {
             indices: Arc::new(Mutex::new(HashMap::new())),

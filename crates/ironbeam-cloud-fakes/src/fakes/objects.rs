@@ -11,6 +11,7 @@ pub struct FakeObjectIO {
 
 impl FakeObjectIO {
     #[must_use]
+    /// Create an empty in-memory objects service for tests.
     pub fn new() -> Self {
         Self {
             storage: Arc::new(Mutex::new(HashMap::new())),

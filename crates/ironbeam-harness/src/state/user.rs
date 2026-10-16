@@ -22,6 +22,9 @@ pub struct UserStateScope {
 }
 
 impl UserStateScope {
+    /// Bind one transform, state ID, encoded window, and encoded key.
+    ///
+    /// Transform and state IDs must be nonempty.
     pub fn new(
         transform_id: impl Into<String>,
         state_id: impl Into<String>,
@@ -41,6 +44,7 @@ impl UserStateScope {
         })
     }
 
+    /// Build the Beam bag-state key for this scope.
     pub fn bag(&self) -> StateKey {
         StateKey {
             r#type: Some(state_key::Type::BagUserState(state_key::BagUserState {
@@ -52,6 +56,7 @@ impl UserStateScope {
         }
     }
 
+    /// Build a key that reads all encoded keys in a multimap state cell.
     pub fn multimap_keys(&self) -> StateKey {
         StateKey {
             r#type: Some(state_key::Type::MultimapKeysUserState(
@@ -65,6 +70,7 @@ impl UserStateScope {
         }
     }
 
+    /// Build a key that reads all encoded multimap entries.
     pub fn multimap_entries(&self) -> StateKey {
         StateKey {
             r#type: Some(state_key::Type::MultimapEntriesUserState(
@@ -78,6 +84,7 @@ impl UserStateScope {
         }
     }
 
+    /// Build a key for values stored under one encoded multimap key.
     pub fn multimap_value(&self, map_key: Vec<u8>) -> StateKey {
         StateKey {
             r#type: Some(state_key::Type::MultimapUserState(
@@ -92,6 +99,7 @@ impl UserStateScope {
         }
     }
 
+    /// Build a key for the half-open ordered-list sort range `[start, end)`.
     pub fn ordered_list(&self, start: i64, end: i64) -> Result<StateKey> {
         if start >= end {
             bail!("Beam ordered-list state requires a nonempty sort range");

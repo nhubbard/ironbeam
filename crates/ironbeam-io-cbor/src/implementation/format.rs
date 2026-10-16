@@ -21,6 +21,7 @@ fn write_cbor<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
     }
     Ok(())
 }
+/// Read a bounded CBOR file into typed values.
 pub fn cbor_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -58,6 +59,7 @@ fn read_cbor_lazy<T: Element + DeserializeOwned>(
         }
     })))
 }
+/// Decode a bounded CBOR file incrementally.
 pub fn cbor_streaming_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -65,6 +67,7 @@ pub fn cbor_streaming_source<T: Element + DeserializeOwned>(
 ) -> Result<PCollection<T>, Error> {
     ironbeam_io::lazy_source(pipeline, key, path, "cbor-streaming", read_cbor_lazy::<T>)
 }
+/// Write typed values to a local CBOR file.
 pub fn cbor_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
@@ -94,11 +97,13 @@ impl CborFragmentStore {
         Ok(self)
     }
 
+    /// Return accepted CBOR fragments after runner finalization.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
 }
 
+/// Open a local CBOR fragment store for one job and graph.
 pub fn cbor_fragment_store(
     staging: impl AsRef<Path>,
     job: &str,
@@ -118,6 +123,7 @@ fn write_cbor_record<T: Serialize>(
         .map_err(|error| ironbeam_io::io("cbor-fragment", error))
 }
 
+/// Stage CBOR values as replay-safe bundle fragments.
 pub fn cbor_fragment_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
@@ -162,6 +168,7 @@ pub fn publish_cbor_fragments<T: DeserializeOwned>(
 }
 
 #[cfg(feature = "parallel-io")]
+/// Write CBOR values through parallel local output shards.
 pub fn cbor_parallel_sink<T: Element + Serialize + Sync>(
     input: &PCollection<T>,
     key: &str,

@@ -35,6 +35,7 @@ fn write_xml<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
         .write_all(contents.as_bytes())
         .map_err(|e| ironbeam_io::io("xml", e))
 }
+/// Read a bounded XML file into typed values.
 pub fn xml_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -53,6 +54,7 @@ pub fn xml_streaming_source<T: Element + DeserializeOwned>(
     let _ = records_per_shard;
     xml_source(pipeline, key, path)
 }
+/// Write typed values to a local XML file.
 pub fn xml_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
@@ -82,11 +84,13 @@ impl XmlFragmentStore {
         Ok(self)
     }
 
+    /// Return accepted XML fragments after runner finalization.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
 }
 
+/// Open a local XML fragment store for one job and graph.
 pub fn xml_fragment_store(
     staging: impl AsRef<Path>,
     job: &str,
@@ -188,6 +192,7 @@ pub fn publish_xml_fragments<T: DeserializeOwned>(
 }
 
 #[cfg(feature = "parallel-io")]
+/// Write XML values through parallel local output shards.
 pub fn xml_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
     input: &PCollection<T>,
     key: &str,

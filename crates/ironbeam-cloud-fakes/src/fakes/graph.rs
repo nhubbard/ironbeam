@@ -14,6 +14,7 @@ pub struct FakeGraphIO {
 
 impl FakeGraphIO {
     #[must_use]
+    /// Create an empty in-memory graph service for tests.
     pub fn new() -> Self {
         Self {
             nodes: Arc::new(Mutex::new(HashMap::new())),
