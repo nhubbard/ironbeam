@@ -3,7 +3,8 @@ use std::io::{Read, Seek, Write};
 use std::path::PathBuf;
 
 use ironbeam_core::{
-    Error, OffsetRange, Pipeline, Replay, Sink, SinkMode, SinkSpec, TypedSink, Version,
+    Error, OffsetRange, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, TestStreamEvent,
+    TypedSink, Version,
 };
 
 struct OffsetProofSink {
@@ -57,9 +58,31 @@ impl TypedSink<i32> for OffsetProofSink {
 
 /// A bounded offset callback with two input elements and explicit event times.
 pub fn bounded_offset_sdf_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32>, Error> {
+    offset_sdf_fixture(pipeline.from_vec("offset-input", vec![1_i32, 10])?, path)
+}
+
+/// The same finite offset work from a scripted unbounded input.
+pub fn streaming_offset_sdf_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<i32>, Error> {
+    offset_sdf_fixture(
+        pipeline.test_stream_source(
+            "offset-events",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 0)]),
+                TestStreamEvent::AdvanceWatermark(1_000_000),
+                TestStreamEvent::Elements(vec![(10_i32, 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+            ],
+        )?,
+        path,
+    )
+}
+
+fn offset_sdf_fixture(input: PCollection<i32>, path: PathBuf) -> Result<Sink<i32>, Error> {
     let sink_path = path.clone();
-    pipeline
-        .from_vec("offset-input", vec![1_i32, 10])?
+    input
         .splittable_flat_map_named(
             "offset-expand",
             "prism-proof/offset-expand",

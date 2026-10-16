@@ -69,7 +69,6 @@ impl V5BundleExecutor {
             let node = self.graph.node(&node_ref.key)
                 .ok_or_else(|| anyhow!("offset SDF node {} is absent", node_ref.key))?;
             if !matches!(node.operation, Operation::SplittableParDo)
-                || node.boundedness != Boundedness::Bounded
                 || !self.registry.has_splittable(&node_ref.key)
                 || !self.registry.has_coder(&node_ref.key)
             {

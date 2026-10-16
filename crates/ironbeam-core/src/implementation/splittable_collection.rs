@@ -1,5 +1,5 @@
 impl<T: Element> PCollection<T> {
-    /// Apply a versioned offset-restricted callback to a bounded collection.
+    /// Apply a versioned offset-restricted callback to each input element.
     ///
     /// The callback must claim every position it processes. The output is
     /// discarded if it returns before completing the primary restriction.
@@ -14,13 +14,6 @@ impl<T: Element> PCollection<T> {
         process: impl Fn(&T, &mut OffsetProcessContext<U>) -> Result<(), Error> + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
         Self::validate_semantic_handler(key, semantic_id, version)?;
-        if self.parent()?.boundedness != Boundedness::Bounded {
-            return Err(Error::unsupported(
-                key,
-                "direct",
-                "unbounded-splittable-pardo",
-            ));
-        }
         if !T::supports_coder() || !U::supports_coder() {
             return Err(Error::graph(
                 key,

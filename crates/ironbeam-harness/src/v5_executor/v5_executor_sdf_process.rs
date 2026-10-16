@@ -39,8 +39,7 @@ impl V5BundleExecutor {
                     && self.registry.has_unbounded_source(source_key)
                     && self.registry.has_coder(source_key) => false,
             Operation::SplittableParDo
-                if node.boundedness == Boundedness::Bounded
-                    && self.registry.has_splittable(source_key)
+                if self.registry.has_splittable(source_key)
                     && self.registry.has_coder(source_key) => true,
             _ => bail!("v5 SDF process has no registered coded source or offset callback"),
         };
@@ -390,7 +389,11 @@ impl V5BundleExecutor {
                                 output_watermarks: estimator.current()?.map(|watermark| {
                                     HashMap::from([("out".into(), protobuf_timestamp(watermark))])
                                 }).unwrap_or_default(),
-                                is_bounded: is_bounded::Enum::Bounded as i32,
+                                is_bounded: if node.boundedness == Boundedness::Bounded {
+                                    is_bounded::Enum::Bounded as i32
+                                } else {
+                                    is_bounded::Enum::Unbounded as i32
+                                },
                             }),
                             requested_time_delay: None,
                         });

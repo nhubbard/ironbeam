@@ -14,7 +14,7 @@ use beam_proto::fn_execution_v1::{
     RemoteGrpcPort,
 };
 use beam_proto::pipeline_v1::ApiServiceDescriptor;
-use ironbeam_core::{Element, OffsetRange, Pipeline, Version};
+use ironbeam_core::{Element, OffsetRange, Pipeline, TestStreamEvent, Version};
 use ironbeam_graphx::v5::{collection_id, execution_identity, V5NodeRef};
 use ironbeam_harness::bundle::{BundlePlan, SdfStage, SinkWire, SourceWire, Step};
 use ironbeam_harness::coders::{
@@ -539,4 +539,105 @@ async fn runner_checkpoint_splits_active_user_restriction_without_duplicate_outp
         values,
         [(20, 0), (21, 1), (22, 2), (23, 3), (24, 4), (25, 5)]
     );
+}
+
+#[tokio::test]
+async fn unbounded_user_residual_keeps_its_beam_boundedness_and_values() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "input",
+            vec![
+                TestStreamEvent::Elements(vec![(10_i32, 0)]),
+                TestStreamEvent::AdvanceWatermark(1_000_000),
+            ],
+        )
+        .unwrap()
+        .splittable_flat_map_named(
+            "offsets",
+            "tests/unbounded-user-residual",
+            Version { major: 1, minor: 0 },
+            |_| OffsetRange::new(0, 4),
+            |value, context| {
+                let tracker = context.tracker();
+                let original = tracker.restriction()?;
+                if original.start == 0 {
+                    tracker.try_split(0.5)?;
+                }
+                let primary = tracker.restriction()?;
+                for offset in primary.start..primary.stop {
+                    assert!(context.try_claim(offset)?);
+                    context.emit(*value + offset as i32, offset * 1_000_000)?;
+                }
+                Ok(())
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    let node_ref = V5NodeRef {
+        key: "offsets".into(),
+        identity: execution_identity(&graph, &registry, "test-build").unwrap(),
+        co_group_input: None,
+    };
+    let steps = || {
+        vec![
+            Step::Source {
+                transform_id: "input".into(),
+                port: RemoteGrpcPort::default(),
+                output_pc: "sized-pc".into(),
+                wire: SourceWire::Opaque,
+            },
+            Step::Sdf {
+                stage: SdfStage::ProcessSizedElements,
+                transform_id: "process".into(),
+                node_ref: node_ref.clone(),
+                input_pc: "sized-pc".into(),
+                output_pc: collection_id("offsets"),
+            },
+            Step::Sink {
+                transform_id: "output".into(),
+                port: RemoteGrpcPort::default(),
+                input_pc: collection_id("offsets"),
+                wire: SinkWire::Opaque,
+            },
+        ]
+    };
+    let body = ironbeam_harness::sdf_offset_wire::encode_sized(
+        &ironbeam_harness::sdf_offset_wire::SizedOffsetPair {
+            pair: ironbeam_harness::sdf_offset_wire::OffsetPair {
+                element: 10_i32.encode().unwrap(),
+                restriction: OffsetRange::new(0, 4).unwrap(),
+            },
+            size: 4.0,
+        },
+    )
+    .unwrap();
+    let mut initial = Vec::new();
+    encode_windowed_value(0, &body, &mut initial).unwrap();
+    let (response, first_chunks) = run_bundle(&pipeline, initial, steps()).await;
+    assert_eq!(response.residual_roots.len(), 1);
+    let residual = response.residual_roots[0].application.as_ref().unwrap();
+    assert_eq!(
+        residual.is_bounded,
+        beam_proto::pipeline_v1::is_bounded::Enum::Unbounded as i32
+    );
+    let (windowed, _) = decode_windowed_value(&residual.element).unwrap();
+    assert_eq!(
+        decode_sized(windowed.element).unwrap().pair.restriction,
+        OffsetRange::new(1, 4).unwrap()
+    );
+    let (_, second_chunks) = run_bundle(&pipeline, residual.element.clone(), steps()).await;
+    let mut values = Vec::new();
+    for chunk in first_chunks.into_iter().chain(second_chunks) {
+        if chunk.transform_id != "output" || chunk.data.is_empty() {
+            continue;
+        }
+        let (windowed, _) = decode_windowed_value(&chunk.data).unwrap();
+        let (body, _) = decode_length_prefix(windowed.element).unwrap();
+        values.push(i32::decode(body).unwrap());
+    }
+    values.sort_unstable();
+    assert_eq!(values, [10, 11, 12, 13]);
 }
