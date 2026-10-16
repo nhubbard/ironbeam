@@ -1390,6 +1390,94 @@ async fn fn_data_maps_interval_side_windows_to_global_identity_fixed_and_sliding
     }
 }
 
+#[tokio::test]
+async fn fn_data_merges_session_windows_with_runner_owned_nonce_and_metadata() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let mut body = Vec::new();
+    encode_length_prefix(b"merge-nonce", &mut body).unwrap();
+    body.extend_from_slice(&3_i32.to_be_bytes());
+    for (start, end) in [(9, 14), (0, 5), (4, 9)] {
+        encode_interval_window(start, end, &mut body).unwrap();
+    }
+    let mut record = Vec::new();
+    encode_interval_windowed_value(150, 100, 200, &body, &mut record).unwrap();
+    let server = tokio::spawn(
+        Server::builder()
+            .add_service(BeamFnDataServer::new(GroupedRunnerData {
+                record,
+                received: Arc::clone(&received),
+            }))
+            .serve(addr),
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let port = RemoteGrpcPort {
+        api_service_descriptor: Some(ApiServiceDescriptor {
+            url: format!("http://{addr}"),
+            ..Default::default()
+        }),
+        coder_id: "opaque".into(),
+    };
+    let plan = BundlePlan {
+        pbd_id: "merge-windows".into(),
+        state_endpoint: None,
+        side_inputs: HashMap::new(),
+        steps: vec![
+            Step::Source {
+                transform_id: "input".into(),
+                port: port.clone(),
+                output_pc: "before".into(),
+                wire: SourceWire::Opaque,
+            },
+            Step::MergeWindows {
+                transform_id: "merge".into(),
+                input_pc: "before".into(),
+                output_pc: "after".into(),
+                outer_window: WindowCoder::Interval,
+            },
+            Step::Sink {
+                transform_id: "output".into(),
+                port,
+                input_pc: "after".into(),
+                wire: SinkWire::Opaque,
+            },
+        ],
+    };
+    let runner = V5BundleExecutor::new(&Pipeline::default(), "test-build").unwrap();
+    tokio::time::timeout(Duration::from_secs(5), runner.run("bundle", &plan))
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let chunks = received.lock().await.clone();
+    server.abort();
+    let output = chunks
+        .iter()
+        .find(|chunk| chunk.transform_id == "output" && !chunk.data.is_empty())
+        .expect("merged window output");
+    let (mapped, header_len) = try_decode_windowed_value(&output.data, true)
+        .unwrap()
+        .expect("complete interval header");
+    let mut expected = Vec::new();
+    encode_length_prefix(b"merge-nonce", &mut expected).unwrap();
+    expected.extend_from_slice(&1_i32.to_be_bytes());
+    encode_interval_window(9, 14, &mut expected).unwrap();
+    expected.extend_from_slice(&1_i32.to_be_bytes());
+    encode_interval_window(0, 9, &mut expected).unwrap();
+    expected.extend_from_slice(&2_i32.to_be_bytes());
+    encode_interval_window(0, 5, &mut expected).unwrap();
+    encode_interval_window(4, 9, &mut expected).unwrap();
+    assert_eq!(mapped.element, expected);
+    assert_eq!(output.data.len(), header_len + expected.len());
+    assert_eq!(mapped.interval_millis, Some((100, 200)));
+    assert_eq!(mapped.timestamp_millis, 150);
+    assert!(chunks
+        .iter()
+        .any(|chunk| chunk.transform_id == "output" && chunk.is_last));
+}
+
 fn plan(pipeline: &Pipeline, endpoint: SocketAddr) -> BundlePlan {
     let (graph, registry) = pipeline.snapshot().unwrap();
     let identity = execution_identity(&graph, &registry, "test-build").unwrap();

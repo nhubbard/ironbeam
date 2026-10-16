@@ -120,6 +120,70 @@ fn map_windows_pbd(mapping_urn: &str, output_window_urn: &str) -> ProcessBundleD
     pbd
 }
 
+fn merge_windows_pbd() -> ProcessBundleDescriptor {
+    let mut pbd = map_windows_pbd(urns::WINDOW_MAPPING_IDENTITY, urns::CODER_INTERVAL_WINDOW);
+    for (id, urn, children) in [
+        ("input-iter", urns::CODER_ITERABLE, vec!["interval"]),
+        ("unmerged-iter", urns::CODER_ITERABLE, vec!["interval"]),
+        ("consumed-iter", urns::CODER_ITERABLE, vec!["interval"]),
+        (
+            "merged-kv",
+            urns::CODER_KV,
+            vec!["interval", "consumed-iter"],
+        ),
+        ("merged-iter", urns::CODER_ITERABLE, vec!["merged-kv"]),
+        (
+            "output-value",
+            urns::CODER_KV,
+            vec!["unmerged-iter", "merged-iter"],
+        ),
+    ] {
+        pbd.coders
+            .insert(id.into(), composite_coder(urn, &children));
+    }
+    pbd.coders.get_mut("input-kv").unwrap().component_coder_ids[1] = "input-iter".into();
+    pbd.coders.get_mut("output-kv").unwrap().component_coder_ids[1] = "output-value".into();
+    let merge = pbd.transforms.get_mut("mapping").unwrap();
+    merge.spec = Some(FunctionSpec {
+        urn: urns::TRANSFORM_MERGE_WINDOWS.into(),
+        payload: ironbeam_graphx::windowing::session_window_fn(5_000_000)
+            .unwrap()
+            .encode_to_vec(),
+    });
+    pbd
+}
+
+#[test]
+fn plans_runner_requested_session_merge_with_exact_nested_coders() {
+    let mut pbd = merge_windows_pbd();
+    assert!(matches!(
+        &plan(&pbd).unwrap().steps[1],
+        Step::MergeWindows {
+            outer_window: WindowCoder::Interval,
+            ..
+        }
+    ));
+
+    pbd.coders
+        .get_mut("output-value")
+        .unwrap()
+        .component_coder_ids[0] = "interval".into();
+    assert!(matches!(plan(&pbd), Err(PlanError::BadPayload { .. })));
+
+    let mut wrong_fn = merge_windows_pbd();
+    wrong_fn
+        .transforms
+        .get_mut("mapping")
+        .unwrap()
+        .spec
+        .as_mut()
+        .unwrap()
+        .payload = ironbeam_graphx::windowing::fixed_window_fn(5_000_000, 0)
+        .unwrap()
+        .encode_to_vec();
+    assert!(matches!(plan(&wrong_fn), Err(PlanError::BadPayload { .. })));
+}
+
 #[test]
 fn plans_global_and_identity_map_windows_with_exact_kv_coders() {
     let global = map_windows_pbd(urns::WINDOW_MAPPING_GLOBAL, urns::CODER_GLOBAL_WINDOW);

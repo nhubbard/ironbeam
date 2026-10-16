@@ -20,6 +20,7 @@ pub const TRANSFORM_GROUP_BY_KEY: &str = "beam:transform:group_by_key:v1";
 pub const TRANSFORM_FLATTEN: &str = "beam:transform:flatten:v1";
 pub const TRANSFORM_WINDOW_INTO: &str = "beam:transform:window_into:v1";
 pub const TRANSFORM_MAP_WINDOWS: &str = "beam:transform:map_windows:v1";
+pub const TRANSFORM_MERGE_WINDOWS: &str = "beam:transform:merge_windows:v1";
 pub const WINDOW_MAPPING_GLOBAL: &str = "ironbeam:windowmapping:global:v5";
 pub const WINDOW_MAPPING_IDENTITY: &str = "ironbeam:windowmapping:identity:v5";
 pub const WINDOW_MAPPING_FIXED: &str = "ironbeam:windowmapping:fixed:v5";

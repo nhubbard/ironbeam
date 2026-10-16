@@ -139,7 +139,8 @@ proof checks watermark closure and a late row; Direct also restores its
 open-window checkpoint.
 
 Session windows start at each event's timestamp and extend by a configured
-gap. Keyed sessions merge when their intervals overlap or touch. The arrival
+gap. On Direct and the pinned Prism runner, keyed sessions merge when their
+intervals overlap or touch. The arrival
 order does not determine the final interval: a later bridge event can join two
 existing groups. `session_windows_named` assigns session intervals, while
 `group_by_session_named` also groups the keyed values. Bounded and
@@ -160,6 +161,14 @@ merged bounds, and a row dropped after closure for a join and co-group. More
 than two unbounded inputs and
 nonzero allowed lateness remain outside this tested contract. The [windowing guide](../guides/windowing.md#keyed-sessions)
 contains a working example.
+
+The portable worker also handles a runner-issued `MergeWindows` bundle for
+session windows. Its Fn Data contract follows the Beam Java merge handler:
+intervals must overlap, so a window ending where another begins is reported
+separately. The pinned Prism runner merges that touching pair in tested
+pipelines. Runner-issued merging has an isolated wire test; it has not yet
+been observed in a live Prism job. Applications requiring identical session
+bounds at touching endpoints should treat this distinction as unresolved.
 
 An intermediate-watermark case remains unresolved. With an `a` event at zero
 on the main input, an `a` event at four milliseconds on the side input, and a

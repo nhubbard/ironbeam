@@ -336,7 +336,8 @@ open-window rows with each source cursor.
 ## Keyed sessions
 
 A session starts with an event and extends for a chosen inactivity gap. Two
-sessions for the same key merge when their intervals overlap or touch. A later
+sessions for the same key merge when their intervals overlap or touch on Direct
+and the pinned local Prism runner. A later
 event can bridge sessions that were separate when they first arrived. Sessions
 for different keys remain separate.
 
@@ -379,6 +380,12 @@ on a bridge formed by the other input and on the merged interval. Direct can
 restore the open rows and both source cursors from a checkpoint. Sessions
 across more than two unbounded inputs have not been tested.
 Portable session gaps must be positive whole milliseconds.
+
+The worker's runner-issued `MergeWindows` function uses the Beam Java rule of
+strict interval overlap. It reports endpoint-touching windows separately.
+That function has a wire-level test, but no live Prism job has been observed
+requesting it. For portable jobs that depend on a touching boundary, verify
+the result on the chosen runner.
 
 `group_by_session_named` assigns sessions and then groups the keyed elements.
 Use `session_windows_named` to assign intervals separately when another

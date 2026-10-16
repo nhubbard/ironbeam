@@ -7,6 +7,7 @@ include!("v5_executor/group_boundaries.rs");
 include!("v5_executor/fold_boundaries.rs");
 include!("v5_executor/v5_executor_setup.rs");
 include!("v5_executor/v5_executor_map_windows.rs");
+include!("v5_executor/v5_executor_merge_windows.rs");
 include!("v5_executor/v5_executor_sdf_process.rs");
 include!("v5_executor/v5_executor_validate.rs");
 include!("v5_executor/v5_executor_apply.rs");

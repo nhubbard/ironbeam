@@ -189,7 +189,7 @@ fn map_windows_coder(
     Ok((outer, value, key_id))
 }
 
-fn window_coder(coder: &Coder) -> Option<WindowCoder> {
+pub(super) fn window_coder(coder: &Coder) -> Option<WindowCoder> {
     if !coder.component_coder_ids.is_empty() {
         return None;
     }

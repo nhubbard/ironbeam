@@ -316,6 +316,17 @@ fn describe_plan(steps: &[Step]) -> String {
                     "MapWindows {mapping:?} {transform_id}: {input_pc} -> {output_pc}"
                 );
             }
+            Step::MergeWindows {
+                transform_id,
+                input_pc,
+                output_pc,
+                ..
+            } => {
+                let _ = writeln!(
+                    &mut out,
+                    "MergeWindows {transform_id}: {input_pc} -> {output_pc}"
+                );
+            }
             Step::Sink {
                 transform_id,
                 input_pc,

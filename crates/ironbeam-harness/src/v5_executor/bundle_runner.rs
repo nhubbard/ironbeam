@@ -31,6 +31,9 @@ impl BundleRunner for V5BundleExecutor {
         if plan.steps.iter().any(|step| matches!(step, Step::MapWindows { .. })) {
             return self.run_map_windows(instruction_id, plan).await;
         }
+        if plan.steps.iter().any(|step| matches!(step, Step::MergeWindows { .. })) {
+            return self.run_merge_windows(instruction_id, plan).await;
+        }
         if plan
             .steps
             .iter()

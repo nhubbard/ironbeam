@@ -30,6 +30,9 @@ use prost::Message;
 #[path = "bundle_map_windows.rs"]
 mod map_windows;
 use map_windows::{coders_equivalent, plan_map_windows};
+#[path = "bundle_merge_windows.rs"]
+mod merge_windows;
+use merge_windows::plan_merge_windows;
 
 pub const URN_RUNNER_SOURCE: &str = "beam:runner:source:v1";
 pub const URN_RUNNER_SINK: &str = "beam:runner:sink:v1";
@@ -281,6 +284,12 @@ pub enum Step {
         outer_window: WindowCoder,
         input_window: WindowCoder,
     },
+    MergeWindows {
+        transform_id: String,
+        input_pc: String,
+        output_pc: String,
+        outer_window: WindowCoder,
+    },
     /// Encode elements from `input_pc` with `coder_id`, write to `port`.
     Sink {
         transform_id: String,
@@ -359,6 +368,7 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
             }
             u if u == urns::TRANSFORM_WINDOW_INTO => TransformKind::WindowInto,
             u if u == urns::TRANSFORM_MAP_WINDOWS => TransformKind::MapWindows,
+            u if u == urns::TRANSFORM_MERGE_WINDOWS => TransformKind::MergeWindows,
             // Dataflow may wrap impulse/gbk inside a PBD boundary; skip them.
             u if u == urns::TRANSFORM_IMPULSE || u == urns::TRANSFORM_GROUP_BY_KEY => {
                 TransformKind::Skip
@@ -545,18 +555,26 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
             TransformKind::MapWindows => {
                 steps.push(plan_map_windows(pbd, id, t, &pc_producers)?);
             }
+            TransformKind::MergeWindows => {
+                steps.push(plan_merge_windows(pbd, id, t, &pc_producers)?);
+            }
         }
     }
 
     if steps
         .iter()
-        .any(|step| matches!(step, Step::MapWindows { .. }))
+        .any(|step| matches!(step, Step::MapWindows { .. } | Step::MergeWindows { .. }))
     {
         let [Step::Source {
             port: source_port,
             output_pc: source_pc,
             ..
         }, Step::MapWindows {
+            input_pc,
+            output_pc,
+            ..
+        }
+        | Step::MergeWindows {
             input_pc,
             output_pc,
             ..
@@ -601,6 +619,7 @@ enum TransformKind {
     Sdf(SdfStage),
     WindowInto,
     MapWindows,
+    MergeWindows,
     /// Runner-native primitives that may appear in the PBD envelope but
     /// aren't the SDK's responsibility to execute.
     Skip,

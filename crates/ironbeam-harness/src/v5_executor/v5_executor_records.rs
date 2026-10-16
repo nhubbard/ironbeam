@@ -18,8 +18,8 @@ impl V5BundleExecutor {
         let mut collections: HashMap<&str, Vec<WireValue>> = HashMap::new();
         for step in &plan.steps {
             match step {
-                Step::MapWindows { .. } => {
-                    bail!("MapWindows cannot run in a graph ParDo bundle")
+                Step::MapWindows { .. } | Step::MergeWindows { .. } => {
+                    bail!("window mapping or merging cannot run in a graph ParDo bundle")
                 }
                 Step::Sdf {
                     stage: SdfStage::ProcessSizedElements,
