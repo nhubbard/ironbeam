@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use beam_proto::pipeline_v1::{
-    is_bounded, output_time, test_stream_payload, Coder, Components, DisplayData, FunctionSpec, PCollection,
+    is_bounded, on_time_behavior, output_time, test_stream_payload, Coder, Components, DisplayData, FunctionSpec, PCollection,
     PTransform, ParDoPayload, Pipeline as BeamPipeline, Schema, SideInput, TestStreamPayload,
     WindowIntoPayload,
 };
 use ironbeam_core::{
     Boundedness, Capabilities, ElementDescriptor, EncodedTestStreamEvent, ExecutionIdentity, Graph,
-    Node, Operation, Pipeline, Registry, Replay, Time, Window, WindowOutputTime, WindowTrigger, CODER_VERSION,
+    Node, Operation, Pipeline, Registry, Replay, Time, Window, WindowOnTimeBehavior, WindowOutputTime, WindowTrigger, CODER_VERSION,
 };
 use prost::Message;
 use serde::{Deserialize, Serialize};
@@ -184,10 +184,15 @@ fn windowing_id(time: &Time) -> String {
         WindowOutputTime::EndOfWindow => id("v5_ws", &format!("{triggered}:end-of-window")),
         WindowOutputTime::LatestInPane => id("v5_ws", &format!("{triggered}:latest-in-pane")),
     };
-    if time.allowed_lateness_ns == 0 {
-        output_timed
+    let on_time = if time.on_time_behavior == WindowOnTimeBehavior::FireAlways {
+        id("v5_ws", &format!("{output_timed}:fire-always"))
     } else {
-        id("v5_ws", &format!("{output_timed}:lateness:{}", time.allowed_lateness_ns))
+        output_timed
+    };
+    if time.allowed_lateness_ns == 0 {
+        on_time
+    } else {
+        id("v5_ws", &format!("{on_time}:lateness:{}", time.allowed_lateness_ns))
     }
 }
 

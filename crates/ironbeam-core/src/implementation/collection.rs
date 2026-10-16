@@ -4,6 +4,7 @@ type VectorCombineEntry<T> = (Vec<T>, i64, i64, Option<WindowInterval>);
 struct TimePolicyOverride {
     trigger: Option<WindowTrigger>,
     output_time: Option<WindowOutputTime>,
+    on_time_behavior: Option<WindowOnTimeBehavior>,
     allowed_lateness_ns: Option<i64>,
 }
 
@@ -100,6 +101,7 @@ impl<T: Element> PCollection<T> {
                 window: window.unwrap_or(parent.time.window),
                 trigger: policy.trigger.unwrap_or(parent.time.trigger),
                 output_time: policy.output_time.unwrap_or(parent.time.output_time),
+                on_time_behavior: policy.on_time_behavior.unwrap_or(parent.time.on_time_behavior),
                 allowed_lateness_ns: policy
                     .allowed_lateness_ns
                     .unwrap_or(parent.time.allowed_lateness_ns),
@@ -647,6 +649,7 @@ impl<T: Element> PCollection<T> {
                     WindowTrigger::EarlyProcessingTime { delay_ns }
                 }),
                 output_time: None,
+                on_time_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -733,6 +736,7 @@ impl<T: Element> PCollection<T> {
                     WindowTrigger::EarlyCountOrProcessingTimeAndLateCount { count, delay_ns, late_count }
                 }),
                 output_time: None,
+                on_time_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -818,6 +822,7 @@ impl<T: Element> PCollection<T> {
                     (CompositeTriggerMode::Each, true) => WindowTrigger::EarlyCountThenProcessingTimeAccumulating { count, delay_ns },
                 }),
                 output_time: None,
+                on_time_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -849,6 +854,7 @@ impl<T: Element> PCollection<T> {
                     WindowTrigger::EarlyElementCount { count }
                 }),
                 output_time: None,
+                on_time_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -879,6 +885,33 @@ impl<T: Element> PCollection<T> {
             TimePolicyOverride {
                 trigger: None,
                 output_time: Some(policy),
+                on_time_behavior: None,
+                allowed_lateness_ns: None,
+            },
+        )
+    }
+
+    /// Set whether a keyed window fires an on-time pane when early firings
+    /// have consumed all its values. The default is `FireIfNonempty`.
+    ///
+    /// Apply this before `group_by_key_named`. `FireAlways` can emit an empty
+    /// value vector for a key and window that fired early.
+    pub fn on_time_behavior_named(
+        &self,
+        key: &str,
+        behavior: WindowOnTimeBehavior,
+    ) -> Result<Self, Error> {
+        let window = self.parent()?.time.window;
+        self.next_with_time_policy(
+            key,
+            Operation::Map,
+            Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
+            Some(window),
+            None,
+            TimePolicyOverride {
+                trigger: None,
+                output_time: None,
+                on_time_behavior: Some(behavior),
                 allowed_lateness_ns: None,
             },
         )
@@ -906,6 +939,7 @@ impl<T: Element> PCollection<T> {
             TimePolicyOverride {
                 trigger: None,
                 output_time: None,
+                on_time_behavior: None,
                 allowed_lateness_ns: Some(duration_ns),
             },
         )
@@ -946,6 +980,7 @@ impl<T: Element> PCollection<T> {
                     WindowTrigger::LateElementCount { count }
                 }),
                 output_time: None,
+                on_time_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -1004,6 +1039,7 @@ impl<T: Element> PCollection<T> {
                     WindowTrigger::EarlyAndLateElementCount { early_count, late_count }
                 }),
                 output_time: None,
+                on_time_behavior: None,
                 allowed_lateness_ns: None,
             },
         )

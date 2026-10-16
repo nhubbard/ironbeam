@@ -1002,12 +1002,14 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let fold_key = key_owned.clone();
         let trigger = parent.time.trigger;
         let output_time = parent.time.output_time;
+        let on_time_behavior = parent.time.on_time_behavior;
         let allowed_lateness_ns = parent.time.allowed_lateness_ns;
         let fold_factory: FoldFactory = Arc::new(move || {
             Box::new(GroupByKeyFoldState::<K, V> {
                 key: fold_key.clone(),
                 trigger,
                 output_time,
+                on_time_behavior,
                 allowed_lateness_ns,
                 last_watermark_ns: None,
                 global_indices: HashMap::new(),
@@ -1031,6 +1033,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 key: key_owned.clone(),
                 trigger,
                 output_time,
+                on_time_behavior,
                 allowed_lateness_ns,
                 last_watermark_ns: None,
                 global_indices: HashMap::new(),

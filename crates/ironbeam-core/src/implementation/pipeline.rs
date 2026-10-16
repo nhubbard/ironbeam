@@ -607,6 +607,7 @@ impl Pipeline {
                     window: Window::Global,
                     trigger: WindowTrigger::Default,
                     output_time: WindowOutputTime::EarliestInPane,
+                    on_time_behavior: WindowOnTimeBehavior::FireIfNonempty,
                     allowed_lateness_ns: 0,
                 },
                 local_id: 0,

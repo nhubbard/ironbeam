@@ -237,6 +237,7 @@ struct GroupByKeyFoldState<K, V> {
     key: String,
     trigger: WindowTrigger,
     output_time: WindowOutputTime,
+    on_time_behavior: WindowOnTimeBehavior,
     allowed_lateness_ns: i64,
     last_watermark_ns: Option<i64>,
     global_indices: HashMap<K, usize>,
@@ -625,7 +626,11 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 continue;
             }
             let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
-            let latest = self.latest_timestamps.remove(&(key.clone(), interval));
+            let latest = if self.on_time_behavior == WindowOnTimeBehavior::FireAlways {
+                self.latest_timestamps.get(&(key.clone(), interval)).copied()
+            } else {
+                self.latest_timestamps.remove(&(key.clone(), interval))
+            };
             self.processing_deadlines.remove(&(key.clone(), interval));
             self.processing_ready.remove(&(key.clone(), interval));
             let next_index = self.fired_panes.entry((key.clone(), interval)).or_insert(0);
@@ -634,6 +639,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 .checked_add(1)
                 .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
             released = released.saturating_add(values.len());
+            if self.on_time_behavior == WindowOnTimeBehavior::FireAlways {
+                remaining.push((key.clone(), Vec::new(), timestamp_ns, window.clone(), assigned_window));
+            }
             fired.push(Envelope {
                 pane: PaneInfo {
                     is_first: index == 0,
@@ -749,13 +757,20 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 continue;
             }
             self.processing_deadlines.remove(&scope);
-            let latest = self.latest_timestamps.remove(&scope);
+            let latest = if self.on_time_behavior == WindowOnTimeBehavior::FireAlways {
+                self.latest_timestamps.get(&scope).copied()
+            } else {
+                self.latest_timestamps.remove(&scope)
+            };
             let next_index = self.fired_panes.entry(scope).or_insert(0);
             let index = *next_index;
             *next_index = next_index
                 .checked_add(1)
                 .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
             released = released.saturating_add(values.len());
+            if self.on_time_behavior == WindowOnTimeBehavior::FireAlways {
+                remaining.push((key.clone(), Vec::new(), timestamp_ns, window.clone(), assigned_window));
+            }
             fired.push(Envelope {
                 pane: PaneInfo {
                     is_first: index == 0,
@@ -1103,6 +1118,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             key: self.key.clone(),
             trigger: self.trigger,
             output_time: self.output_time,
+            on_time_behavior: self.on_time_behavior,
             allowed_lateness_ns: self.allowed_lateness_ns,
             last_watermark_ns: checkpoint.last_watermark_ns,
             global_indices: HashMap::new(),
@@ -1184,7 +1200,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         for row in checkpoint.groups {
             let key = K::decode(&row.key)?;
             let values = Vec::<V>::decode(&row.values)?;
-            if values.is_empty() {
+            if values.is_empty()
+                && (self.on_time_behavior != WindowOnTimeBehavior::FireAlways
+                    || !restored.fired_panes.contains_key(&(key.clone(), row.assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE))))
+            {
                 return Err(Error::recovery(&self.key, "empty group in fold checkpoint"));
             }
             if let Some(deadline) = row.processing_deadline_ns {

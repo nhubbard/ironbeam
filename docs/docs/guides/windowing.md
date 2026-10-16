@@ -52,6 +52,33 @@ fn main() -> Result<(), ironbeam::Error> {
 The same pane is available to a custom sink through `ElementMetadata.pane`.
 Source elements have `Unknown` timing before a window fires.
 
+### On-time panes after early firing
+
+`on_time_behavior_named` controls whether keyed grouping emits an on-time
+pane after an early firing consumed every value in that key and window.
+`WindowOnTimeBehavior::FireIfNonempty` is the default. With
+`WindowOnTimeBehavior::FireAlways`, a discarding group may emit an empty
+`Vec` on time. Set the policy before `group_by_key_named`:
+
+```rust
+use ironbeam::{Pipeline, WindowOnTimeBehavior};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let _grouped = pipeline
+        .from_vec("events", vec![("a".to_owned(), 2_i32)])?
+        .fixed_windows("windows", 10_000_000)?
+        .early_count_trigger_named("early", 1)?
+        .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)?
+        .group_by_key_named("groups")?;
+    Ok(())
+}
+```
+
+This policy is encoded in the Beam windowing strategy. Direct preserves the
+empty on-time pane through a fold checkpoint. The tested local Prism version
+has not yet been checked against this explicit-policy fixture.
+
 ### Early count firings on Prism
 
 `early_count_trigger_named` configures repeated early firings for global,

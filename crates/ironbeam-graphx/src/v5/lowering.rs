@@ -100,6 +100,10 @@ fn lower(
             WindowOutputTime::EndOfWindow => output_time::Enum::EndOfWindow as i32,
             WindowOutputTime::LatestInPane => output_time::Enum::LatestInPane as i32,
         };
+        strategy.on_time_behavior = match node.time.on_time_behavior {
+            WindowOnTimeBehavior::FireIfNonempty => on_time_behavior::Enum::FireIfNonempty as i32,
+            WindowOnTimeBehavior::FireAlways => on_time_behavior::Enum::FireAlways as i32,
+        };
         strategy.allowed_lateness = node.time.allowed_lateness_ns / 1_000_000;
         windowing_strategies.insert(windowing_id(&node.time), strategy);
     }

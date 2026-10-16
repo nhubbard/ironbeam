@@ -175,6 +175,22 @@ impl WindowOutputTime {
     }
 }
 
+/// Whether a window fires an on-time pane after early panes consumed its values.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum WindowOnTimeBehavior {
+    #[default]
+    FireIfNonempty,
+    FireAlways,
+}
+
+impl WindowOnTimeBehavior {
+    /// Return whether this is Ironbeam's default on-time policy.
+    #[must_use]
+    pub const fn is_default(&self) -> bool {
+        matches!(self, Self::FireIfNonempty)
+    }
+}
+
 /// Half-open event-time interval `[start_ns, end_ns)`.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct WindowInterval {
@@ -457,6 +473,8 @@ pub struct Time {
     pub trigger: WindowTrigger,
     #[serde(default, skip_serializing_if = "WindowOutputTime::is_default")]
     pub output_time: WindowOutputTime,
+    #[serde(default, skip_serializing_if = "WindowOnTimeBehavior::is_default")]
+    pub on_time_behavior: WindowOnTimeBehavior,
     #[serde(default, skip_serializing_if = "is_zero_i64")]
     pub allowed_lateness_ns: i64,
 }
@@ -473,6 +491,7 @@ impl Default for Time {
             window: Window::Global,
             trigger: WindowTrigger::Default,
             output_time: WindowOutputTime::EarliestInPane,
+            on_time_behavior: WindowOnTimeBehavior::FireIfNonempty,
             allowed_lateness_ns: 0,
         }
     }
