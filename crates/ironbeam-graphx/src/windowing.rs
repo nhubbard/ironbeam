@@ -56,7 +56,10 @@ pub(crate) fn apply_trigger(strategy: &mut WindowingStrategy, policy: WindowTrig
                                 repeated_count_or_processing_time_trigger(count, delay_ns)
                             })
                         }
-                        (Some(count), None) => Some(repeated_count_trigger(count)),
+                        (Some(count), None) => Some(policy.final_count().map_or_else(
+                            || repeated_count_trigger(count),
+                            |final_count| count_or_finally_trigger(count, final_count),
+                        )),
                         (None, Some(delay_ns)) => Some(repeated_processing_time_trigger(delay_ns)),
                         (None, None) => None,
                     },
@@ -65,6 +68,30 @@ pub(crate) fn apply_trigger(strategy: &mut WindowingStrategy, policy: WindowTrig
             ))),
         });
     }
+}
+
+fn count_or_finally_trigger(count: u64, final_count: u64) -> Box<Trigger> {
+    let element_count = |threshold| Trigger {
+        trigger: Some(trigger::Trigger::ElementCount(trigger::ElementCount {
+            element_count: threshold as i32,
+        })),
+    };
+    let until_count = Trigger {
+        trigger: Some(trigger::Trigger::OrFinally(Box::new(trigger::OrFinally {
+            main: Some(repeated_trigger(element_count(count))),
+            finally: Some(Box::new(element_count(final_count))),
+        }))),
+    };
+    Box::new(Trigger {
+        trigger: Some(trigger::Trigger::AfterEach(trigger::AfterEach {
+            subtriggers: vec![
+                until_count,
+                Trigger {
+                    trigger: Some(trigger::Trigger::Never(trigger::Never {})),
+                },
+            ],
+        })),
+    })
 }
 
 fn repeated_count_then_processing_time_trigger(count: u64, delay_ns: i64) -> Box<Trigger> {

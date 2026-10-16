@@ -136,6 +136,12 @@ fn windowing_id(time: &Time) -> String {
         WindowTrigger::EarlyElementCountAccumulating { count } => {
             id("v5_ws", &format!("{base}:early-count:{count}:accumulating"))
         }
+        WindowTrigger::EarlyCountOrFinally { count, final_count } => {
+            id("v5_ws", &format!("{base}:early-count-or-finally:{count}:{final_count}"))
+        }
+        WindowTrigger::EarlyCountOrFinallyAccumulating { count, final_count } => {
+            id("v5_ws", &format!("{base}:early-count-or-finally:{count}:{final_count}:accumulating"))
+        }
         WindowTrigger::EarlyProcessingTime { delay_ns } => {
             id("v5_ws", &format!("{base}:early-processing-time:{delay_ns}"))
         }

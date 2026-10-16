@@ -596,6 +596,66 @@ impl<T: Element> PCollection<T> {
         self.count_trigger_named(key, count, true)
     }
 
+    /// Repeat count-based early panes until `final_count` total values have
+    /// arrived in a key and window. The final condition emits one last early
+    /// pane and stops early firing for that scope.
+    pub fn count_or_finally_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        final_count: u64,
+    ) -> Result<Self, Error> {
+        self.count_or_finally_trigger_with_mode(key, count, final_count, false)
+    }
+
+    /// Retain prior values in count-or-finally early panes.
+    pub fn accumulating_count_or_finally_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        final_count: u64,
+    ) -> Result<Self, Error> {
+        self.count_or_finally_trigger_with_mode(key, count, final_count, true)
+    }
+
+    fn count_or_finally_trigger_with_mode(
+        &self,
+        key: &str,
+        count: u64,
+        final_count: u64,
+        accumulating: bool,
+    ) -> Result<Self, Error> {
+        if count == 0 || count > i32::MAX as u64 || final_count == 0 || final_count > i32::MAX as u64 {
+            return Err(Error::graph(key, "count-or-finally thresholds must be positive 32-bit values"));
+        }
+        let window = self.parent()?.time.window;
+        let operation = match window {
+            Window::Fixed { .. } | Window::FixedOffset { .. } => Operation::FixedWindow,
+            Window::Sliding { .. } | Window::Global => Operation::Map,
+            Window::Session { .. } => {
+                return Err(Error::graph(key, "count-or-finally trigger requires global, fixed, or sliding windows"));
+            }
+        };
+        self.next_with_time_policy(
+            key,
+            operation,
+            Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
+            Some(window),
+            None,
+            TimePolicyOverride {
+                trigger: Some(if accumulating {
+                    WindowTrigger::EarlyCountOrFinallyAccumulating { count, final_count }
+                } else {
+                    WindowTrigger::EarlyCountOrFinally { count, final_count }
+                }),
+                output_time: None,
+                on_time_behavior: None,
+                closing_behavior: None,
+                allowed_lateness_ns: None,
+            },
+        )
+    }
+
     /// Fire repeated early panes after new input has waited the given
     /// processing-time duration. The duration is a positive whole millisecond.
     pub fn early_processing_time_trigger_named(

@@ -17,6 +17,85 @@ const IMAGE: &str = "example.test/ironbeam:v5";
 const BUILD: &str = "graphx-test-build";
 
 #[test]
+fn count_or_finally_lowers_to_beam_main_and_finally_counts() {
+    for accumulating in [false, true] {
+        let pipeline = Pipeline::default();
+        let values = pipeline
+            .test_stream_source(
+                "source",
+                vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)])],
+            )
+            .unwrap()
+            .fixed_windows("window", 10_000_000)
+            .unwrap();
+        let values = if accumulating {
+            values.accumulating_count_or_finally_trigger_named("trigger", 2, 7)
+        } else {
+            values.count_or_finally_trigger_named("trigger", 2, 7)
+        }
+        .unwrap();
+        values
+            .group_by_key_named("group")
+            .unwrap()
+            .output("result")
+            .unwrap();
+        let (graph, _) = pipeline.snapshot().unwrap();
+        let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+        validate_beam_contract(&graph, &translated).unwrap();
+        let components = translated.pipeline.components.as_ref().unwrap();
+        let pc = components
+            .pcollections
+            .values()
+            .find(|pc| pc.unique_name == "trigger")
+            .unwrap();
+        let strategy = &components.windowing_strategies[&pc.windowing_strategy_id];
+        assert_eq!(
+            strategy.accumulation_mode,
+            if accumulating {
+                accumulation_mode::Enum::Accumulating as i32
+            } else {
+                accumulation_mode::Enum::Discarding as i32
+            }
+        );
+        let Some(trigger::Trigger::AfterEndOfWindow(end)) = strategy
+            .trigger
+            .as_ref()
+            .and_then(|trigger| trigger.trigger.as_ref())
+        else {
+            panic!("expected end-of-window trigger");
+        };
+        let Some(trigger::Trigger::AfterEach(each)) = end
+            .early_firings
+            .as_ref()
+            .and_then(|trigger| trigger.trigger.as_ref())
+        else {
+            panic!("expected sequential early trigger");
+        };
+        assert!(matches!(
+            each.subtriggers[1].trigger,
+            Some(trigger::Trigger::Never(_))
+        ));
+        let Some(trigger::Trigger::OrFinally(or_finally)) = each.subtriggers[0].trigger.as_ref()
+        else {
+            panic!("expected count-or-finally trigger");
+        };
+        let Some(trigger::Trigger::Repeat(repeated)) =
+            or_finally.main.as_ref().and_then(|t| t.trigger.as_ref())
+        else {
+            panic!("expected repeated count trigger");
+        };
+        assert!(matches!(
+            repeated.subtrigger.as_ref().and_then(|t| t.trigger.as_ref()),
+            Some(trigger::Trigger::ElementCount(count)) if count.element_count == 2
+        ));
+        assert!(matches!(
+            or_finally.finally.as_ref().and_then(|t| t.trigger.as_ref()),
+            Some(trigger::Trigger::ElementCount(count)) if count.element_count == 7
+        ));
+    }
+}
+
+#[test]
 fn count_and_processing_time_lowers_to_repeated_beam_after_all() {
     let pipeline = Pipeline::default();
     pipeline

@@ -37,6 +37,64 @@ fn early_count_is_validated_and_changes_graph_identity() {
 }
 
 #[test]
+fn count_or_finally_validates_counts_and_records_distinct_policies() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("source", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap();
+    assert!(
+        values
+            .count_or_finally_trigger_named("zero-main", 0, 7)
+            .is_err()
+    );
+    assert!(
+        values
+            .count_or_finally_trigger_named("zero-final", 2, 0)
+            .is_err()
+    );
+    assert!(
+        values
+            .count_or_finally_trigger_named("large-main", i32::MAX as u64 + 1, 7)
+            .is_err()
+    );
+    assert!(
+        values
+            .count_or_finally_trigger_named("large-final", 2, i32::MAX as u64 + 1)
+            .is_err()
+    );
+    let discarding = values
+        .count_or_finally_trigger_named("discarding", 2, 7)
+        .unwrap();
+    let accumulating = values
+        .accumulating_count_or_finally_trigger_named("accumulating", 2, 7)
+        .unwrap();
+    let different_final = values
+        .count_or_finally_trigger_named("different-final", 2, 8)
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node(discarding.key()).unwrap().time.trigger,
+        WindowTrigger::EarlyCountOrFinally {
+            count: 2,
+            final_count: 7
+        }
+    );
+    assert_eq!(
+        graph.node(accumulating.key()).unwrap().time.trigger,
+        WindowTrigger::EarlyCountOrFinallyAccumulating {
+            count: 2,
+            final_count: 7
+        }
+    );
+    assert_ne!(
+        graph.node(discarding.key()).unwrap().time.trigger,
+        graph.node(different_final.key()).unwrap().time.trigger
+    );
+}
+
+#[test]
 fn count_or_processing_time_batch_policy_validates_and_identifies_duration() {
     let make = |delay_ns| {
         let pipeline = Pipeline::default();

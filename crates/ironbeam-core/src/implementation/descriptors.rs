@@ -31,6 +31,10 @@ pub enum WindowTrigger {
     EarlyElementCount { count: u64 },
     /// Repeated early firings that retain prior values in subsequent panes.
     EarlyElementCountAccumulating { count: u64 },
+    /// Repeat count panes until `final_count` total elements end early firing.
+    EarlyCountOrFinally { count: u64, final_count: u64 },
+    /// Count-or-finally panes that retain earlier values.
+    EarlyCountOrFinallyAccumulating { count: u64, final_count: u64 },
     /// Repeated early firings after a processing-time delay from new input.
     EarlyProcessingTime { delay_ns: i64 },
     /// Repeated processing-time firings that retain earlier values.
@@ -79,6 +83,8 @@ impl WindowTrigger {
             Self::Default | Self::LateElementCount { .. } | Self::LateElementCountAccumulating { .. }
             | Self::EarlyProcessingTime { .. } | Self::EarlyProcessingTimeAccumulating { .. } => None,
             Self::EarlyElementCount { count } | Self::EarlyElementCountAccumulating { count }
+            | Self::EarlyCountOrFinally { count, .. }
+            | Self::EarlyCountOrFinallyAccumulating { count, .. }
             | Self::EarlyCountOrProcessingTime { count, .. }
             | Self::EarlyCountOrProcessingTimeAccumulating { count, .. }
             | Self::EarlyCountOrProcessingTimeAndLateCount { count, .. }
@@ -93,6 +99,16 @@ impl WindowTrigger {
             }
             Self::EarlyAndLateElementCount { early_count, .. }
             | Self::EarlyAndLateElementCountAccumulating { early_count, .. } => Some(*early_count),
+        }
+    }
+
+    /// Return the cumulative count that stops early firings, if configured.
+    #[must_use]
+    pub const fn final_count(&self) -> Option<u64> {
+        match self {
+            Self::EarlyCountOrFinally { final_count, .. }
+            | Self::EarlyCountOrFinallyAccumulating { final_count, .. } => Some(*final_count),
+            _ => None,
         }
     }
 
@@ -159,6 +175,7 @@ impl WindowTrigger {
         matches!(
             self,
             Self::EarlyElementCountAccumulating { .. }
+                | Self::EarlyCountOrFinallyAccumulating { .. }
                 | Self::EarlyProcessingTimeAccumulating { .. }
                 | Self::EarlyCountOrProcessingTimeAccumulating { .. }
                 | Self::EarlyCountOrProcessingTimeAndLateCountAccumulating { .. }

@@ -248,6 +248,8 @@ struct GroupByKeyFoldState<K, V> {
     fired_panes: HashMap<(K, WindowInterval), i64>,
     nonspeculative_base: HashMap<(K, WindowInterval), i64>,
     fired_value_counts: HashMap<(K, WindowInterval), usize>,
+    early_seen: HashMap<(K, WindowInterval), usize>,
+    early_finished: HashSet<(K, WindowInterval)>,
     processing_deadlines: HashMap<(K, WindowInterval), i64>,
     processing_ready: HashSet<(K, WindowInterval)>,
     latest_timestamps: HashMap<(K, WindowInterval), i64>,
@@ -291,9 +293,19 @@ struct GroupFoldCheckpoint {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     fired_panes: Vec<GroupFoldCheckpointPane>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    early_cursors: Vec<GroupFoldCheckpointEarlyCursor>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     session_lineage: Vec<GroupFoldCheckpointSession>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     last_watermark_ns: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct GroupFoldCheckpointEarlyCursor {
+    key: Vec<u8>,
+    interval: WindowInterval,
+    seen: usize,
+    finished: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -328,7 +340,8 @@ struct GroupFoldCheckpointRow {
     processing_ready: bool,
 }
 
-const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 2 };
+const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 3 };
+const PRE_FINAL_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 2 };
 const LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 1 };
 const PRE_LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 0 };
 
@@ -360,6 +373,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
             self.fired_panes.remove(&old);
             self.nonspeculative_base.remove(&old);
             self.fired_value_counts.remove(&old);
+            self.early_seen.remove(&old);
+            self.early_finished.remove(&old);
             self.processing_deadlines.remove(&old);
             self.processing_ready.remove(&old);
         }
@@ -380,6 +395,21 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
                 self.global_indices.insert(key.clone(), index);
             }
         }
+    }
+
+    fn record_early_element(
+        &mut self,
+        key: &K,
+        interval: Option<WindowInterval>,
+    ) -> Result<(), Error> {
+        if self.trigger.final_count().is_some() {
+            let scope = (key.clone(), interval.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+            let seen = self.early_seen.entry(scope).or_insert(0);
+            *seen = seen.checked_add(1).ok_or_else(|| {
+                Error::resource(&self.key, "count-or-finally source count overflows")
+            })?;
+        }
+        Ok(())
     }
 
     fn add_row(
@@ -563,6 +593,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let (group_key, value) = *value
             .downcast::<(K, V)>()
             .map_err(|_| Error::execution(&self.key, "direct", "group input type mismatch"))?;
+        self.record_early_element(&group_key, assigned_window)?;
         let scope = (group_key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
         let is_session = matches!(window, Window::Session { .. });
         if self.output_time == WindowOutputTime::LatestInPane
@@ -593,18 +624,23 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             return Err(Error::incompatible("early count trigger requires a positive count"));
         }
         let threshold = usize::try_from(count).unwrap_or(usize::MAX);
+        let final_count = self.trigger.final_count().and_then(|count| usize::try_from(count).ok());
         if self.trigger.is_accumulating() {
             let mut fired = Vec::new();
             for (key, values, timestamp_ns, window, assigned_window) in &self.groups {
                 let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
                 let scope = (key.clone(), interval);
+                let final_ready = final_count.is_some_and(|limit| {
+                    self.early_seen.get(&scope).is_some_and(|seen| *seen >= limit)
+                });
                 if self.nonspeculative_base.contains_key(&scope) {
                     continue;
                 }
                 let prior = self.fired_value_counts.get(&scope).copied().unwrap_or(0);
                 if (self.trigger.is_count_then_processing_time()
                     && self.fired_panes.get(&scope).is_some_and(|index| index % 2 == 1))
-                    || values.len().saturating_sub(prior) < threshold
+                    || (final_count.is_some() && self.early_finished.contains(&scope))
+                    || (!final_ready && values.len().saturating_sub(prior) < threshold)
                     || (self.trigger.is_count_and_processing_time()
                         && !self.processing_ready.contains(&scope))
                 {
@@ -617,6 +653,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     .checked_add(1)
                     .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
                 self.fired_value_counts.insert(scope.clone(), values.len());
+                if final_ready {
+                    self.early_finished.insert(scope.clone());
+                }
                 self.processing_deadlines.remove(&scope);
                 self.processing_ready.remove(&scope);
                 fired.push(Envelope {
@@ -646,10 +685,14 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let mut released = 0_usize;
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
             let scope = (key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+            let final_ready = final_count.is_some_and(|limit| {
+                self.early_seen.get(&scope).is_some_and(|seen| *seen >= limit)
+            });
             if self.nonspeculative_base.contains_key(&scope)
                 || (self.trigger.is_count_then_processing_time()
                 && self.fired_panes.get(&scope).is_some_and(|index| index % 2 == 1))
-                || values.len() < threshold
+                || (final_count.is_some() && self.early_finished.contains(&scope))
+                || (!final_ready && values.len() < threshold)
                 || (self.trigger.is_count_and_processing_time()
                     && !self.processing_ready.contains(&scope))
             {
@@ -673,6 +716,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 .checked_add(1)
                 .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
             released = released.saturating_add(values.len());
+            if final_ready {
+                self.early_finished.insert(scope.clone());
+            }
             if self.on_time_behavior == WindowOnTimeBehavior::FireAlways
                 || self.closing_behavior == WindowClosingBehavior::EmitAlways
                 || self.trigger.late_count().is_some()
@@ -983,6 +1029,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         if !accumulating_late {
             self.fired_value_counts.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         }
+        self.early_seen.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        self.early_finished.retain(|(_, interval)| interval.end_ns > watermark_ns);
         if self.trigger.late_count().is_none() {
             self.latest_timestamps.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         }
@@ -1166,6 +1214,22 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             (&left.key, left.interval.start_ns, left.interval.end_ns)
                 .cmp(&(&right.key, right.interval.start_ns, right.interval.end_ns))
         });
+        let mut early_cursors = self
+            .early_seen
+            .iter()
+            .map(|((key, interval), &seen)| {
+                Ok(GroupFoldCheckpointEarlyCursor {
+                    key: key.encode()?,
+                    interval: *interval,
+                    seen,
+                    finished: self.early_finished.contains(&(key.clone(), *interval)),
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        early_cursors.sort_by(|left, right| {
+            (&left.key, left.interval.start_ns, left.interval.end_ns)
+                .cmp(&(&right.key, right.interval.start_ns, right.interval.end_ns))
+        });
         let mut session_lineage = self
             .session_lineage
             .iter()
@@ -1188,6 +1252,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             value_coder: V::coder_identity(),
             groups,
             fired_panes,
+            early_cursors,
             session_lineage,
             last_watermark_ns: self.last_watermark_ns,
         })
@@ -1202,12 +1267,18 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let checkpoint: GroupFoldCheckpoint = serde_json::from_slice(state)
             .map_err(|error| Error::recovery(&self.key, error.to_string()))?;
         if checkpoint.version != GROUP_FOLD_CHECKPOINT_VERSION
+            && checkpoint.version != PRE_FINAL_GROUP_FOLD_CHECKPOINT_VERSION
             && checkpoint.version != LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION
             && checkpoint.version != PRE_LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION
         {
             return Err(Error::incompatible(
                 "group fold checkpoint version mismatch",
             ));
+        }
+        if self.trigger.final_count().is_some()
+            && checkpoint.version != GROUP_FOLD_CHECKPOINT_VERSION
+        {
+            return Err(Error::incompatible("count-or-finally checkpoint lacks its cursor"));
         }
         if checkpoint.key_coder != K::coder_identity()
             || checkpoint.value_coder != V::coder_identity()
@@ -1229,6 +1300,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             fired_panes: HashMap::new(),
             nonspeculative_base: HashMap::new(),
             fired_value_counts: HashMap::new(),
+            early_seen: HashMap::new(),
+            early_finished: HashSet::new(),
             processing_deadlines: HashMap::new(),
             processing_ready: HashSet::new(),
             latest_timestamps: HashMap::new(),
@@ -1249,6 +1322,24 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 return Err(Error::recovery(&self.key, "overlapping session lineage in fold checkpoint"));
             }
             intervals.push(session.interval);
+        }
+        for cursor in checkpoint.early_cursors {
+            let final_count = self.trigger.final_count().ok_or_else(|| {
+                Error::recovery(&self.key, "unexpected count-or-finally cursor")
+            })?;
+            if cursor.interval.end_ns <= cursor.interval.start_ns
+                || cursor.seen == 0
+                || (cursor.finished && cursor.seen < usize::try_from(final_count).unwrap_or(usize::MAX))
+            {
+                return Err(Error::recovery(&self.key, "invalid count-or-finally cursor"));
+            }
+            let scope = (K::decode(&cursor.key)?, cursor.interval);
+            if restored.early_seen.insert(scope.clone(), cursor.seen).is_some() {
+                return Err(Error::recovery(&self.key, "duplicate count-or-finally cursor"));
+            }
+            if cursor.finished {
+                restored.early_finished.insert(scope);
+            }
         }
         for pane in checkpoint.fired_panes {
             if pane.interval.end_ns <= pane.interval.start_ns || pane.next_index <= 0 {
@@ -1403,6 +1494,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             Error::execution(&self.key, "direct", "group vector batch type mismatch")
         })?;
         for (key, value) in *values {
+            self.record_early_element(&key, None)?;
             self.add_row(key, value, 0, Window::Global, None);
         }
         Ok(())
@@ -1625,6 +1717,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFol
             value_coder: <(i64, V) as Element>::coder_identity(),
             groups,
             fired_panes: Vec::new(),
+            early_cursors: Vec::new(),
             session_lineage: Vec::new(),
             last_watermark_ns: None,
         })
