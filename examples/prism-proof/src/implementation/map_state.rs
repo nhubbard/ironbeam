@@ -171,6 +171,60 @@ pub fn streaming_windowed_map_state_fixture(
         )
 }
 
+/// One map per overlapping sliding window, including windows that expire first.
+pub fn streaming_sliding_map_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "sliding-map-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 6_000_000), ((1, 12), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(8_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 12_000_000)]),
+                TestStreamEvent::AdvanceWatermark(16_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 18_000_000)]),
+                TestStreamEvent::AdvanceWatermark(26_000_000),
+            ],
+        )?
+        .sliding_windows("sliding-map-window", 10_000_000, 5_000_000, 0)?
+        .stateful_map_map_named::<i32, i32, (i32, i32, i32)>(
+            "sliding-map-membership",
+            "prism-proof/sliding-key-map-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                Ok((
+                    MapStateMutation::Put(value, value * 10),
+                    (
+                        value,
+                        prior.get(&value).copied().unwrap_or(-1),
+                        i32::try_from(prior.len()).expect("fixture map fits i32"),
+                    ),
+                ))
+            },
+        )?
+        .map_named("sliding-map-label", |(key, (value, old, size))| {
+            format!("{key}:{value}:{old}:{size}")
+        })?
+        .sink_named_with_config(
+            "sliding-map-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("sliding-map-state:{}", directory.display()),
+            move || {
+                Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                })))
+            },
+        )
+}
+
 /// Production unbounded source with a keyed map and idempotent output.
 pub fn production_map_state_fixture(
     pipeline: &Pipeline,
