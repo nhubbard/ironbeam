@@ -46,8 +46,8 @@ pub const CODER_KV: &str = "beam:coder:kv:v1";
 pub const CODER_ITERABLE: &str = "beam:coder:iterable:v1";
 /// Dataflow runner-v2 substitutes this URN for GBK-output iterables so the
 /// SDK fetches values via `BeamFnState` instead of inline on the data
-/// channel. The harness detects it at plan time; implementing it requires
-/// the State API, which is not yet wired.
+/// channel. The harness detects it at plan time and reads the runner-owned
+/// iterable through the State API.
 pub const CODER_STATE_BACKED_ITERABLE: &str = "beam:coder:state_backed_iterable:v1";
 pub const CODER_LENGTH_PREFIX: &str = "beam:coder:length_prefix:v1";
 pub const CODER_WINDOWED_VALUE: &str = "beam:coder:windowed_value:v1";

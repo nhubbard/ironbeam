@@ -92,7 +92,8 @@ impl GcpPubSub {
     }
 
     /// Start the official streaming subscriber for a subscription.
-    /// Received messages include acknowledgment handlers.
+    /// Received messages include process-local acknowledgment handlers. They
+    /// cannot be persisted as Ironbeam source checkpoint positions.
     ///
     /// # Errors
     ///

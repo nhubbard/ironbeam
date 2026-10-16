@@ -341,7 +341,8 @@ on-time policy.
 The Dataflow entry point can supply one `ObjectStores` registry to graph
 construction and the optional object finalization journal. Its hosted-object
 variant constructs the registry from each process environment when a provider
-feature is enabled. The local Prism
+feature is enabled. `cargo check -p ironbeam-dataflow --all-features --locked`
+passes with GCP, AWS, and Azure object features enabled together. The local Prism
 JSONL glob fixture uses this binding when it rebuilds the graph in its worker;
 after an execution child is replaced, it reopens the provider and commits both
 rows once. This proves local provider recreation. Hosted GCS credentials and
