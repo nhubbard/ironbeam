@@ -21,6 +21,16 @@ impl<T: Element> PCollection<T> {
                 "unbounded-splittable-pardo",
             ));
         }
+        if !T::supports_coder() || !U::supports_coder() {
+            return Err(Error::graph(
+                key,
+                "splittable input and output require registered element coders",
+            ));
+        }
+        let initial_restriction = Arc::new(initial_restriction);
+        let process = Arc::new(process);
+        let direct_initial = Arc::clone(&initial_restriction);
+        let direct_process = Arc::clone(&process);
         let key_owned = key.to_owned();
         let transform = Transform::Multi(Arc::new(move |event| {
             let Envelope {
@@ -33,11 +43,11 @@ impl<T: Element> PCollection<T> {
             let value = value.downcast::<T>().map_err(|_| {
                 Error::execution(&key_owned, "direct", "splittable input type mismatch")
             })?;
-            let restriction = initial_restriction(&value)?;
+            let restriction = direct_initial(&value)?;
             let tracker = OffsetRangeTracker::new(restriction)?;
             let mut context =
                 OffsetProcessContext::new(tracker.clone(), OffsetWatermarkEstimator::new(None));
-            process(&value, &mut context)?;
+            direct_process(&value, &mut context)?;
             if tracker.restriction()? != restriction {
                 return Err(Error::unsupported(
                     &key_owned,
@@ -57,12 +67,34 @@ impl<T: Element> PCollection<T> {
                 })
                 .collect())
         }));
-        self.next_with_semantic(
+        let output = self.next_with_semantic(
             key,
             Operation::SplittableParDo,
             Some(transform),
             None,
             Some((semantic_id, version)),
-        )
+        )?;
+        self.pipeline.add_splittable(
+            key,
+            SplittableRegistration {
+                initial: Arc::new(move |bytes| initial_restriction(&T::decode(bytes)?)),
+                process: Arc::new(move |bytes, tracker, estimator| {
+                    let value = T::decode(bytes)?;
+                    let mut context = OffsetProcessContext::new(tracker, estimator);
+                    process(&value, &mut context)?;
+                    context
+                        .finish()?
+                        .into_iter()
+                        .map(|output| {
+                            Ok(Timestamped {
+                                value: output.value.encode()?,
+                                timestamp_ns: output.timestamp_ns,
+                            })
+                        })
+                        .collect()
+                }),
+            },
+        )?;
+        Ok(output)
     }
 }

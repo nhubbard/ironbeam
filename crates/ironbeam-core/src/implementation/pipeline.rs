@@ -230,6 +230,21 @@ impl Pipeline {
             .insert(key.to_owned(), transform);
         Ok(())
     }
+    fn add_splittable(
+        &self,
+        key: &str,
+        registration: SplittableRegistration,
+    ) -> Result<(), Error> {
+        let mut builder = self
+            .inner
+            .lock()
+            .map_err(|_| Error::graph(key, "builder lock poisoned"))?;
+        if !builder.registry.transforms.contains_key(key) {
+            return Err(Error::graph(key, "splittable transform node is missing"));
+        }
+        builder.registry.splittable.insert(key.to_owned(), registration);
+        Ok(())
+    }
     /// Build a bounded collection from an owned vector.
     ///
     /// # Panics

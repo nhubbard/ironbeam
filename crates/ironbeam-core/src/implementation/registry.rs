@@ -1,4 +1,37 @@
 impl Registry {
+    /// Report whether a versioned offset-restricted callback is registered.
+    #[must_use]
+    pub fn has_splittable(&self, key: &str) -> bool {
+        self.splittable.contains_key(key)
+    }
+
+    /// Derive the initial offset restriction from a coded input element.
+    pub fn initial_splittable_restriction(
+        &self,
+        key: &str,
+        encoded_input: &[u8],
+    ) -> Result<OffsetRange, Error> {
+        let handler = self.splittable.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no splittable handler registered for {key}"))
+        })?;
+        (handler.initial)(encoded_input)
+    }
+
+    /// Run one coded input and restriction through its registered callback.
+    /// The caller owns runner splits and must schedule every residual.
+    pub fn process_splittable_restriction(
+        &self,
+        key: &str,
+        encoded_input: &[u8],
+        tracker: OffsetRangeTracker,
+        estimator: OffsetWatermarkEstimator,
+    ) -> Result<Vec<Timestamped<Vec<u8>>>, Error> {
+        let handler = self.splittable.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no splittable handler registered for {key}"))
+        })?;
+        (handler.process)(encoded_input, tracker, estimator)
+    }
+
     #[must_use]
     /// Report whether `key` has a registered side-input view.
     pub fn has_side_input(&self, key: &str) -> bool {

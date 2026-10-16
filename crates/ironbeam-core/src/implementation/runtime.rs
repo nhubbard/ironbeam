@@ -990,6 +990,7 @@ fn vector_source_digest<T: Element>(values: &[T]) -> Result<String, Error> {
 pub struct Registry {
     sources: BTreeMap<String, SourceRegistration>,
     transforms: BTreeMap<String, Transform>,
+    splittable: BTreeMap<String, SplittableRegistration>,
     combining_mergers: BTreeMap<String, CodedAccumulatorMerger>,
     typed_transforms: BTreeMap<String, TypedTransformRegistration>,
     keyed_timestamp_reifications: BTreeSet<String>,
@@ -1002,6 +1003,21 @@ pub struct Registry {
     cogroup_coders: BTreeMap<String, CoGroupCoderRegistration>,
     join_coders: BTreeMap<String, JoinCoderRegistration>,
     side_inputs: BTreeMap<String, SideInputRegistration>,
+}
+type InitialRestrictionFn = Arc<dyn Fn(&[u8]) -> Result<OffsetRange, Error> + Send + Sync>;
+type ProcessRestrictionFn = Arc<
+    dyn Fn(
+            &[u8],
+            OffsetRangeTracker,
+            OffsetWatermarkEstimator,
+        ) -> Result<Vec<Timestamped<Vec<u8>>>, Error>
+        + Send
+        + Sync,
+>;
+#[derive(Clone)]
+struct SplittableRegistration {
+    initial: InitialRestrictionFn,
+    process: ProcessRestrictionFn,
 }
 type CodedAccumulatorMerger =
     Arc<dyn Fn(&[Vec<u8>]) -> Result<Vec<u8>, Error> + Send + Sync>;
