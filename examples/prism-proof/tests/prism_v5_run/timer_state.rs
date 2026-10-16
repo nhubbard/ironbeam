@@ -104,6 +104,71 @@ async fn prism_matches_direct_shared_event_timer_fanout() {
 }
 
 #[tokio::test]
+async fn prism_replays_shared_timer_into_both_sinks_after_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let first = directory.path().join("replayed-timer-first");
+    let second = directory.path().join("replayed-timer-second");
+    let trigger = directory.path().join("fanout-timer-trigger");
+    let killed = directory.path().join("fanout-timer-killed");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::streaming_event_timer_fanout_fixture(
+        &pipeline,
+        first.clone(),
+        second.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "replayed-event-timer-fanout",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_EVENT_TIMER_FANOUT_FIRST".into(),
+                first.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_EVENT_TIMER_FANOUT_SECOND".into(),
+                second.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_KILL_FANOUT_TIMER_CALLBACK".into(),
+                "1".into(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism timer fanout replay failed: {terminal:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap()
+    );
+    let rows = |path: &Path| {
+        std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&first), ["1:7"]);
+    assert_eq!(rows(&second), ["copy:1:7"]);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_processing_timer_callback_and_hold_timestamp() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

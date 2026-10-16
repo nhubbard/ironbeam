@@ -105,6 +105,9 @@ pub fn streaming_event_timer_fanout_fixture(
                 if event.dynamic_tag != "flush" || event.output_timestamp_ns != 1_000_000 {
                     return Err(Error::incompatible("unexpected fanout timer firing"));
                 }
+                if std::env::var_os("IRONBEAM_V5_PRISM_KILL_FANOUT_TIMER_CALLBACK").is_some() {
+                    super::await_supervised_source_replacement(Some(&[1]))?;
+                }
                 Ok(TimedStateResult {
                     state: None,
                     outputs: state.into_iter().collect(),
