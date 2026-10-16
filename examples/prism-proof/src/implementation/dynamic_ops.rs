@@ -344,10 +344,12 @@ pub fn streaming_byte_limited_batches_fixture(
                 TestStreamEvent::Elements(vec![
                     ((1_i32, "a".to_owned()), 1_000_000),
                     ((1, "bbb".to_owned()), 2_000_000),
+                    ((2, "x".to_owned()), 2_000_000),
                     ((1, "c".to_owned()), 3_000_000),
                     ((1, "d".to_owned()), 4_000_000),
                     ((1, "oversized".to_owned()), 5_000_000),
                     ((1, "e".to_owned()), 6_000_000),
+                    ((2, "y".to_owned()), 7_000_000),
                 ]),
                 TestStreamEvent::AdvanceWatermark(10_000_000),
             ],

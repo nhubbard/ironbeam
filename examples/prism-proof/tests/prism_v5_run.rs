@@ -6653,6 +6653,7 @@ async fn prism_matches_direct_unbounded_byte_limited_batches() {
         "1:3000000:[\"c\", \"d\"]",
         "1:5000000:[\"oversized\"]",
         "1:6000000:[\"e\"]",
+        "2:2000000:[\"x\", \"y\"]",
     ];
     assert_eq!(rows(&direct_path), expected);
     assert_eq!(rows(&portable_path), expected);

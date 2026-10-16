@@ -165,8 +165,11 @@ reached because it has no finite window end. The tested unbounded Direct and
 Prism jobs agree on five batches, including an oversized singleton and the
 final fixed-window remainder. A separate Direct and local Prism job confirms
 that two values assigned to overlapping sliding windows stay in their three
-distinct key-window batches, each with its own earliest value timestamp.
-Session windows and windows whose ends are not whole milliseconds are rejected.
+distinct key-window batches, each with its own earliest value timestamp. A
+separate fixed-window job interleaves two keys and confirms that they retain
+independent partial batches. Unbounded event timestamps used as timer output
+holds must fall on whole milliseconds. Session windows and windows whose ends
+are not whole milliseconds are rejected.
 
 `co_group_homogeneous_named` groups collections whose keys and values have
 the same types. The result is a key and one value vector
