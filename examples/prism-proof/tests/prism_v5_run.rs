@@ -6660,6 +6660,68 @@ async fn prism_matches_direct_unbounded_byte_limited_batches() {
 }
 
 #[tokio::test]
+async fn prism_replays_byte_batches_after_execution_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let output = directory.path().join("replayed-byte-batches");
+    let trigger = directory.path().join("byte-batch-child-trigger");
+    let killed = directory.path().join("killed-byte-batch-child");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::streaming_byte_limited_batches_fixture(&pipeline, output.clone())
+        .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "replayed-byte-batches",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_BYTE_LIMITED_BATCHES".into(),
+                output.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            ("IRONBEAM_V5_PRISM_KILL_BYTE_BATCH".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism byte-batch replay failed: {terminal:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap(),
+        "the first execution child was not replaced"
+    );
+    let mut rows = std::fs::read_dir(&output)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    rows.sort();
+    assert_eq!(
+        rows,
+        [
+            "1:1000000:[\"a\"]",
+            "1:2000000:[\"bbb\"]",
+            "1:3000000:[\"c\", \"d\"]",
+            "1:5000000:[\"oversized\"]",
+            "1:6000000:[\"e\"]",
+            "2:2000000:[\"x\", \"y\"]",
+        ]
+    );
+}
+
+#[tokio::test]
 async fn prism_matches_direct_sliding_byte_batch_windows() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

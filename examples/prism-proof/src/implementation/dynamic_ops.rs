@@ -357,6 +357,16 @@ pub fn streaming_byte_limited_batches_fixture(
         .fixed_windows("byte-batch-window", 10_000_000)?
         .group_into_batches_with_limits_named("byte-batches", 2, short_bytes * 2)?
         .reify_timestamps_named("byte-batch-timestamps")?
+        .flat_map_fallible_named("byte-batch-recovery-probe", |(timestamp, (key, values))| {
+            if key == 1
+                && values.len() == 1
+                && values[0] == "a"
+                && std::env::var_os("IRONBEAM_V5_PRISM_KILL_BYTE_BATCH").is_some()
+            {
+                await_supervised_source_replacement(Some(&[1]))?;
+            }
+            Ok(vec![(timestamp, (key, values))])
+        })?
         .map_named("byte-batch-label", |(timestamp, (key, values))| {
             format!("{key}:{timestamp}:{values:?}")
         })?
