@@ -33,7 +33,7 @@ fn retime_join_outputs<K: Element + Eq + Hash + Clone, O: Element>(
 
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     /// Group keyed events into merging event-time sessions.
-    /// Intervals merge when they overlap or touch; the output
+    /// Intervals merge when they overlap; the output
     /// timestamp is the earliest event timestamp in each merged session.
     pub fn group_by_session_named(
         &self,

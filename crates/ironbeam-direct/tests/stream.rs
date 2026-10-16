@@ -361,6 +361,58 @@ fn unbounded_sessions_merge_bridge_before_watermark_and_drop_closed_late_row() {
 }
 
 #[test]
+fn live_merged_session_accepts_a_bridge_past_its_original_expiry() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "events",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 1_i32), 0), ((1, 2), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+                TestStreamEvent::Elements(vec![((1, 3), 0)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 99), 0)]),
+            ],
+        )
+        .unwrap()
+        .group_by_session_named("sessions", 5_000_000)
+        .unwrap()
+        .with_window_named("bounds")
+        .unwrap()
+        .map_named("score", |(window, (_key, values))| {
+            i32::try_from(window.end_ns / 1_000_000).unwrap() * 100 + values.iter().sum::<i32>()
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "live-session-merge-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        staged: Vec::new(),
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*committed.lock().unwrap(), [906]);
+}
+
+#[test]
 fn unbounded_session_bridge_merges_after_checkpoint_restart() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let opens = Arc::new(Mutex::new(Vec::new()));
@@ -473,6 +525,116 @@ fn unbounded_session_bridge_merges_after_checkpoint_restart() {
         .unwrap();
     assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
     assert_eq!(committed.lock().unwrap().as_slice(), &[-39, 136]);
+}
+
+#[test]
+fn restored_live_session_accepts_candidate_past_its_original_expiry() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let pause = Arc::new(AtomicBool::new(true));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "resolved-session-source-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                let pause = Arc::clone(&pause);
+                move |position| {
+                    opens.lock().unwrap().push(position.clone());
+                    let ready = |cursor, watermark, completed, values: Vec<(i32, i64)>| {
+                        UnboundedPoll::Ready(UnboundedBatch {
+                            elements: values
+                                .into_iter()
+                                .map(|(value, timestamp_ns)| Timestamped {
+                                    value,
+                                    timestamp_ns,
+                                })
+                                .collect(),
+                            progress: ProgressSignal {
+                                source_key: "events".into(),
+                                split_id: "session-split".into(),
+                                checkpoint_position: Some(vec![cursor]),
+                                event_time_ns: Some(watermark),
+                                completed,
+                            },
+                        })
+                    };
+                    let first = ready(1, 6_000_000, false, vec![(1, 0), (2, 4_000_000)]);
+                    let second = ready(2, 10_000_000, true, vec![(3, 0)]);
+                    let polls = match position.as_deref() {
+                        None if pause.load(Ordering::SeqCst) => vec![first],
+                        None => vec![first, second],
+                        Some([1]) => vec![second],
+                        _ => return Err(Error::incompatible("unexpected session cursor")),
+                    };
+                    Ok(Box::new(Script {
+                        polls: polls.into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                }
+            },
+        )
+        .unwrap();
+    let sink = source
+        .map_named("key", |value| (1_i32, value))
+        .unwrap()
+        .group_by_session_named("sessions", 5_000_000)
+        .unwrap()
+        .with_window_named("bounds")
+        .unwrap()
+        .map_named("score", |(window, (_key, values))| {
+            i32::try_from(window.end_ns / 1_000_000).unwrap() * 10 + values.iter().sum::<i32>()
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "resolved-session-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        staged: Vec::new(),
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let job = DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while job.progress().and_then(|signal| signal.checkpoint_position) != Some(vec![1]) {
+        assert!(
+            Instant::now() < deadline,
+            "session checkpoint was not saved"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(committed.lock().unwrap().is_empty());
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    pause.store(false, Ordering::SeqCst);
+    DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
+    assert_eq!(committed.lock().unwrap().as_slice(), &[96]);
 }
 
 #[test]

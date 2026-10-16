@@ -22,6 +22,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod multi;
+mod session_expiry;
 use multi::{start_dual_side_stream, start_multi_grouped_stream_sink, start_multi_stream_sink};
 
 /// A running unbounded Direct job. Dropping it requests cancellation and joins
@@ -1998,7 +1999,9 @@ fn run_grouped_stream(
                 let prior_watermark = progress
                     .as_ref()
                     .and_then(|previous| previous.event_time_ns);
-                let expired_at = interval.end_ns.saturating_add(route.allowed_lateness_ns);
+                let resolved =
+                    session_expiry::resolved_group_interval(route, &folds, &event, interval)?;
+                let expired_at = resolved.end_ns.saturating_add(route.allowed_lateness_ns);
                 if prior_watermark.is_some_and(|watermark| expired_at <= watermark) {
                     continue;
                 }
@@ -2016,7 +2019,7 @@ fn run_grouped_stream(
                 } else {
                     (interval.start_ns, interval.end_ns)
                 };
-                if prior_watermark.is_some_and(|watermark| interval.end_ns <= watermark) {
+                if prior_watermark.is_some_and(|watermark| resolved.end_ns <= watermark) {
                     late_windows.insert(scope);
                 }
                 let entry = folds.entry(scope);

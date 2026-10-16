@@ -475,6 +475,73 @@ fn touching_sessions_stay_separate_until_an_overlapping_bridge_arrives() {
 }
 
 #[test]
+fn restored_session_resolves_a_late_candidate_against_its_live_merge() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 0_i32)])
+        .unwrap()
+        .group_by_session_named("session-group", 5)
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let window = Window::Session { gap_ns: 5 };
+    let event = |value, time| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, value)),
+        timestamp_ns: time,
+        window: window.clone(),
+        assigned_window: window.assign(time).unwrap(),
+    };
+    let mut fold = registry.open_fold("session-group").unwrap();
+    fold.add(event(1_i32, 0)).unwrap();
+    fold.add(event(2_i32, 4)).unwrap();
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut restored = registry.open_fold("session-group").unwrap();
+    restored.restore_checkpoint_state(&saved).unwrap();
+    let candidate = event(3_i32, 0);
+    assert_eq!(
+        restored.resolved_interval(&candidate).unwrap(),
+        Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 9
+        })
+    );
+    assert_eq!(
+        restored.resolved_interval(&event(4_i32, 20)).unwrap(),
+        Some(WindowInterval {
+            start_ns: 20,
+            end_ns: 25
+        })
+    );
+    let mut missing = event(4_i32, 20);
+    missing.assigned_window = None;
+    assert_eq!(restored.resolved_interval(&missing).unwrap(), None);
+    let mut fixed = event(4_i32, 20);
+    fixed.window = Window::Fixed { size_ns: 5 };
+    assert_eq!(
+        restored.resolved_interval(&fixed).unwrap(),
+        fixed.assigned_window
+    );
+    let mut wrong_type = event(4_i32, 20);
+    wrong_type.value = Box::new(4_i32);
+    assert_eq!(
+        restored.resolved_interval(&wrong_type).unwrap_err().kind,
+        ErrorKind::Execution
+    );
+    restored.add(candidate).unwrap();
+    let rows = restored.finish().unwrap();
+    assert_eq!(rows.len(), 1);
+    let (_, mut values) = *rows
+        .into_iter()
+        .next()
+        .unwrap()
+        .value
+        .downcast::<(i32, Vec<i32>)>()
+        .unwrap();
+    values.sort_unstable();
+    assert_eq!(values, [1, 2, 3]);
+}
+
+#[test]
 fn grouped_fold_restores_ordered_values_and_window_metadata() {
     let pipeline = Pipeline::default();
     pipeline

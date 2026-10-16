@@ -254,6 +254,11 @@ impl<V, A, O, C: OrderedFoldFn<V, A, O>> FoldLogic<V, A, O> for OrderedAdapter<C
 }
 pub trait FoldSession: Send {
     fn add(&mut self, event: Envelope) -> Result<(), Error>;
+    /// Resolve an incoming window against active keyed state before a runner
+    /// checks expiry. Merging folds may extend the assigned interval.
+    fn resolved_interval(&self, event: &Envelope) -> Result<Option<WindowInterval>, Error> {
+        Ok(event.assigned_window)
+    }
     /// Fire ready keyed groups for a repeated early element-count trigger.
     /// Returns emitted panes and the number of buffered inputs released.
     fn drain_ready_count(&mut self, _count: u64) -> Result<(Vec<Envelope>, usize), Error> {

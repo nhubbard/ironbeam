@@ -2142,6 +2142,15 @@ fn latest_per_key_direct_fold_keeps_one_value_and_restores_checkpoint() {
     ordinary.add(event("a", 1, 7)).unwrap();
     let ordinary_checkpoint = ordinary.checkpoint_state().unwrap().unwrap();
     let mut fold = registry.open_fold("latest/group").unwrap();
+    let mut assigned = event("a", 1, 7);
+    assigned.assigned_window = Some(WindowInterval {
+        start_ns: 0,
+        end_ns: 10,
+    });
+    assert_eq!(
+        fold.resolved_interval(&assigned).unwrap(),
+        assigned.assigned_window
+    );
     assert!(
         fold.add_vec_batch(Box::new(vec![("a".to_owned(), (1_i64, 7_i32))]))
             .is_err()

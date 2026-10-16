@@ -29,7 +29,8 @@ the open cases in this report lack runner proofs.
 | Streaming Count.PerElement | The streaming path uses checkpointable GroupByKey and matches Prism in fixed windows. | An incremental accumulator for heavily used keys. |
 | Two-source sessions | Direct restores merged open sessions across two source cursors. Selected Prism schedules agree. | Intermediate-watermark and late-pane agreement. |
 | Session interval adjacency | Core folding, bounded joins, and multi-source Direct closure keep half-open sessions that only meet at an endpoint separate. A later overlapping event merges both; core checkpoint, bounded join, and multi-source closure fixtures cover this rule. | Pinned Prism has merged a touching pair in a pipeline fixture; runner agreement and late panes remain open. |
-| Session allowed lateness | Core rejects nonzero lateness on session windows. The current Direct fold merges open values, but its stream reader checks expiry before merging and its pane state is keyed by the old interval. | Implement and prove the merge-aware state and expiry contract below before lifting the guard. |
+| Active-session expiry | Single-source Direct now resolves a candidate against the active keyed session before checking expiry. A restored fold and a resumed unbounded source accept an element whose original interval is past the watermark but whose merged interval remains open. | Multi-source expiry and a live Prism comparison remain open. |
+| Session allowed lateness | Core rejects nonzero lateness on session windows. Single-source Direct resolves active intervals at zero lateness, but its pane state is still keyed by old intervals, and multi-source readers still check the original interval before merging. | Implement and prove the merge-aware state and expiry contract below before lifting the guard. |
 | Intermediate session watermarks | A pinned Prism case splits a session that Direct merges. | Runner agreement is unproved for this schedule. |
 | Three-input bounded sessions | A pinned Prism case splits a connected session that Direct merges. | Independent-source session resolution. |
 | Coverage after session work | The unchanged core and Direct coverage floors passed. | Destructive Prism cases were excluded from that measurement. |
@@ -51,12 +52,12 @@ window to its state addresses. `ReduceFnRunner` merges the value reducer,
 watermark hold, nonempty-pane state, and trigger state before it discards the
 old window addresses. Its `testMergingWithClosedDoesNotPoison` regression
 shows that a finished trigger in one session must not close a new session
-formed by merging it with open input. Ironbeam's current single-source Direct
-path drops an element using its original interval's expiry before the fold
-can see a bridge; `GroupByKeyFoldState` then tracks on-time and late pane
-indices by the premerge interval. The multi-source path has the same expiry
-order. These are implementation gaps, so the public session-lateness guard
-remains in place.
+formed by merging it with open input. Single-source Direct now resolves an
+incoming interval against an active keyed session before checking expiry,
+including after a checkpoint restore. `GroupByKeyFoldState` still tracks
+on-time and late pane indices by the premerge interval, and multi-source
+readers still check original interval expiry first. These are implementation
+gaps, so the public session-lateness guard remains in place.
 
 | Acceptance schedule | Required evidence |
 | --- | --- |

@@ -392,8 +392,11 @@ and local Prism agree on that overlapping bridge and on a second
 key. Single-source unbounded keyed groups also merge in Direct and local
 Prism. Direct restores their open sessions and source cursor from a checkpoint;
 the shared fixture closes one negative-time session, then bridges two open
-sessions and discards a row after its session closes. Bounded session joins
-and co-groups merge intervals across their inputs before matching keyed
+sessions and discards a row after its session closes. Direct also resolves an
+incoming element against its still-open merged session before checking expiry,
+including after a checkpoint restore. The same schedule has not yet been
+compared with local Prism. Bounded session joins and co-groups merge intervals
+across their inputs before matching keyed
 values. Direct and local Prism agree when another input bridges two sessions;
 Direct also checks inner, left, right, and full join results. A three-input
 co-group fixture verifies an empty side and an isolated session on both

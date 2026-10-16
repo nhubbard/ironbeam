@@ -453,6 +453,29 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
 }
 
 impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldState<K, V> {
+    fn resolved_interval(&self, event: &Envelope) -> Result<Option<WindowInterval>, Error> {
+        let Some(mut merged) = event.assigned_window else {
+            return Ok(None);
+        };
+        if !matches!(event.window, Window::Session { .. }) {
+            return Ok(Some(merged));
+        }
+        let (group_key, _) = event
+            .value
+            .downcast_ref::<(K, V)>()
+            .ok_or_else(|| Error::execution(&self.key, "direct", "group input type mismatch"))?;
+        for &index in self.session_indices.get(group_key).into_iter().flatten() {
+            let interval = self.groups[index]
+                .4
+                .expect("session group has an interval");
+            if merged.start_ns < interval.end_ns && interval.start_ns < merged.end_ns {
+                merged.start_ns = merged.start_ns.min(interval.start_ns);
+                merged.end_ns = merged.end_ns.max(interval.end_ns);
+            }
+        }
+        Ok(Some(merged))
+    }
+
     fn add(&mut self, event: Envelope) -> Result<(), Error> {
         let Envelope {
             pane: _,
