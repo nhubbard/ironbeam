@@ -614,13 +614,38 @@ fn idle_multi_source_timer_stops_on_cancellation() {
 
 #[test]
 fn two_source_timer_recovers_deadline_and_retries_committed_bundle() {
-    for composite in [false, true] {
-        run_two_source_timer_recovery(composite);
+    for mode in [
+        TimerRecoveryMode::Processing,
+        TimerRecoveryMode::CountOrTime,
+    ] {
+        run_two_source_timer_recovery(mode);
+    }
+}
+
+#[test]
+fn two_source_conjunctive_early_and_late_timer_recovers_and_retries() {
+    run_two_source_timer_recovery(TimerRecoveryMode::CountAndTimeLate);
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum TimerRecoveryMode {
+    Processing,
+    CountOrTime,
+    CountAndTimeLate,
+}
+
+impl TimerRecoveryMode {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Processing => "processing",
+            Self::CountOrTime => "count-or-time",
+            Self::CountAndTimeLate => "count-and-time-late",
+        }
     }
 }
 
 #[allow(clippy::too_many_lines)] // The saved deadline, failed commit, and replay use one fixture.
-fn run_two_source_timer_recovery(composite: bool) {
+fn run_two_source_timer_recovery(mode: TimerRecoveryMode) {
     let directory = tempfile::tempdir().unwrap();
     let hold = Arc::new(AtomicBool::new(true));
     let fail_once = Arc::new(AtomicBool::new(false));
@@ -639,7 +664,7 @@ fn run_two_source_timer_recovery(composite: bool) {
                     replay: Replay::AtLeastOnce,
                     reports_event_time: true,
                 },
-                format!("{key}-timer-source-v1"),
+                format!("{key}-timer-source-{}-v1", mode.name()),
                 0,
                 {
                     let hold = Arc::clone(&hold);
@@ -666,22 +691,55 @@ fn run_two_source_timer_recovery(composite: bool) {
                                 0,
                             )]),
                             Some([1]) if hold.load(Ordering::SeqCst) => VecDeque::new(),
-                            Some([1]) => VecDeque::from([
-                                (
-                                    UnboundedPoll::Ready(UnboundedBatch {
-                                        elements: Vec::new(),
-                                        progress: progress(&source_key, 2, 0, false),
-                                    }),
-                                    5_000_000,
-                                ),
-                                (
-                                    UnboundedPoll::Ready(UnboundedBatch {
-                                        elements: Vec::new(),
-                                        progress: progress(&source_key, 3, 10_000_000, true),
-                                    }),
-                                    5_000_000,
-                                ),
-                            ]),
+                            Some([1]) => {
+                                let mut polls = VecDeque::from([
+                                    (
+                                        UnboundedPoll::Ready(UnboundedBatch {
+                                            elements: Vec::new(),
+                                            progress: progress(&source_key, 2, 0, false),
+                                        }),
+                                        5_000_000,
+                                    ),
+                                    (
+                                        UnboundedPoll::Ready(UnboundedBatch {
+                                            elements: Vec::new(),
+                                            progress: progress(
+                                                &source_key,
+                                                3,
+                                                10_000_000,
+                                                mode != TimerRecoveryMode::CountAndTimeLate,
+                                            ),
+                                        }),
+                                        5_000_000,
+                                    ),
+                                ]);
+                                if mode == TimerRecoveryMode::CountAndTimeLate {
+                                    polls.push_back((
+                                        UnboundedPoll::Ready(UnboundedBatch {
+                                            elements: vec![
+                                                Timestamped {
+                                                    value: (1, 5),
+                                                    timestamp_ns: 5_000_000,
+                                                },
+                                                Timestamped {
+                                                    value: (1, 7),
+                                                    timestamp_ns: 7_000_000,
+                                                },
+                                            ],
+                                            progress: progress(&source_key, 4, 10_000_000, false),
+                                        }),
+                                        5_000_000,
+                                    ));
+                                    polls.push_back((
+                                        UnboundedPoll::Ready(UnboundedBatch {
+                                            elements: Vec::new(),
+                                            progress: progress(&source_key, 5, 15_000_000, true),
+                                        }),
+                                        5_000_000,
+                                    ));
+                                }
+                                polls
+                            }
                             _ => return Err(Error::incompatible("unexpected timer source cursor")),
                         };
                         Ok(Box::new(TimedScript { polls, clock_ns: 0 })
@@ -692,14 +750,24 @@ fn run_two_source_timer_recovery(composite: bool) {
             .unwrap()
             .fixed_windows(&format!("{key}-window"), 10_000_000)
             .unwrap();
-        if composite {
-            source.accumulating_count_or_processing_time_trigger_named(
-                &format!("{key}-timer"),
-                3,
-                5_000_000,
-            )
-        } else {
-            source.accumulating_processing_time_trigger_named(&format!("{key}-timer"), 5_000_000)
+        match mode {
+            TimerRecoveryMode::Processing => source
+                .accumulating_processing_time_trigger_named(&format!("{key}-timer"), 5_000_000),
+            TimerRecoveryMode::CountOrTime => source
+                .accumulating_count_or_processing_time_trigger_named(
+                    &format!("{key}-timer"),
+                    3,
+                    5_000_000,
+                ),
+            TimerRecoveryMode::CountAndTimeLate => source
+                .allowed_lateness_named(&format!("{key}-lateness"), 5_000_000)
+                .unwrap()
+                .accumulating_count_and_processing_time_and_late_count_trigger_named(
+                    &format!("{key}-timer"),
+                    2,
+                    5_000_000,
+                    2,
+                ),
         }
         .unwrap()
         .on_time_behavior_named(&format!("{key}-on-time"), WindowOnTimeBehavior::FireAlways)
@@ -721,7 +789,7 @@ fn run_two_source_timer_recovery(composite: bool) {
                 replay: Replay::Idempotent,
                 commit: true,
             },
-            "multi-timer-recovery-sink-v1".into(),
+            format!("multi-timer-recovery-sink-{}-v1", mode.name()),
             {
                 let committed = Arc::clone(&committed);
                 let accepted = Arc::clone(&accepted);
@@ -785,10 +853,16 @@ fn run_two_source_timer_recovery(composite: bool) {
         .unwrap()
         .wait()
         .unwrap();
-    assert_eq!(
-        committed.lock().unwrap().as_slice(),
-        ["1:[[2], [4]]:Early:0", "1:[[2], [4]]:OnTime:1",]
-    );
+    let expected: &[&str] = if mode == TimerRecoveryMode::CountAndTimeLate {
+        &[
+            "1:[[2], [4]]:Early:0",
+            "1:[[2], [4]]:OnTime:1",
+            "1:[[2], [4, 5, 7]]:Late:2",
+        ]
+    } else {
+        &["1:[[2], [4]]:Early:0", "1:[[2], [4]]:OnTime:1"]
+    };
+    assert_eq!(committed.lock().unwrap().as_slice(), expected);
     let ids = bundle_ids.lock().unwrap();
     assert_eq!(ids[0], ids[1], "failed timer must retry one bundle ID");
     let opened = opens.lock().unwrap();
