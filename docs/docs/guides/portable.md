@@ -61,7 +61,9 @@ the same registry and pass the same URI whenever the worker binary starts.
 The file-journal environment variable must be unset when using an object
 journal.
 
-Local object-provider tests cover a replacement worker recovering a pending
-bundle and completing its finalization callback. The current Dataflow driver
-does not yet retrieve committed Fn metrics or prove the hosted GCS provider
-path, so remote result publication remains unverified.
+The local Prism fixture kills a supervised execution child and completes the
+same job with an object-backed journal. The publication plan checks the
+resulting journal against Prism's committed Fn metrics before releasing the
+final fragments. The current Dataflow driver does not yet retrieve committed
+Fn metrics or prove the hosted GCS provider path, so remote result publication
+remains unverified.

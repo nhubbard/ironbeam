@@ -645,28 +645,34 @@ async fn prism_abandons_fragment_when_bundle_fails_after_staging() {
 
 #[tokio::test]
 async fn prism_runs_production_unbounded_source_with_residual_resume() {
-    run_production_unbounded_source(false, false, false).await;
+    run_production_unbounded_source(false, false, false, false).await;
 }
 
 #[tokio::test]
 async fn prism_fails_closed_on_supervised_worker_loss_with_active_bundles() {
-    run_production_unbounded_source(true, false, false).await;
+    run_production_unbounded_source(true, false, false, false).await;
 }
 
 #[tokio::test]
 async fn prism_recovers_killed_execution_child_in_same_job() {
-    run_production_unbounded_source(true, false, true).await;
+    run_production_unbounded_source(true, false, true, false).await;
+}
+
+#[tokio::test]
+async fn prism_recovers_killed_execution_child_with_object_journal() {
+    run_production_unbounded_source(true, false, true, true).await;
 }
 
 #[tokio::test]
 async fn prism_rejects_worker_semantic_version_drift() {
-    run_production_unbounded_source(false, true, false).await;
+    run_production_unbounded_source(false, true, false, false).await;
 }
 
 async fn run_production_unbounded_source(
     restart_worker: bool,
     semantic_version_drift: bool,
     supervised: bool,
+    object_journal: bool,
 ) {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
@@ -675,6 +681,8 @@ async fn run_production_unbounded_source(
     let capture = tempfile::tempdir().unwrap();
     let directory = capture.path().to_string_lossy().into_owned();
     let journal_dir = capture.path().join("finalization-journal");
+    let object_journal_root = capture.path().join("object-journal-store");
+    let object_journal_uri = "file://bucket/finalization/";
     let restart_trigger = capture.path().join("restart-trigger");
     let kill_witness = capture.path().join("kill-witness");
     let pipeline = Pipeline::default();
@@ -827,6 +835,17 @@ async fn run_production_unbounded_source(
         ]
         .into(),
     };
+    if object_journal {
+        process.env.remove("IRONBEAM_V5_FINALIZATION_JOURNAL_DIR");
+        process.env.insert(
+            "IRONBEAM_V5_PRISM_OBJECT_JOURNAL_ROOT".into(),
+            object_journal_root.to_string_lossy().into_owned(),
+        );
+        process.env.insert(
+            "IRONBEAM_V5_PRISM_OBJECT_JOURNAL_URI".into(),
+            object_journal_uri.into(),
+        );
+    }
     if restart_worker {
         if supervised {
             process
@@ -1080,13 +1099,20 @@ async fn run_production_unbounded_source(
             .metrics
             .unwrap();
     }
-    let ready = publication_plan
-        .complete_local(
-            job_state::Enum::try_from(terminal.unwrap()).unwrap(),
-            &metrics,
-            &journal_dir,
-        )
-        .unwrap();
+    let state = job_state::Enum::try_from(terminal.unwrap()).unwrap();
+    let ready = if object_journal {
+        let mut stores = ObjectStores::new();
+        stores
+            .register("file", LocalObjectIO::new(&object_journal_root).unwrap())
+            .unwrap();
+        publication_plan
+            .complete_object(state, &metrics, Arc::new(stores), object_journal_uri)
+            .unwrap()
+    } else {
+        publication_plan
+            .complete_local(state, &metrics, &journal_dir)
+            .unwrap()
+    };
     assert_eq!(ready.sinks().count(), 8);
     let committed = ironbeam_dataflow::portable_metrics::committed_sink_input_count(
         &metrics,

@@ -221,9 +221,8 @@ impl TypedSink<(i64, UserRow)> for TimestampSink {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    ironbeam_dataflow::run_v5_from_env(|pipeline| {
+#[rustfmt::skip]
+fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
     #[cfg(feature = "database-proofs")]
     if let (Ok(uri), Ok(database), Ok(collection)) = (
         std::env::var("IRONBEAM_V5_PRISM_MONGODB_URI"),
@@ -1907,6 +1906,25 @@ async fn main() -> anyhow::Result<()> {
             move || Ok(Box::new(CaptureSink { rows: Vec::new(), path: window_grouped_sink_path.clone() })),
         )?;
     Ok(())
-    }, "prism-run-fixture").await?;
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    if let (Ok(root), Ok(uri)) = (
+        std::env::var("IRONBEAM_V5_PRISM_OBJECT_JOURNAL_ROOT"),
+        std::env::var("IRONBEAM_V5_PRISM_OBJECT_JOURNAL_URI"),
+    ) {
+        let mut stores = ObjectStores::new();
+        stores.register("file", LocalObjectIO::new(root)?)?;
+        ironbeam_dataflow::run_v5_from_env_with_object_journal(
+            build,
+            "prism-run-fixture",
+            std::sync::Arc::new(stores),
+            uri,
+        )
+        .await?;
+    } else {
+        ironbeam_dataflow::run_v5_from_env(build, "prism-run-fixture").await?;
+    }
     Ok(())
 }
