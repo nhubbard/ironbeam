@@ -170,6 +170,60 @@ pub fn streaming_windowed_set_state_fixture(
         )
 }
 
+/// One set per overlapping sliding window, including windows that expire first.
+pub fn streaming_sliding_set_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "sliding-set-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 6_000_000), ((1, 12), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(8_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 12_000_000)]),
+                TestStreamEvent::AdvanceWatermark(16_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 18_000_000)]),
+                TestStreamEvent::AdvanceWatermark(26_000_000),
+            ],
+        )?
+        .sliding_windows("sliding-set-window", 10_000_000, 5_000_000, 0)?
+        .stateful_set_map_named::<i32, (i32, i32, i32)>(
+            "sliding-set-membership",
+            "prism-proof/sliding-key-set-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                Ok((
+                    SetStateMutation::Insert(value),
+                    (
+                        value,
+                        i32::from(prior.contains(&value)),
+                        i32::try_from(prior.len()).expect("fixture set fits i32"),
+                    ),
+                ))
+            },
+        )?
+        .map_named("sliding-set-label", |(key, (value, found, size))| {
+            format!("{key}:{value}:{found}:{size}")
+        })?
+        .sink_named_with_config(
+            "sliding-set-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("sliding-set-state:{}", directory.display()),
+            move || {
+                Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                })))
+            },
+        )
+}
+
 /// Production unbounded source with a keyed set and idempotent output.
 pub fn production_set_state_fixture(
     pipeline: &Pipeline,

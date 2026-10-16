@@ -554,6 +554,11 @@ watermarks expire the earlier windows. A Direct checkpoint test resumes
 those cells from the first source cursor and completes without repeating
 committed rows.
 
+A separate sliding-window Set-state fixture tracks membership for the same
+key in four overlapping windows. Direct and pinned Prism agree on all eight
+rows as the earlier windows expire. Direct restores the sets and source
+cursor from a checkpoint before processing the later rows.
+
 ## Bundles and committed output
 
 A Beam bundle is a runner-selected unit of work. A successful callback alone
@@ -594,6 +599,13 @@ split points. It returns the residual when the bundle finishes. A request for
 another transform, an arbitrary fraction, or a constrained split point does
 not checkpoint this source. Dynamic splitting of user transforms remains
 unavailable.
+
+Fn Data tests check the exact output watermark attached to a source residual
+and the same event-time progress in its coded restriction after a fresh
+executor. A separate process-restart fixture checks the hold after the
+execution child is replaced. A pending split has no output watermark until
+the source reports durable progress. This is a source contract; user-defined
+watermark estimators remain outside the executable splittable path.
 
 Prism treats a disconnected Fn Control stream with active instructions as a
 bundle failure. Starting another process under the same worker ID does not

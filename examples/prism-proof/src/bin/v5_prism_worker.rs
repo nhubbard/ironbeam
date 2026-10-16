@@ -549,6 +549,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_SLIDING_SET_STATE") {
+        return ironbeam_prism_proof::streaming_sliding_set_state_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_WINDOWED_VALUE_STATE") {
         return ironbeam_prism_proof::windowed_value_state_fixture(pipeline, path.into())
             .map(|_| ())
