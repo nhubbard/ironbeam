@@ -55,6 +55,10 @@ where
     K: Element + Eq + Hash + Clone,
     V: Element,
 {
+    /// Read and mutate a coded multimap for each pipeline key and window.
+    ///
+    /// A map key can retain duplicate values. The callback returns one output
+    /// and a `MultimapStateMutation`.
     pub fn stateful_multimap_map_named<MK: Element + Eq + Hash, MV: Element, O: Element>(
         &self,
         key: &str,

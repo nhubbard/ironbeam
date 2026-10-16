@@ -1,9 +1,14 @@
 impl Graph {
+    /// Serialize graph descriptors with nodes sorted by stable key.
+    ///
+    /// The result excludes registered Rust closures and can be compared
+    /// across driver and worker processes.
     pub fn canonical_json(&self) -> Result<String, Error> {
         let mut copy = self.clone();
         copy.nodes.sort_by(|a, b| a.key.cmp(&b.key));
         serde_json::to_string(&copy).map_err(|e| Error::incompatible(e.to_string()))
     }
+    /// Return the versioned SHA-256 digest of the canonical graph JSON.
     pub fn fingerprint(&self) -> Result<String, Error> {
         let bytes = self.canonical_json()?;
         let digest = Sha256::digest(bytes.as_bytes());
@@ -13,6 +18,7 @@ impl Graph {
         }
         Ok(result)
     }
+    /// Validate graph structure, coder identities, and time policies.
     pub fn validate(&self) -> Result<(), Error> {
         if self.version.major != GRAPH_VERSION.major || self.version.minor > GRAPH_VERSION.minor {
             return Err(Error::incompatible("unsupported graph descriptor version"));
@@ -480,6 +486,7 @@ impl Graph {
         }
         Ok(())
     }
+    /// Validate the graph and each operation against a runner's capabilities.
     pub fn validate_for(&self, backend: &str, capabilities: &Capabilities) -> Result<(), Error> {
         self.validate()?;
         for node in &self.nodes {
@@ -567,6 +574,7 @@ impl Graph {
         }
         Ok(())
     }
+    /// Find a node by its stable graph key.
     #[must_use]
     pub fn node(&self, key: &str) -> Option<&Node> {
         self.nodes.iter().find(|n| n.key == key)

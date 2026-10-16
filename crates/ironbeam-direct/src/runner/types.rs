@@ -52,6 +52,7 @@ pub struct JobHandle {
     pub(crate) metrics_collector: Option<ironbeam_metrics::MetricsCollector>,
 }
 impl JobHandle {
+    /// Create a running handle for tests and runner contract fixtures.
     #[must_use]
     pub fn running_fixture() -> Self {
         Self::new(Arc::new(AtomicBool::new(false)), JobStatus::Running)
@@ -68,19 +69,23 @@ impl JobHandle {
         }
     }
     #[must_use]
+    /// Return this process's unique job identifier.
     pub const fn id(&self) -> u64 {
         self.id
     }
+    /// Return the most recently recorded job lifecycle status.
     pub fn status(&self) -> JobStatus {
         *self
             .status
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+    /// Return the number of elements committed by the job.
     #[must_use]
     pub fn processed(&self) -> u64 {
         self.processed.load(Ordering::Relaxed)
     }
+    /// Snapshot the job's built-in metrics.
     #[must_use]
     pub fn metrics(&self) -> JobMetrics {
         self.metrics.snapshot()
@@ -90,6 +95,7 @@ impl JobHandle {
     pub const fn custom_metrics(&self) -> Option<&ironbeam_metrics::MetricsCollector> {
         self.metrics_collector.as_ref()
     }
+    /// Request cancellation; terminal statuses remain unchanged.
     pub fn cancel(&self) {
         self.cancellation.store(true, Ordering::Release);
         let mut status = self

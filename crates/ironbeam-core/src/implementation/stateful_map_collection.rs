@@ -41,6 +41,10 @@ where
     K: Element + Eq + Hash + Clone,
     V: Element,
 {
+    /// Read and mutate a coded map for each pipeline key and window.
+    ///
+    /// The callback receives the current map and returns one output with a
+    /// `MapStateMutation`. Map iteration order is unspecified.
     pub fn stateful_map_map_named<MK: Element + Eq + Hash, MV: Element, O: Element>(
         &self,
         key: &str,

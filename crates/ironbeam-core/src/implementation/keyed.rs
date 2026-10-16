@@ -96,6 +96,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             Some(GroupCoderRegistration::for_elements::<K, V>()),
         )
     }
+    /// Fold each key's values in Direct's encounter order.
+    ///
+    /// A portable shuffle does not preserve this order. Use an explicit order
+    /// key when the result must agree across runners.
     pub fn fold_values_ordered_named<C, A, O>(
         &self,
         key: &str,
@@ -468,6 +472,11 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             Some((&semantic_id, BUILTIN_OPERATION_VERSION)),
         )
     }
+    /// Emit vectors of at most `batch_size` values for each key and window.
+    ///
+    /// On unbounded input, a discarding count trigger emits full batches as
+    /// values arrive. A final pane may contain fewer values. Batch member
+    /// order is unspecified after a portable shuffle.
     pub fn group_into_batches_named(
         &self,
         key: &str,
@@ -742,6 +751,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             max_buffering_duration_ns,
         )
     }
+    /// Assign offset fixed windows and combine each key within each window.
+    ///
+    /// The result includes the key and its assigned window interval.
     pub fn combine_per_key_and_window_named<U: Element>(
         &self,
         key: &str,
@@ -759,6 +771,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             .with_window_named(&format!("{key}/tag"))?
             .map_named(key, |(window, (key, value))| ((key, window), value))
     }
+    /// Select the value with the greatest event timestamp for each key.
+    ///
+    /// Equal timestamps retain a runner-dependent value. Use the tie-key
+    /// variant for deterministic selection across runners.
     pub fn latest_per_key_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
         if parent.time.output_time != WindowOutputTime::EarliestInPane {
@@ -966,6 +982,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             .insert(key.to_owned());
         Ok(output)
     }
+    /// Collect each key's values within its window and trigger pane.
+    ///
+    /// Value order is unspecified. An unbounded global collection needs an
+    /// early trigger or a finite window before grouping.
     pub fn group_by_key_named(&self, key: &str) -> Result<PCollection<(K, Vec<V>)>, Error> {
         let parent = self.parent()?;
         if parent.boundedness == Boundedness::Unbounded
@@ -1050,6 +1070,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         Ok(result)
     }
 
+    /// Join matching keys and windows, omitting unmatched values.
+    ///
+    /// Duplicate keys produce every matching left-right pair.
     pub fn join_inner_named<W: Element + Clone>(
         &self,
         key: &str,
@@ -1063,6 +1086,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         })
     }
 
+    /// Join matching keys and retain left values without a right match.
+    ///
+    /// An unmatched left value has `None` for its right value.
     pub fn join_left_named<W: Element + Clone>(
         &self,
         key: &str,
@@ -1076,6 +1102,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         })
     }
 
+    /// Join matching keys and retain right values without a left match.
+    ///
+    /// An unmatched right value has `None` for its left value.
     pub fn join_right_named<W: Element + Clone>(
         &self,
         key: &str,
@@ -1089,6 +1118,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         })
     }
 
+    /// Join matching keys and retain values unmatched on either side.
+    ///
+    /// Each side of the result is `None` when that key has no value there.
     pub fn join_full_named<W: Element + Clone>(
         &self,
         key: &str,

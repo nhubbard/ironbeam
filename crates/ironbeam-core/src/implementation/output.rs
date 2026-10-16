@@ -11,10 +11,12 @@ pub struct Sink<T> {
     marker: PhantomData<T>,
 }
 impl<T> Sink<T> {
+    /// Return the sink terminal's stable graph key.
     #[must_use]
     pub fn key(&self) -> &str {
         &self.key
     }
+    /// Snapshot the graph and local implementations for runner submission.
     pub fn snapshot(&self) -> Result<(Graph, Registry), Error> {
         self.pipeline.snapshot()
     }
@@ -25,10 +27,12 @@ impl<T> Sink<T> {
     }
 }
 impl<T> Output<T> {
+    /// Return the output terminal's stable graph key.
     #[must_use]
     pub fn key(&self) -> &str {
         &self.key
     }
+    /// Snapshot the graph and local implementations for runner execution.
     pub fn snapshot(&self) -> Result<(Graph, Registry), Error> {
         self.pipeline.snapshot()
     }

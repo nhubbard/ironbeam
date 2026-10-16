@@ -710,11 +710,13 @@ fn multi_grouped_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiGrou
 }
 
 impl StreamJob {
+    /// Borrow the job handle for status and committed-count queries.
     #[must_use]
     pub const fn handle(&self) -> &JobHandle {
         &self.handle
     }
 
+    /// Return the latest source progress signal, if one has been reported.
     #[must_use]
     pub fn progress(&self) -> Option<ProgressSignal> {
         self.progress
@@ -723,10 +725,14 @@ impl StreamJob {
             .clone()
     }
 
+    /// Request cancellation of the running stream job.
     pub fn cancel(&self) {
         self.handle.cancel();
     }
 
+    /// Join the worker and return its final handle.
+    ///
+    /// Returns an execution error if the worker fails or panics.
     pub fn wait(mut self) -> Result<JobHandle, Error> {
         if let Some(worker) = self.worker.take() {
             worker

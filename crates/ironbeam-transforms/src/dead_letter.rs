@@ -10,6 +10,7 @@ pub struct DeadLetter<T> {
 }
 pub type Classified<T, O> = Result<O, DeadLetter<T>>;
 impl<T> DeadLetter<T> {
+    /// Pair a rejected input element with its error message.
     pub fn new(element: T, error: impl Into<String>) -> Self {
         Self {
             element,

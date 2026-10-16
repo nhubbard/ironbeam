@@ -12,6 +12,9 @@ pub struct OffsetRange {
 }
 
 impl OffsetRange {
+    /// Create the half-open offset range `[start, stop)`.
+    ///
+    /// Returns an error when `start` exceeds `stop`.
     pub fn new(start: i64, stop: i64) -> Result<Self, Error> {
         if start > stop {
             return Err(Error::graph(
@@ -222,6 +225,7 @@ pub struct OffsetRangeTracker {
 }
 
 impl OffsetRangeTracker {
+    /// Create a synchronized claim tracker for a half-open offset range.
     pub fn new(range: OffsetRange) -> Result<Self, Error> {
         OffsetRange::new(range.start, range.stop)?;
         Ok(Self {
@@ -316,6 +320,7 @@ impl OffsetRangeTracker {
         Ok(Some((primary, residual)))
     }
 
+    /// Return the tracker's current primary restriction after any split.
     pub fn restriction(&self) -> Result<OffsetRange, Error> {
         Ok(self.lock()?.range)
     }
@@ -336,6 +341,7 @@ impl OffsetRangeTracker {
         Ok(((done_until - start) as f64, (stop - done_until) as f64))
     }
 
+    /// Return whether every offset in the current restriction was claimed.
     pub fn is_done(&self) -> Result<bool, Error> {
         let state = self.lock()?;
         Ok(state.range.start == state.range.stop

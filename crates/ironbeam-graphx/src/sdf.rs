@@ -31,6 +31,7 @@ pub enum RestrictionError {
 }
 
 impl SourceRestriction {
+    /// Create an initial restriction without a saved source cursor.
     #[must_use]
     pub fn initial(source_key: impl Into<String>) -> Self {
         Self {
@@ -40,6 +41,7 @@ impl SourceRestriction {
         }
     }
 
+    /// Create a restriction that resumes at a validated progress signal.
     pub fn resume(progress: ProgressSignal) -> Result<Self, RestrictionError> {
         let restriction = Self {
             version: RESTRICTION_VERSION,
@@ -50,6 +52,7 @@ impl SourceRestriction {
         Ok(restriction)
     }
 
+    /// Encode a bounded, versioned restriction for Beam's SDF wire payload.
     pub fn encode(&self) -> Result<Vec<u8>, RestrictionError> {
         self.validate(&self.source_key)?;
         let bytes = serde_json::to_vec(self)
@@ -60,6 +63,7 @@ impl SourceRestriction {
         Ok(bytes)
     }
 
+    /// Decode a restriction and verify that it belongs to `source_key`.
     pub fn decode(source_key: &str, bytes: &[u8]) -> Result<Self, RestrictionError> {
         if bytes.len() > MAX_RESTRICTION_BYTES {
             return Err(RestrictionError::TooLarge);

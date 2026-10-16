@@ -217,11 +217,13 @@ impl TimerQueue {
             .min()
     }
 
+    /// Return the number of armed timer slots.
     #[must_use]
     pub fn len(&self) -> usize {
         self.timers.len()
     }
 
+    /// Return whether no timer slots are armed.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.timers.is_empty()

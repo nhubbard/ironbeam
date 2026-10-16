@@ -47,6 +47,10 @@ impl<T: Element> PCollection<T> {
             marker: self.map_named(key, |_| 0_u8)?,
         })
     }
+    /// Map each main value with the side values visible in its window.
+    ///
+    /// The side collection must be bounded or have a supported windowed view.
+    /// Its values are borrowed only for the callback invocation.
     pub fn map_with_side_named<S: Element, U: Element>(
         &self,
         key: &str,

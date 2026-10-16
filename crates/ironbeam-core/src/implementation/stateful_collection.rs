@@ -8,6 +8,11 @@ where
     K: Element + Eq + Hash + Clone,
     V: Element,
 {
+    /// Update one coded value cell per key and window, then emit one value.
+    ///
+    /// The callback receives the previous cell, or `None` for a new key.
+    /// Returning `None` clears it. The semantic ID and version identify the
+    /// callback implementation in every runner.
     pub fn stateful_value_map_named<S: Element, O: Element>(
         &self,
         key: &str,

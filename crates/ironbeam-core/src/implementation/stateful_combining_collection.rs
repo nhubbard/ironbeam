@@ -21,6 +21,11 @@ where
     K: Element + Eq + Hash + Clone,
     V: Element,
 {
+    /// Update a coded accumulator for each key and window.
+    ///
+    /// `combine` identifies the accumulator operation, while `merge` combines
+    /// partial accumulators. The callback returns a state mutation and one
+    /// output for the current input.
     pub fn stateful_combining_map_named<A: Element, O: Element>(
         &self,
         key: &str,

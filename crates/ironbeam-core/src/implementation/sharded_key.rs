@@ -59,6 +59,7 @@ pub struct BeamShardedKey<K> {
 pub type BeamShardedBatch<K, V> = (BeamShardedKey<K>, Vec<V>);
 
 impl<K> BeamShardedKey<K> {
+    /// Pair a user key with an opaque, stable shard identifier.
     #[must_use]
     pub const fn new(key: K, shard_id: Vec<u8>) -> Self {
         Self { key, shard_id }

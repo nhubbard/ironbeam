@@ -59,6 +59,7 @@ pub const MVP_CAPABILITIES: &[&str] = &[
     urns::CODER_IRONBEAM_V5,
 ];
 
+/// Build a Beam Docker environment for the worker container image.
 pub fn docker_environment(container_image: &str) -> Environment {
     let payload = DockerPayload {
         container_image: container_image.to_string(),

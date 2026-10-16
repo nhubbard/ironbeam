@@ -6,6 +6,11 @@ where
     K: Element + Eq + Hash + Clone,
     V: Element,
 {
+    /// Update coded keyed state and schedule named event- or processing-time timers.
+    ///
+    /// Each callback returns its new state, outputs, and timer requests.
+    /// Processing-time deadlines require a runner clock; use the clock-aware
+    /// variant when the element callback sets those deadlines.
     pub fn stateful_timer_map_named<S: Element, O: Element>(
         &self,
         key: &str,

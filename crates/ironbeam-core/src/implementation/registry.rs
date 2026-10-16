@@ -1,5 +1,6 @@
 impl Registry {
     #[must_use]
+    /// Report whether `key` has a registered side-input view.
     pub fn has_side_input(&self, key: &str) -> bool {
         self.side_inputs.contains_key(key)
     }
@@ -30,6 +31,7 @@ impl Registry {
     }
 
     #[must_use]
+    /// Report whether `key` has a coder for join input groups.
     pub fn has_join_coder(&self, key: &str) -> bool {
         self.join_coders.contains_key(key)
     }
@@ -180,9 +182,11 @@ impl Registry {
         (coder.assemble_output)(encoded_key, encoded_values)
     }
     #[must_use]
+    /// Report whether an element coder is registered for `key`.
     pub fn has_coder(&self, key: &str) -> bool {
         self.coders.contains_key(key)
     }
+    /// Encode a typed element with the coder registered at `key`.
     pub fn encode_element(&self, key: &str, value: &(dyn Any + Send)) -> Result<Vec<u8>, Error> {
         let coder = self
             .coders
@@ -190,6 +194,7 @@ impl Registry {
             .ok_or_else(|| Error::incompatible(format!("no coder registered for node {key}")))?;
         (coder.encode)(value)
     }
+    /// Decode an element using the coder registered at `key`.
     pub fn decode_element(&self, key: &str, bytes: &[u8]) -> Result<Box<dyn Any + Send>, Error> {
         let coder = self
             .coders
@@ -197,6 +202,7 @@ impl Registry {
             .ok_or_else(|| Error::incompatible(format!("no coder registered for node {key}")))?;
         (coder.decode)(bytes)
     }
+    /// Open a fresh local fold session for the named transform.
     pub fn open_fold(&self, key: &str) -> Result<Box<dyn FoldSession>, Error> {
         self.folds
             .get(key)
@@ -204,9 +210,11 @@ impl Registry {
             .ok_or_else(|| Error::execution(key, "direct", "fold factory missing"))
     }
     #[must_use]
+    /// Report whether `key` has a local fold factory.
     pub fn has_fold(&self, key: &str) -> bool {
         self.folds.contains_key(key)
     }
+    /// Open the bounded source iterator registered at `key`.
     pub fn open_source(&self, key: &str) -> Result<SourceIterator, Error> {
         self.sources
             .get(key)
@@ -214,6 +222,7 @@ impl Registry {
             .and_then(|source| (source.factory)())
     }
     #[must_use]
+    /// Report whether `key` has a bounded source factory.
     pub fn has_source(&self, key: &str) -> bool {
         self.sources.contains_key(key)
     }
@@ -261,6 +270,7 @@ impl Registry {
         }))
     }
     #[must_use]
+    /// Report whether `key` has a replayable unbounded source factory.
     pub fn has_unbounded_source(&self, key: &str) -> bool {
         self.sources
             .get(key)
@@ -321,10 +331,12 @@ impl Registry {
         ))
     }
     #[must_use]
+    /// Return the registered bounded source's estimated element count, if any.
     pub fn source_len_hint(&self, key: &str) -> Option<usize> {
         self.sources.get(key).and_then(|source| source.len_hint)
     }
     #[must_use]
+    /// Return the source configuration digest used for replay validation.
     pub fn source_config_digest(&self, key: &str) -> Option<&str> {
         self.sources.get(key).and_then(|source| {
             source
@@ -338,6 +350,9 @@ impl Registry {
     pub fn test_stream(&self, key: &str) -> Option<&[EncodedTestStreamEvent]> {
         self.sources.get(key)?.test_stream.as_deref()
     }
+    /// Apply one registered local transform to an element envelope.
+    ///
+    /// `None` means the transform filtered out the element.
     pub fn apply(&self, key: &str, input: Envelope) -> Result<Option<Envelope>, Error> {
         match self
             .transforms
@@ -366,6 +381,7 @@ impl Registry {
             }
         }
     }
+    /// Apply a registered transform that can emit zero or more envelopes.
     pub fn apply_many(&self, key: &str, input: Envelope) -> Result<Vec<Envelope>, Error> {
         self.apply_many_at(key, input, None)
     }
@@ -390,14 +406,17 @@ impl Registry {
         }
     }
     #[must_use]
+    /// Report whether `key` has a one-input, at-most-one-output transform.
     pub fn has_single_transform(&self, key: &str) -> bool {
         matches!(self.transforms.get(key), Some(Transform::Single(_)))
     }
     #[must_use]
+    /// Report whether `key` has any registered local transform.
     pub fn has_transform(&self, key: &str) -> bool {
         self.transforms.contains_key(key)
     }
     #[must_use]
+    /// Return the registered single-element transform, if one exists.
     pub fn single_transform(
         &self,
         key: &str,
@@ -421,6 +440,7 @@ impl Registry {
         }
     }
     #[must_use]
+    /// Report whether `key` has a keyed stateful transform.
     pub fn has_stateful_value(&self, key: &str) -> bool {
         matches!(self.transforms.get(key), Some(Transform::StatefulValue(_) | Transform::StatefulTimer(_)))
     }
@@ -533,6 +553,7 @@ impl Registry {
         }
     }
     #[must_use]
+    /// Return the typed timestamp function registered for `key`, if present.
     pub fn typed_timestamp_transform(&self, key: &str) -> Option<&(dyn Any + Send + Sync)> {
         match self.typed_transforms.get(key)? {
             TypedTransformRegistration::Timestamp(timestamp) => Some(timestamp.as_ref()),
@@ -540,9 +561,11 @@ impl Registry {
         }
     }
     #[must_use]
+    /// Report whether `key` reifies a keyed element's event timestamp.
     pub fn is_keyed_timestamp_reification(&self, key: &str) -> bool {
         self.keyed_timestamp_reifications.contains(key)
     }
+    /// Apply a registered aggregate to its materialized input groups.
     pub fn apply_aggregate(
         &self,
         key: &str,
@@ -561,25 +584,30 @@ impl Registry {
             .map(Arc::as_ref)
     }
     #[must_use]
+    /// Report whether `key` has a registered aggregate implementation.
     pub fn has_aggregate(&self, key: &str) -> bool {
         self.aggregates.contains_key(key)
     }
     #[must_use]
+    /// Report whether `key` has a local sink factory.
     pub fn has_sink(&self, key: &str) -> bool {
         self.sinks.contains_key(key)
     }
     #[must_use]
+    /// Return the sink configuration digest used for worker matching.
     pub fn sink_config_digest(&self, key: &str) -> Option<&str> {
         self.sinks
             .get(key)
             .and_then(|sink| sink.config_digest.as_deref())
     }
     #[must_use]
+    /// Report whether bundle output needs runner-confirmed finalization.
     pub fn sink_requires_bundle_finalization(&self, key: &str) -> bool {
         self.sinks
             .get(key)
             .is_some_and(|sink| sink.bundle_finalization)
     }
+    /// Open the sink session registered at `key`.
     pub fn open_sink(&self, key: &str) -> Result<Box<dyn SinkSession>, Error> {
         let sink = self
             .sinks

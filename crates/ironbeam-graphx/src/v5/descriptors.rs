@@ -28,6 +28,7 @@ const SIDE_INPUT_LOCAL_ID: &str = "side";
 const SIDE_INPUT_ITERABLE_URN: &str = "beam:side_input:iterable:v1";
 const SIDE_INPUT_VIEW_URN: &str = "ironbeam:view:materialized:v5";
 
+/// Build the iterable, globally mapped Beam side-input descriptor.
 pub fn side_input_spec() -> SideInput {
     SideInput {
         access_pattern: Some(FunctionSpec {
@@ -45,6 +46,7 @@ pub fn side_input_spec() -> SideInput {
     }
 }
 
+/// Build an iterable side-input descriptor with identity window mapping.
 pub fn windowed_wait_side_input_spec() -> SideInput {
     let mut spec = side_input_spec();
     spec.window_mapping_fn = Some(FunctionSpec {
@@ -208,9 +210,11 @@ pub struct V5NodeRef {
     pub co_group_input: Option<usize>,
 }
 impl V5NodeRef {
+    /// Encode a node reference for an Ironbeam portable transform payload.
     pub fn encode(&self) -> Result<Vec<u8>, V5Error> {
         serde_json::to_vec(self).map_err(|error| V5Error::Wire(error.to_string()))
     }
+    /// Decode a node reference from an Ironbeam portable transform payload.
     pub fn decode(bytes: &[u8]) -> Result<Self, V5Error> {
         serde_json::from_slice(bytes).map_err(|error| V5Error::Wire(error.to_string()))
     }

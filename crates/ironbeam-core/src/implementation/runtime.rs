@@ -88,6 +88,7 @@ pub enum TypedValueTransform<'a, T> {
     Filter(&'a (dyn Fn(&T) -> bool + Send + Sync)),
 }
 impl<T> TypedValueTransform<'_, T> {
+    /// Apply the map or filter; `None` means the filter rejected the value.
     pub fn apply(&self, value: T) -> Option<T> {
         match self {
             Self::Map(map) => Some(map(value)),

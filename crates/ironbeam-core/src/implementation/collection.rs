@@ -16,6 +16,7 @@ enum CompositeTriggerMode {
 
 impl<T: Element> PCollection<T> {
     #[must_use]
+    /// Return this collection's stable graph key.
     pub fn key(&self) -> &str {
         &self.key
     }
@@ -190,6 +191,10 @@ impl<T: Element> PCollection<T> {
             marker: PhantomData,
         })
     }
+    /// Transform each element with a local Rust function.
+    ///
+    /// Use `map_with_semantic_named` when the same graph must run in a portable
+    /// worker; that worker needs a matching registered implementation.
     pub fn map_named<U: Element>(
         &self,
         key: &str,
@@ -249,6 +254,9 @@ impl<T: Element> PCollection<T> {
             .add_typed_transform(key, TypedTransformRegistration::Map(Arc::new(typed_f)))?;
         Ok(output)
     }
+    /// Keep elements for which `f` returns `true`.
+    ///
+    /// Use `filter_with_semantic_named` for a portable worker implementation.
     pub fn filter_named(
         &self,
         key: &str,
@@ -291,6 +299,9 @@ impl<T: Element> PCollection<T> {
             .add_typed_transform(key, TypedTransformRegistration::Filter(Arc::new(typed_f)))?;
         Ok(output)
     }
+    /// Replace each element with zero or more values returned by `f`.
+    ///
+    /// Use `flat_map_with_semantic_named` for a portable worker implementation.
     pub fn flat_map_named<U: Element>(
         &self,
         key: &str,
@@ -360,6 +371,11 @@ impl<T: Element> PCollection<T> {
         }));
         self.next_with_semantic(key, Operation::FlatMap, Some(transform), None, semantic)
     }
+    /// Merge collections of the same element type into one collection.
+    ///
+    /// All inputs must belong to this pipeline and use the same time policy.
+    /// The result is unbounded if any input is unbounded. Element order across
+    /// inputs is unspecified.
     pub fn flatten_named(&self, key: &str, others: &[Self]) -> Result<Self, Error> {
         let parent = self.parent()?;
         let mut additional_inputs = Vec::with_capacity(others.len());
@@ -423,6 +439,9 @@ impl<T: Element> PCollection<T> {
             marker: PhantomData,
         })
     }
+    /// Insert a materialization boundary without changing element values.
+    ///
+    /// The boundary may change element order and partitioning.
     pub fn reshuffle_named(&self, key: &str) -> Result<Self, Error> {
         self.next(key, Operation::Reshuffle, None, None)
     }
@@ -449,6 +468,10 @@ impl<T: Element> PCollection<T> {
             },
         }
     }
+    /// Delay this collection until a bounded signal collection completes.
+    ///
+    /// The signal's values are discarded. Both collections must belong to the
+    /// same pipeline. Use `wait_on_windowed_named` for a per-window barrier.
     pub fn wait_on_named<S: Element>(
         &self,
         key: &str,
@@ -539,6 +562,10 @@ impl<T: Element> PCollection<T> {
         }
         Ok(current)
     }
+    /// Assign event timestamps to nonoverlapping fixed windows.
+    ///
+    /// `size_ns` must be positive. Window boundaries are aligned to the Unix
+    /// epoch; use `fixed_windows_with_offset` to shift them.
     pub fn fixed_windows(&self, key: &str, size_ns: i64) -> Result<Self, Error> {
         if size_ns <= 0 {
             return Err(Error::graph(key, "fixed window size must be positive"));
@@ -979,6 +1006,10 @@ impl<T: Element> PCollection<T> {
             },
         )
     }
+    /// Assign fixed windows whose boundaries are shifted by `offset_ns`.
+    ///
+    /// `size_ns` must be positive. An offset can be negative and is interpreted
+    /// modulo the window size.
     pub fn fixed_windows_with_offset(
         &self,
         key: &str,
@@ -1050,6 +1081,9 @@ impl<T: Element> PCollection<T> {
         }));
         self.next(key, Operation::SlidingWindow, Some(transform), Some(window))
     }
+    /// Pair each value with the finite window interval assigned to it.
+    ///
+    /// Returns a graph error for a global window, which has no finite interval.
     pub fn with_window_named(&self, key: &str) -> Result<PCollection<(WindowInterval, T)>, Error> {
         if self.parent()?.time.window == Window::Global {
             return Err(Error::graph(
@@ -1081,6 +1115,10 @@ impl<T: Element> PCollection<T> {
         }));
         self.next(key, Operation::Map, Some(transform), None)
     }
+    /// Set each element's event timestamp from its value, in nanoseconds.
+    ///
+    /// Apply this before windowing; assigning timestamps after a finite
+    /// window has been selected returns a graph error.
     pub fn assign_timestamps_named(
         &self,
         key: &str,
@@ -1157,6 +1195,7 @@ impl<T: Element> PCollection<T> {
         }));
         self.next(key, Operation::Map, Some(transform), None)
     }
+    /// Add an output terminal that a runner can collect or materialize.
     pub fn output(&self, key: &str) -> Result<Output<T>, Error> {
         self.next::<T>(key, Operation::Output, None, None)?;
         Ok(Output {
@@ -1179,6 +1218,10 @@ impl<T: Element> PCollection<T> {
         };
         detached.output(key)
     }
+    /// Add a sink marker with append semantics and the given replay policy.
+    ///
+    /// This method does not provide a sink implementation. Use `sink_named`
+    /// to register an executable sink factory.
     pub fn append_sink(&self, key: &str, replay: Replay) -> Result<(), Error> {
         self.next::<T>(
             key,
@@ -1194,6 +1237,10 @@ impl<T: Element> PCollection<T> {
         )?;
         Ok(())
     }
+    /// Register a typed sink factory for local execution.
+    ///
+    /// Portable workers need a stable configuration digest; use
+    /// `sink_named_with_config` for that case.
     pub fn sink_named(
         &self,
         key: &str,
@@ -1294,6 +1341,10 @@ impl<T: Element> PCollection<T> {
             marker: PhantomData,
         })
     }
+    /// Add a named custom-operation marker to the graph.
+    ///
+    /// This marker has no executable handler. Use a registered, versioned
+    /// transform when the operation must run on Direct or a portable worker.
     pub fn custom_named(
         &self,
         key: &str,
@@ -1313,6 +1364,10 @@ impl<T: Element> PCollection<T> {
             None,
         )
     }
+    /// Mark a global combine stage without registering its implementation.
+    ///
+    /// An unbounded collection in the global window must first receive a
+    /// finite window; otherwise graph construction fails.
     pub fn global_combine_marker(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
@@ -1323,6 +1378,11 @@ impl<T: Element> PCollection<T> {
         }
         self.next(key, Operation::GlobalCombine, None, None)
     }
+    /// Combine all values in each window using a local vector callback.
+    ///
+    /// An empty bounded global collection invokes `f` with an empty vector.
+    /// For large inputs, prefer a mergeable combiner to avoid materializing
+    /// every value. An unbounded global collection requires a finite window.
     pub fn combine_globally_named<U: Element>(
         &self,
         key: &str,
@@ -1379,6 +1439,10 @@ impl<T: Element> PCollection<T> {
             Some(GroupCoderRegistration::for_global::<T>()),
         )
     }
+    /// Combine each window with a mergeable accumulator.
+    ///
+    /// The accumulator can be merged across partitions. Unbounded global
+    /// input requires a finite window before this transform.
     pub fn combine_globally_lifted_named<C, A, O>(
         &self,
         key: &str,
@@ -1417,6 +1481,10 @@ impl<T: Element> PCollection<T> {
             Some(GroupCoderRegistration::for_global::<T>()),
         )
     }
+    /// Fold each window in Direct's element encounter order.
+    ///
+    /// Portable runners do not preserve encounter order. Use an explicit
+    /// order key for a fold that must agree across runners.
     pub fn fold_globally_ordered_named<C, A, O>(
         &self,
         key: &str,
@@ -1538,6 +1606,11 @@ impl<T: Element> PCollection<T> {
             Some(GroupCoderRegistration::for_global::<T>()),
         )
     }
+    /// Select the greatest event timestamp in each window.
+    ///
+    /// Ties retain the first value encountered by the runner and are not
+    /// portable. Use `latest_globally_by_named` for deterministic ties.
+    /// Empty input returns an execution error.
     pub fn latest_globally_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
@@ -1647,6 +1720,9 @@ impl<T: Element> PCollection<T> {
             Some(GroupCoderRegistration::for_global::<T>()),
         )
     }
+    /// Assign offset fixed windows and combine the values in each interval.
+    ///
+    /// The result pairs each combined value with its `WindowInterval`.
     pub fn combine_per_window_named<U: Element>(
         &self,
         key: &str,
@@ -1658,6 +1734,10 @@ impl<T: Element> PCollection<T> {
             .combine_globally_named(&format!("{key}/combine"), f)?
             .with_window_named(key)
     }
+    /// Split each bounded window into vectors of at most `batch_size` values.
+    ///
+    /// A size of zero is treated as one. This helper first materializes the
+    /// window, so use keyed streaming batches for open unbounded windows.
     pub fn batch_elements_named(
         &self,
         key: &str,
@@ -1689,6 +1769,10 @@ impl<T: Element> PCollection<T> {
                 },
             )
     }
+    /// Apply `f` to each explicit batch and flatten its returned values.
+    ///
+    /// Batch membership follows `batch_elements_named`; use the versioned
+    /// variant when the handler must run in a portable worker.
     pub fn map_batches_named<U: Element>(
         &self,
         key: &str,
@@ -1818,6 +1902,11 @@ impl<T: Element> PCollection<T> {
                 )
         }
     }
+    /// Split each bounded window into batches limited by `size_fn`'s sum.
+    ///
+    /// A single value larger than `max_bytes` forms its own batch. A zero
+    /// limit is treated as one. This helper materializes the window first;
+    /// use keyed streaming batches for unbounded collections.
     pub fn batch_by_size_named(
         &self,
         key: &str,

@@ -1,3 +1,4 @@
+/// Return a validated topological order of graph node keys for Beam lowering.
 pub fn portable_order(graph: &Graph) -> Result<Vec<String>, V5Error> {
     graph.validate_for(
         "dataflow-v5-preview",
@@ -180,26 +181,32 @@ fn is_production_source(node: &Node) -> bool {
         && node.semantic_id != "ironbeam/test-stream"
 }
 
+/// Return the stable collection ID for one tagged co-group input.
 pub fn cogroup_tag_collection_id(key: &str, input_index: usize) -> String {
     id("v5_cogroup_tag_pc", &format!("{key}:{input_index}"))
 }
 
+/// Return the stable collection ID after tagged co-group inputs are flattened.
 pub fn cogroup_flatten_collection_id(key: &str) -> String {
     id("v5_cogroup_flat_pc", key)
 }
 
+/// Return the stable collection ID for a fold's grouped input.
 pub fn fold_group_collection_id(key: &str) -> String {
     id("v5_fold_group_pc", key)
 }
 
+/// Return the stable collection ID for a fold's tagged input.
 pub fn fold_tag_collection_id(key: &str) -> String {
     id("v5_fold_tag_pc", key)
 }
 
+/// Return the stable collection ID for a fold's empty-input seed.
 pub fn fold_seed_collection_id(key: &str) -> String {
     id("v5_fold_seed_pc", key)
 }
 
+/// Return the stable collection ID for the fold's flattened inputs.
 pub fn fold_flatten_collection_id(key: &str) -> String {
     id("v5_fold_flat_pc", key)
 }
@@ -220,6 +227,7 @@ fn fold_group_transform_id(key: &str) -> String {
     id("v5_fold_group_t", key)
 }
 
+/// Return the stable collection ID for a global side-input view.
 pub fn side_global_collection_id(key: &str) -> String {
     id("v5_side_global_pc", key)
 }

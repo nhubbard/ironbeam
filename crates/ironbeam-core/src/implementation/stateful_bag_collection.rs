@@ -28,6 +28,10 @@ where
     K: Element + Eq + Hash + Clone,
     V: Element,
 {
+    /// Read and mutate a coded bag for each key and window.
+    ///
+    /// The callback returns one output and a `BagStateMutation`. Bag iteration
+    /// order is unspecified; use explicit keys if output depends on order.
     pub fn stateful_bag_map_named<S: Element, O: Element>(
         &self,
         key: &str,

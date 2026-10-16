@@ -55,6 +55,9 @@ pub fn execution_identity(
     })
 }
 
+/// Read Ironbeam's execution identity from a portable Beam pipeline.
+///
+/// Returns a wire error when the identity is missing or malformed.
 pub fn identity_from_beam(beam: &BeamPipeline) -> Result<ExecutionIdentity, V5Error> {
     let entry = beam
         .display_data

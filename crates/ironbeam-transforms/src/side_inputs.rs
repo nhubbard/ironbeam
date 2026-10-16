@@ -13,11 +13,13 @@ pub struct SideSingleton<T>(Arc<T>);
 #[derive(Clone)]
 pub struct SideMultimap<K, V>(Arc<HashMap<K, Vec<V>>>);
 
+/// Share an immutable vector as a local side-input value.
 #[must_use]
 pub fn side_vec<T: Element>(values: Vec<T>) -> SideVec<T> {
     SideVec(Arc::new(values))
 }
 
+/// Build a local side map; later duplicate keys replace earlier values.
 #[must_use]
 pub fn side_hashmap<K: Element + Eq + Hash + Sync, V: Element + Sync>(
     pairs: Vec<(K, V)>,
@@ -25,11 +27,13 @@ pub fn side_hashmap<K: Element + Eq + Hash + Sync, V: Element + Sync>(
     SideMap(Arc::new(pairs.into_iter().collect()))
 }
 
+/// Share one immutable value as a local side input.
 #[must_use]
 pub fn side_singleton<T: Element>(value: T) -> SideSingleton<T> {
     SideSingleton(Arc::new(value))
 }
 
+/// Build a local side multimap that retains values for duplicate keys.
 #[must_use]
 pub fn side_multimap<K: Element + Eq + Hash + Sync, V: Element + Sync>(
     pairs: Vec<(K, V)>,

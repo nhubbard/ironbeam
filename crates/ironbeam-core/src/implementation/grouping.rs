@@ -1451,6 +1451,11 @@ macro_rules! collect_cogroup_input {
 
 macro_rules! define_cogroup {
     ($name:ident; $first:ident:$first_ty:ident:0, $($other:ident:$other_ty:ident:$position:tt),+) => {
+        /// Group each input by key and window, preserving input position.
+        ///
+        /// A key absent from one input has an empty vector in that position.
+        /// Values within a vector have no portable order. Inputs must share a
+        /// pipeline and compatible time and window policies.
         #[allow(clippy::too_many_arguments, clippy::type_complexity)]
         pub fn $name<K, $first_ty, $($other_ty),+>(
             key: &str,

@@ -59,11 +59,13 @@ pub enum WindowTrigger {
 }
 
 impl WindowTrigger {
+    /// Return whether the policy emits only the default on-time pane.
     #[must_use]
     pub const fn is_default(&self) -> bool {
         matches!(self, Self::Default)
     }
 
+    /// Return the early element-count threshold, if the policy has one.
     #[must_use]
     pub const fn early_count(&self) -> Option<u64> {
         match self {
@@ -85,6 +87,7 @@ impl WindowTrigger {
         }
     }
 
+    /// Return the early processing-time delay in nanoseconds, if configured.
     #[must_use]
     pub const fn early_processing_time(&self) -> Option<i64> {
         match self {
@@ -102,6 +105,7 @@ impl WindowTrigger {
         }
     }
 
+    /// Return whether count and processing time must both become ready.
     #[must_use]
     pub const fn is_count_and_processing_time(&self) -> bool {
         matches!(
@@ -111,6 +115,7 @@ impl WindowTrigger {
         )
     }
 
+    /// Return whether the trigger runs count before processing time.
     #[must_use]
     pub const fn is_count_then_processing_time(&self) -> bool {
         matches!(
@@ -120,6 +125,7 @@ impl WindowTrigger {
         )
     }
 
+    /// Return the late element-count threshold, if configured.
     #[must_use]
     pub const fn late_count(&self) -> Option<u64> {
         match self {
@@ -132,6 +138,7 @@ impl WindowTrigger {
         }
     }
 
+    /// Return whether successive panes retain previously emitted values.
     #[must_use]
     pub const fn is_accumulating(&self) -> bool {
         matches!(
@@ -158,6 +165,7 @@ pub enum WindowOutputTime {
 }
 
 impl WindowOutputTime {
+    /// Return whether output uses the earliest timestamp in its pane.
     #[must_use]
     pub const fn is_default(&self) -> bool {
         matches!(self, Self::EarliestInPane)
@@ -319,6 +327,10 @@ impl Window {
         }
     }
 
+    /// Return the assigned interval for one event timestamp.
+    ///
+    /// Global windows return `None`. Sliding windows return one interval here;
+    /// use `assign_all` to obtain every overlapping interval.
     pub fn assign(&self, timestamp_ns: i64) -> Result<Option<WindowInterval>, Error> {
         match *self {
             Self::Global => Ok(None),
@@ -615,6 +627,7 @@ pub struct ExecutionIdentity {
     pub sink_config_digest: String,
 }
 impl ExecutionIdentity {
+    /// Reject a worker whose graph and configuration identity differs.
     pub fn verify(&self, worker: &Self) -> Result<(), Error> {
         if self != worker {
             return Err(Error::incompatible(
@@ -654,6 +667,7 @@ pub struct Error {
 }
 
 impl Error {
+    /// Construct a permanent graph-construction error for `node`.
     pub fn graph(node: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             kind: ErrorKind::Graph,
@@ -663,6 +677,7 @@ impl Error {
             message: message.into(),
         }
     }
+    /// Construct a permanent missing-capability error for a runner.
     pub fn unsupported(
         node: impl Into<String>,
         backend: impl Into<String>,
@@ -679,6 +694,7 @@ impl Error {
             message: format!("missing capability {capability}"),
         }
     }
+    /// Construct a permanent wire or execution-identity mismatch error.
     pub fn incompatible(message: impl Into<String>) -> Self {
         Self {
             kind: ErrorKind::Incompatible,
@@ -688,6 +704,9 @@ impl Error {
             message: message.into(),
         }
     }
+    /// Construct an execution error with node and backend context.
+    ///
+    /// Its retry class is `Unknown` until a caller assigns a policy.
     pub fn execution(
         node: impl Into<String>,
         backend: impl Into<String>,
@@ -701,6 +720,9 @@ impl Error {
             message: message.into(),
         }
     }
+    /// Construct an I/O error with node and backend context.
+    ///
+    /// Its retry class is `Unknown` until a caller assigns a policy.
     pub fn io(
         node: impl Into<String>,
         backend: impl Into<String>,
@@ -714,6 +736,7 @@ impl Error {
             message: message.into(),
         }
     }
+    /// Construct a permanent checkpoint or replay recovery error.
     pub fn recovery(node: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             kind: ErrorKind::Recovery,
@@ -723,6 +746,7 @@ impl Error {
             message: message.into(),
         }
     }
+    /// Construct a permanent resource-limit error for `node`.
     pub fn resource(node: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             kind: ErrorKind::Resource,

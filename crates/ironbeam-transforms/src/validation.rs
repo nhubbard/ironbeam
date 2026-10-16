@@ -28,6 +28,7 @@ pub mod validators {
     use super::{ValidationError, ValidationResult};
     use std::fmt::Display;
 
+    /// Require a string to contain at least one byte.
     pub fn not_empty(field: &str, value: &str) -> ValidationResult {
         if value.is_empty() {
             Err(vec![ValidationError::field(field, "must not be empty")])
@@ -36,6 +37,7 @@ pub mod validators {
         }
     }
 
+    /// Require a string to contain `substring`.
     pub fn contains(field: &str, value: &str, substring: &str) -> ValidationResult {
         if value.contains(substring) {
             Ok(())
@@ -47,6 +49,7 @@ pub mod validators {
         }
     }
 
+    /// Require a value to lie within the inclusive `[min, max]` range.
     pub fn in_range<T: PartialOrd + Display>(
         field: &str,
         value: &T,
@@ -63,6 +66,9 @@ pub mod validators {
         }
     }
 
+    /// Check a simple `local@domain.tld` shape.
+    ///
+    /// This is a convenience check, not full email-address validation.
     pub fn is_email(field: &str, value: &str) -> ValidationResult {
         if let Some(at_pos) = value.find('@') {
             let local = &value[..at_pos];
@@ -79,6 +85,7 @@ pub mod validators {
         Err(vec![ValidationError::field(field, "invalid email format")])
     }
 
+    /// Require at least `min` UTF-8 bytes in the string.
     pub fn min_length(field: &str, value: &str, min: usize) -> ValidationResult {
         if value.len() >= min {
             Ok(())
@@ -90,6 +97,7 @@ pub mod validators {
         }
     }
 
+    /// Require at most `max` UTF-8 bytes in the string.
     pub fn max_length(field: &str, value: &str, max: usize) -> ValidationResult {
         if value.len() <= max {
             Ok(())
@@ -113,6 +121,7 @@ pub struct ValidationError {
     pub code: Option<String>,
 }
 impl ValidationError {
+    /// Create an error without a field path.
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             field: None,
@@ -120,6 +129,7 @@ impl ValidationError {
             code: None,
         }
     }
+    /// Create an error associated with one field path.
     pub fn field(field: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             field: Some(field.into()),
@@ -127,6 +137,7 @@ impl ValidationError {
             code: None,
         }
     }
+    /// Attach a machine-readable error code.
     #[must_use]
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
@@ -176,24 +187,30 @@ pub struct ErrorCollector {
     errors: Vec<RecordError>,
 }
 impl ErrorCollector {
+    /// Create an empty collector for record validation errors.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
+    /// Append the validation errors for one record.
     pub fn add_error(&mut self, record_id: Option<String>, errors: Vec<ValidationError>) {
         self.errors.push(RecordError { record_id, errors });
     }
+    /// Return the number of records with reported errors.
     #[must_use]
     pub const fn error_count(&self) -> usize {
         self.errors.len()
     }
+    /// Borrow the collected record errors in insertion order.
     #[must_use]
     pub fn errors(&self) -> &[RecordError] {
         &self.errors
     }
+    /// Remove all collected record errors.
     pub fn clear(&mut self) {
         self.errors.clear();
     }
+    /// Write a human-readable error summary to standard error.
     pub fn print_errors(&self) {
         for (index, record) in self.errors.iter().enumerate() {
             let id = record

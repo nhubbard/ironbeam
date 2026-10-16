@@ -30,6 +30,10 @@ where
     K: Element + Eq + Hash + Clone,
     V: Element,
 {
+    /// Read and mutate a coded set for each key and window.
+    ///
+    /// The callback receives the current set and returns one output with a
+    /// `SetStateMutation`. Iteration order is unspecified.
     pub fn stateful_set_map_named<S: Element + Eq + Hash, O: Element>(
         &self,
         key: &str,

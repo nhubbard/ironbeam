@@ -335,6 +335,10 @@ impl Pipeline {
     ) -> Result<PCollection<T>, Error> {
         self.from_vec(key, values.into_iter().collect())
     }
+    /// Register a bounded source with a stable configuration digest.
+    ///
+    /// `open` creates a fresh iterator for each execution. `len_hint` is an
+    /// estimate used for planning, not a promise about output size.
     pub fn bounded_source<T: Element>(
         &self,
         key: &str,
@@ -352,6 +356,10 @@ impl Pipeline {
             open,
         )
     }
+    /// Register a bounded source with an explicit portable semantic ID.
+    ///
+    /// A portable worker must bind the same source behavior and configuration
+    /// digest. An empty digest or invalid identity fails graph construction.
     pub fn bounded_source_with_semantic<T: Element>(
         &self,
         key: &str,
@@ -400,6 +408,9 @@ impl Pipeline {
             0,
         )
     }
+    /// Add an unbounded source descriptor without a local reader factory.
+    ///
+    /// Use `unbounded_source_with_factory` for executable, resumable input.
     pub fn unbounded_source<T: Element>(
         &self,
         key: &str,
@@ -594,6 +605,7 @@ impl Pipeline {
             marker: PhantomData,
         })
     }
+    /// Validate and clone the logical graph and its local implementation registry.
     pub fn snapshot(&self) -> Result<(Graph, Registry), Error> {
         let inner = self
             .inner

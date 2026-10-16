@@ -13,6 +13,7 @@ use crate::ids;
 use crate::urns;
 use ironbeam_core::WindowTrigger;
 
+/// Build the default global-window Beam strategy.
 pub fn global_windowing_strategy() -> WindowingStrategy {
     WindowingStrategy {
         window_fn: Some(FunctionSpec {
@@ -141,6 +142,10 @@ fn repeated_count_trigger(count: u64) -> Box<Trigger> {
     })
 }
 
+/// Encode a fixed-window function with millisecond-aligned size and offset.
+///
+/// Returns an error for a nonpositive size or values outside Beam's
+/// millisecond precision.
 pub fn fixed_window_fn(size_ns: i64, offset_ns: i64) -> Result<FunctionSpec, String> {
     const NANOS_PER_MILLI: i64 = 1_000_000;
     const NANOS_PER_SECOND: i64 = 1_000_000_000;

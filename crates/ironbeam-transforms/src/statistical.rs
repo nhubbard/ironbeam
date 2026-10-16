@@ -19,6 +19,9 @@ pub struct TDigest {
 }
 
 impl TDigest {
+    /// Create an empty digest with the requested centroid compression.
+    ///
+    /// Larger values retain more centroids. The value is not validated here.
     #[must_use]
     pub const fn new(compression: f64) -> Self {
         Self {
@@ -30,20 +33,26 @@ impl TDigest {
         }
     }
 
+    /// Return the total weight of retained observations.
     #[must_use]
     pub const fn count(&self) -> f64 {
         self.total_weight
     }
 
+    /// Return whether no observation has contributed weight.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.total_weight == 0.0
     }
 
+    /// Add one observation with unit weight.
     pub fn add(&mut self, value: f64) {
         self.add_weighted(value, 1.0);
     }
 
+    /// Add an observation with caller-supplied weight.
+    ///
+    /// Non-finite values are ignored. Weight is not validated by this method.
     pub fn add_weighted(&mut self, value: f64, weight: f64) {
         if !value.is_finite() {
             return;
@@ -61,6 +70,7 @@ impl TDigest {
         }
     }
 
+    /// Merge another digest's centroids into this digest.
     pub fn merge(&mut self, other: &Self) {
         if other.is_empty() {
             return;
@@ -72,6 +82,7 @@ impl TDigest {
         self.compress();
     }
 
+    /// Merge nearby centroids to bound the digest's size.
     pub fn compress(&mut self) {
         if self.centroids.is_empty() {
             return;
@@ -105,6 +116,9 @@ impl TDigest {
         (self.compression * q * (1.0 - q) / 2.0).max(1.0)
     }
 
+    /// Estimate a quantile in `[0, 1]`; return `NaN` for an empty digest.
+    ///
+    /// The requested quantile is clamped to this interval.
     #[must_use]
     pub fn quantile(&self, q: f64) -> f64 {
         if self.centroids.is_empty() {
@@ -160,11 +174,13 @@ impl TDigest {
         fraction.mul_add(self.max - previous_value, previous_value)
     }
 
+    /// Estimate several quantiles in the order requested.
     #[must_use]
     pub fn quantiles(&self, qs: &[f64]) -> Vec<f64> {
         qs.iter().map(|&q| self.quantile(q)).collect()
     }
 
+    /// Estimate the cumulative fraction at or below `value`.
     #[must_use]
     pub fn cdf(&self, value: f64) -> f64 {
         if self.centroids.is_empty() || value < self.min {

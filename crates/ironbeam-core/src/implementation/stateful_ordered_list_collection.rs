@@ -48,6 +48,10 @@ where
     K: Element + Eq + Hash + Clone,
     V: Element,
 {
+    /// Read and mutate values ordered by an explicit millisecond sort key.
+    ///
+    /// State is isolated by pipeline key and window. Equal sort keys use
+    /// encoded-value order; the callback returns one output and a mutation.
     pub fn stateful_ordered_list_map_named<S: Element, O: Element>(
         &self,
         key: &str,
