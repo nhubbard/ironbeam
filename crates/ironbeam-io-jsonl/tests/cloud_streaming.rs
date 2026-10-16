@@ -162,6 +162,58 @@ fn streaming_glob_fixes_sorted_object_set_and_reports_line_errors() {
     assert!(error.to_string().contains("line 2"));
 }
 
+#[test]
+fn streaming_source_validates_uri_provider_and_object_at_binding() {
+    let directory = tempfile::tempdir().unwrap();
+    let (stores, _) = stores(directory.path());
+    for uri in [
+        "not-a-uri",
+        "missing://bucket/data/rows.jsonl",
+        "file://bucket/data/absent.jsonl",
+    ] {
+        assert!(
+            cloud_jsonl_streaming_uri_source::<u32>(&Pipeline::default(), "read", &stores, uri)
+                .is_err(),
+            "{uri} should fail during graph construction"
+        );
+    }
+    assert!(
+        cloud_jsonl_streaming_uri_glob_source::<u32>(
+            &Pipeline::default(),
+            "read",
+            &stores,
+            "missing://bucket/data/*.jsonl",
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn streaming_single_object_glob_keeps_one_source() {
+    let directory = tempfile::tempdir().unwrap();
+    let (stores, _) = stores(directory.path());
+    stores
+        .write("file://bucket/data/only.jsonl", b"4\n5\n")
+        .unwrap();
+    let pipeline = Pipeline::default();
+    let output = cloud_jsonl_streaming_uri_glob_source::<u32>(
+        &pipeline,
+        "read",
+        &stores,
+        "file://bucket/data/*.jsonl",
+    )
+    .unwrap()
+    .output("out")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        [4, 5]
+    );
+}
+
 #[cfg(feature = "compression-gzip")]
 #[test]
 fn streaming_jsonl_decodes_gzip_after_content_verification() {
