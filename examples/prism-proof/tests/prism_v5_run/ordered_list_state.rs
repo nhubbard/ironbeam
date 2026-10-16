@@ -66,6 +66,81 @@ async fn prism_matches_direct_bounded_stateful_fanout() {
 }
 
 #[tokio::test]
+async fn prism_runs_unbounded_stateful_fanout_with_direct_gap_recorded() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_first = directory.path().join("direct-stream-state-first");
+    let direct_second = directory.path().join("direct-stream-state-second");
+    let portable_first = directory.path().join("portable-stream-state-first");
+    let portable_second = directory.path().join("portable-stream-state-second");
+    let direct = Pipeline::default();
+    let (first_sink, second_sink) = ironbeam_prism_proof::streaming_stateful_fanout_fixture(
+        &direct,
+        direct_first.clone(),
+        direct_second.clone(),
+    )
+    .unwrap();
+    let error = DirectRunner
+        .start_stream_sink_pair(&first_sink, &second_sink, &JobConfig::default())
+        .err()
+        .expect("Direct must reject the unsupported shared stateful pair route");
+    assert!(matches!(
+        error.kind,
+        ErrorKind::UnsupportedCapability { ref capability }
+            if capability == "multi-output-operation"
+    ));
+    let rows = |path: &Path| {
+        let mut values = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    };
+    let first = [
+        "0:10000000:1:10:0",
+        "0:10000000:1:20:1",
+        "0:10000000:2:30:0",
+        "10000000:20000000:1:40:0",
+    ];
+    let second = [
+        "0:10000000:copy:1:10:0",
+        "0:10000000:copy:1:20:1",
+        "0:10000000:copy:2:30:0",
+        "10000000:20000000:copy:1:40:0",
+    ];
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_stateful_fanout_fixture(
+        &portable,
+        portable_first.clone(),
+        portable_second.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "unbounded-stateful-fanout",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_STREAMING_STATEFUL_FANOUT_FIRST".into(),
+                portable_first.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_STREAMING_STATEFUL_FANOUT_SECOND".into(),
+                portable_second.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism streaming fanout failed: {terminal:?}");
+    assert_eq!(rows(&portable_first), first);
+    assert_eq!(rows(&portable_second), second);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_ordered_list_mutations() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

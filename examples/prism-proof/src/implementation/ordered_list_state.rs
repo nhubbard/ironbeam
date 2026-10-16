@@ -67,6 +67,76 @@ pub fn bounded_stateful_fanout_fixture(
     Ok(())
 }
 
+/// A windowed unbounded bag-state stage feeds two idempotent sinks.
+pub fn streaming_stateful_fanout_fixture(
+    pipeline: &Pipeline,
+    first: PathBuf,
+    second: PathBuf,
+) -> Result<(Sink<String>, Sink<String>), Error> {
+    let shared = pipeline
+        .test_stream_source(
+            "streaming-stateful-fanout-source",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+                TestStreamEvent::Elements(vec![((1, 20), 2_000_000), ((2, 30), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 40), 12_000_000)]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )?
+        .fixed_windows("streaming-stateful-fanout-window", 10_000_000)?
+        .stateful_bag_map_named::<i32, String>(
+            "streaming-stateful-fanout-bag",
+            "prism-proof/streaming-stateful-fanout-bag",
+            Version { major: 1, minor: 0 },
+            |key, value, prior| {
+                Ok((
+                    BagStateMutation::Append(vec![value]),
+                    format!("{key}:{value}:{}", prior.len()),
+                ))
+            },
+        )?
+        .map_named("streaming-stateful-fanout-label", |(_, label)| label)?;
+    let first_directory = first.clone();
+    let first_sink = shared.sink_named_with_config(
+        "streaming-stateful-fanout-first",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::Idempotent,
+            commit: true,
+        },
+        format!("streaming-stateful-fanout-first:{}", first.display()),
+        move || {
+            Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                directory: first_directory.clone(),
+                pending: Vec::new(),
+            })))
+        },
+    )?;
+    let second_directory = second.clone();
+    let second_sink = shared
+        .map_named("streaming-stateful-fanout-copy", |label| {
+            format!("copy:{label}")
+        })?
+        .sink_named_with_config(
+            "streaming-stateful-fanout-second",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("streaming-stateful-fanout-second:{}", second.display()),
+            move || {
+                Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                    directory: second_directory.clone(),
+                    pending: Vec::new(),
+                })))
+            },
+        )?;
+    Ok((first_sink, second_sink))
+}
+
 /// Shared ordered-list mutation fixture for Direct and the local Prism worker.
 pub fn bounded_ordered_list_fixture(
     pipeline: &Pipeline,

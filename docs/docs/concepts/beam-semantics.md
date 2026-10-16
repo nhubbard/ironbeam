@@ -502,6 +502,12 @@ worker-child failure after replay output keeps the same keyed counts with an
 idempotent sink. A production unbounded source also retains its keyed counts
 when the execution child is replaced during residual reopen. Combining state also executes through the bag-state protocol with a coded accumulator and a versioned merge function.
 
+Prism can fan out one unbounded fixed-window bag-state stage into two
+idempotent sinks. A three-batch fixture checks the values and window assigned
+to every row in both sinks. Direct currently rejects a paired streaming route
+with a shared stateful stage; its paired route has no state checkpoint or
+window-expiration handling.
+
 `stateful_timer_map_named` combines one value cell with declared timer
 families. Its element callback can set or clear a timer for its current key
 and window. The timer callback can change that cell and emit values with the
