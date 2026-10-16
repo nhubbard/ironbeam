@@ -726,6 +726,9 @@ IDs separately from message IDs. Its in-memory provider delivers published
 messages to each subscription, supports acknowledgment after processing, and
 assigns a new handle when an unacknowledged delivery is retried. Tests cover
 fanout, retry, invalid handles, and the legacy provider's fail-closed default.
+The provider requires explicit topic creation and rejects publication or
+subscription to a missing topic, so local service tests cannot silently create
+a resource that GCP would reject.
 This is a service-contract proof, not a Beam Pub/Sub source or a live GCP
 service proof.
 

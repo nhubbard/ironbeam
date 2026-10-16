@@ -5,6 +5,7 @@ use std::collections::HashMap;
 #[test]
 fn subscriptions_receive_independent_deliveries_and_acknowledge_by_attempt() {
     let service = FakePubSubIO::new();
+    service.create_topic("events").unwrap();
     service.subscribe("events", "first").unwrap();
     service.subscribe("events", "second").unwrap();
     let id = service
@@ -46,6 +47,7 @@ fn subscriptions_receive_independent_deliveries_and_acknowledge_by_attempt() {
 #[test]
 fn invalid_acknowledgment_is_atomic_and_legacy_pull_consumes() {
     let service = FakePubSubIO::new();
+    service.create_topic("events").unwrap();
     service.subscribe("events", "sub").unwrap();
     service.publish("events", b"one", HashMap::new()).unwrap();
     service.publish("events", b"two", HashMap::new()).unwrap();
@@ -80,6 +82,7 @@ fn subscription_scope_and_unknown_handles_fail_closed() {
         service.subscribe("", "sub").unwrap_err().kind,
         ErrorKind::InvalidInput
     );
+    service.create_topic("events").unwrap();
     service.subscribe("events", "sub").unwrap();
     service.subscribe("events", "sub").unwrap();
     assert_eq!(
@@ -99,4 +102,38 @@ fn subscription_scope_and_unknown_handles_fail_closed() {
         ErrorKind::NotFound
     );
     service.acknowledge("sub", vec![delivery.ack_id]).unwrap();
+}
+
+#[test]
+fn topics_must_be_created_before_subscription_or_publication() {
+    let service = FakePubSubIO::new();
+    assert_eq!(
+        service.create_topic("").unwrap_err().kind,
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        service.subscribe("events", "sub").unwrap_err().kind,
+        ErrorKind::NotFound
+    );
+    assert_eq!(
+        service
+            .publish("events", b"row", HashMap::new())
+            .unwrap_err()
+            .kind,
+        ErrorKind::NotFound
+    );
+    assert_eq!(
+        service.publish_batch("events", vec![]).unwrap_err().kind,
+        ErrorKind::NotFound
+    );
+    assert!(!service.topic_exists("events").unwrap());
+
+    service.create_topic("events").unwrap();
+    assert_eq!(
+        service.create_topic("events").unwrap_err().kind,
+        ErrorKind::AlreadyExists
+    );
+    service.subscribe("events", "sub").unwrap();
+    let id = service.publish("events", b"row", HashMap::new()).unwrap();
+    assert_eq!(service.pull_with_ack("sub", 1).unwrap()[0].message.id, id);
 }

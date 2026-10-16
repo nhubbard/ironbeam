@@ -30,6 +30,30 @@ impl FakePubSubIO {
         Self::default()
     }
 
+    /// Create a topic before publishing or attaching subscriptions.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidInput` for an empty name or `AlreadyExists` for an
+    /// existing topic.
+    pub fn create_topic(&self, topic: &str) -> CloudResult<()> {
+        if topic.is_empty() {
+            return Err(CloudIOError::new(
+                ErrorKind::InvalidInput,
+                "topic name must not be empty",
+            ));
+        }
+        let mut state = self.lock_state()?;
+        if state.topics.contains_key(topic) {
+            return Err(CloudIOError::new(
+                ErrorKind::AlreadyExists,
+                "topic already exists",
+            ));
+        }
+        state.topics.insert(topic.to_owned(), Vec::new());
+        Ok(())
+    }
+
     fn lock_state(&self) -> CloudResult<std::sync::MutexGuard<'_, PubSubState>> {
         self.state.lock().map_err(|_| {
             CloudIOError::new(ErrorKind::InternalError, "Pub/Sub state mutex poisoned")
@@ -68,6 +92,12 @@ impl PubSubIO for FakePubSubIO {
         attributes: HashMap<String, String>,
     ) -> CloudResult<String> {
         let mut state = self.lock_state()?;
+        if !state.topics.contains_key(topic) {
+            return Err(CloudIOError::new(
+                ErrorKind::NotFound,
+                "topic does not exist",
+            ));
+        }
         state.next_message_id = state.next_message_id.checked_add(1).ok_or_else(|| {
             CloudIOError::new(ErrorKind::InternalError, "message ID space exhausted")
         })?;
@@ -80,8 +110,8 @@ impl PubSubIO for FakePubSubIO {
         };
         state
             .topics
-            .entry(topic.to_owned())
-            .or_default()
+            .get_mut(topic)
+            .expect("topic checked above")
             .push(message.clone());
         for subscription in state.subscriptions.values_mut() {
             if subscription.topic == topic {
@@ -97,6 +127,12 @@ impl PubSubIO for FakePubSubIO {
         topic: &str,
         messages: Vec<(Vec<u8>, HashMap<String, String>)>,
     ) -> CloudResult<Vec<String>> {
+        if !self.topic_exists(topic)? {
+            return Err(CloudIOError::new(
+                ErrorKind::NotFound,
+                "topic does not exist",
+            ));
+        }
         messages
             .into_iter()
             .map(|(data, attributes)| self.publish(topic, &data, attributes))
@@ -121,7 +157,12 @@ impl PubSubIO for FakePubSubIO {
                 ))
             };
         }
-        state.topics.entry(topic.to_owned()).or_default();
+        if !state.topics.contains_key(topic) {
+            return Err(CloudIOError::new(
+                ErrorKind::NotFound,
+                "topic does not exist",
+            ));
+        }
         state.subscriptions.insert(
             subscription_name.to_owned(),
             Subscription {
