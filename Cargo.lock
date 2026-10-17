@@ -2885,7 +2885,7 @@ dependencies = [
  "postcard",
  "prost 0.14.4",
  "serde",
- "serde_arrow 0.14.2",
+ "serde_arrow 0.15.0",
  "serde_json",
  "sqlx",
  "tempfile",
