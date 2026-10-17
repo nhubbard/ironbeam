@@ -1977,17 +1977,66 @@ impl<T: Element> PCollection<T> {
     }
     /// Select the latest event in each window with a deterministic tie key.
     /// Equal event times choose the greatest tie key; duplicate pairs fail.
+    /// An unbounded global input requires an early count or processing-time
+    /// trigger. Its values are retained until each pane fires.
     pub fn latest_globally_by_named<Q: Ord + Send + 'static>(
         &self,
         key: &str,
         tie_key: impl Fn(&T) -> Q + Send + Sync + 'static,
     ) -> Result<Self, Error> {
         let parent = self.parent()?;
-        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+        if parent.boundedness == Boundedness::Unbounded
+            && parent.time.window == Window::Global
+            && parent.time.trigger.early_count().is_none()
+            && parent.time.trigger.early_processing_time().is_none()
+        {
             return Err(Error::graph(
                 key,
-                "unbounded global aggregation requires a finite window",
+                "unbounded global aggregation requires a finite window or early trigger",
             ));
+        }
+        if parent.boundedness == Boundedness::Unbounded {
+            let grouped = self.stream_global_group(key)?;
+            let node_key = key.to_owned();
+            let select = Transform::Single(Arc::new(move |event| {
+                let Envelope {
+                    pane,
+                    value,
+                    window,
+                    assigned_window,
+                    ..
+                } = event;
+                let (_, values) = *value.downcast::<(u8, Vec<(i64, T)>)>().map_err(|_| {
+                    Error::execution(&node_key, "runner", "latest global group type mismatch")
+                })?;
+                let mut seen = BTreeSet::new();
+                let mut latest = None;
+                for (timestamp_ns, value) in values {
+                    let order = (timestamp_ns, tie_key(&value));
+                    let is_later = seen.last().is_none_or(|current| order.cmp(current).is_gt());
+                    if !seen.insert(order) {
+                        return Err(Error::execution(
+                            &node_key,
+                            "runner",
+                            "duplicate latest tie key in window/event time",
+                        ));
+                    }
+                    if is_later {
+                        latest = Some((timestamp_ns, value));
+                    }
+                }
+                let (timestamp_ns, value) = latest.ok_or_else(|| {
+                    Error::execution(&node_key, "runner", "latest global group is empty")
+                })?;
+                Ok(Some(Envelope {
+                    pane,
+                    value: Box::new(value),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                }))
+            }));
+            return grouped.next(key, Operation::Map, Some(select), None);
         }
         let node_key = key.to_owned();
         let aggregate: Aggregate = Arc::new(move |mut inputs| {

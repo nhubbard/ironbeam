@@ -11,6 +11,7 @@ pub enum GlobalTriggerRoute {
     Count,
     Sum,
     Ordered,
+    Latest,
 }
 
 /// Choose how the global window emits its first pane.
@@ -92,14 +93,27 @@ pub fn streaming_global_trigger_fixture(
                 time / 1_000_000
             )
         })?;
+    let latest = source
+        .latest_globally_by_named("global-trigger-latest", |value| *value)?
+        .reify_timestamps_named("global-trigger-latest-time")?
+        .reify_panes_named("global-trigger-latest-pane")?
+        .map_named("global-trigger-latest-label", |(pane, (time, value))| {
+            format!(
+                "latest:{:?}:{}:{}:{value}",
+                pane.timing,
+                pane.index,
+                time / 1_000_000
+            )
+        })?;
     let output = match route {
         GlobalTriggerRoute::All => {
-            vector.flatten_named("global-trigger-flatten", &[count, sum, ordered])?
+            vector.flatten_named("global-trigger-flatten", &[count, sum, ordered, latest])?
         }
         GlobalTriggerRoute::Vector => vector,
         GlobalTriggerRoute::Count => count,
         GlobalTriggerRoute::Sum => sum,
         GlobalTriggerRoute::Ordered => ordered,
+        GlobalTriggerRoute::Latest => latest,
     };
     let directory = path.clone();
     output.sink_named_with_config(

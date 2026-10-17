@@ -249,7 +249,8 @@ substantial state even for a count or sum. A separate fixed-window case
 matches early and on-time count and sum panes, including pane indices and
 latest-in-pane timestamps, in both discarding and accumulating modes.
 
-An unbounded global window can use these combines and the explicit-order list
+An unbounded global window can use these combines, the explicit-order list,
+and deterministic latest selection
 when it has an early count or processing-time trigger. A three-element
 TestStream with a count trigger produces matching early and final panes on
 Direct and local Prism. Without an early trigger, the graph is rejected.
