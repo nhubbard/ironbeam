@@ -4,6 +4,7 @@ use super::*;
 pub fn or_finally_same_batch_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
+    accumulating: bool,
 ) -> Result<Sink<String>, Error> {
     let source = pipeline
         .test_stream_source(
@@ -20,8 +21,12 @@ pub fn or_finally_same_batch_fixture(
                 TestStreamEvent::AdvanceWatermark(10_000_000),
             ],
         )?
-        .fixed_windows("or-finally-batch-window", 10_000_000)?
-        .count_or_finally_trigger_named("or-finally-batch-trigger", 2, 7)?;
+        .fixed_windows("or-finally-batch-window", 10_000_000)?;
+    let source = if accumulating {
+        source.accumulating_count_or_finally_trigger_named("or-finally-batch-trigger", 2, 7)?
+    } else {
+        source.count_or_finally_trigger_named("or-finally-batch-trigger", 2, 7)?
+    };
     let sink_directory = directory.clone();
     source
         .group_by_key_named("or-finally-batch-group")?
@@ -36,7 +41,7 @@ pub fn or_finally_same_batch_fixture(
                 replay: Replay::Idempotent,
                 commit: true,
             },
-            format!("or-finally-batch:{}", directory.display()),
+            format!("or-finally-batch:{accumulating}:{}", directory.display()),
             move || {
                 Ok(Box::new(IdempotentRowSink {
                     directory: sink_directory.clone(),

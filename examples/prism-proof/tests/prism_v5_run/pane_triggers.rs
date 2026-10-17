@@ -11,45 +11,78 @@ async fn prism_matches_direct_or_finally_when_final_count_is_in_one_batch() {
         rows.sort();
         rows
     };
-    let expected = [
-        "1:[1, 2]:Early:0",
-        "1:[3, 4]:Early:1",
-        "1:[5, 6]:Early:2",
-        "1:[7]:Early:3",
-        "1:[8, 9]:OnTime:4",
-    ];
     let directory = tempfile::tempdir().unwrap();
-    let direct_path = directory.path().join("direct-or-finally-batch");
-    let direct_pipeline = Pipeline::default();
-    let direct_sink =
-        ironbeam_prism_proof::or_finally_same_batch_fixture(&direct_pipeline, direct_path.clone())
-            .unwrap();
-    DirectRunner
-        .start_stream_sink(&direct_sink, &JobConfig::default())
-        .unwrap()
-        .wait()
-        .unwrap();
-    assert_eq!(read_rows(&direct_path), expected);
-
-    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
-        return;
-    };
+    let endpoint = std::env::var("IRONBEAM_PRISM_ENDPOINT").ok();
     let _prism_job = prism_job_lock().lock().await;
-    let portable_path = directory.path().join("portable-or-finally-batch");
-    let pipeline = Pipeline::default();
-    ironbeam_prism_proof::or_finally_same_batch_fixture(&pipeline, portable_path.clone()).unwrap();
-    let (state, messages) = run_shared_fixture(
-        &endpoint,
-        &pipeline,
-        "or-finally-same-batch",
-        HashMap::from([(
-            "IRONBEAM_V5_PRISM_OR_FINALLY_SAME_BATCH".into(),
-            portable_path.to_string_lossy().into_owned(),
-        )]),
-    )
-    .await;
-    assert_eq!(state, 3, "Prism OrFinally batch failed: {messages:?}");
-    assert_eq!(read_rows(&portable_path), expected);
+    for accumulating in [false, true] {
+        let expected = if accumulating {
+            [
+                "1:[1, 2]:Early:0",
+                "1:[1, 2, 3, 4]:Early:1",
+                "1:[1, 2, 3, 4, 5, 6]:Early:2",
+                "1:[1, 2, 3, 4, 5, 6, 7]:Early:3",
+                "1:[1, 2, 3, 4, 5, 6, 7, 8, 9]:OnTime:4",
+            ]
+        } else {
+            [
+                "1:[1, 2]:Early:0",
+                "1:[3, 4]:Early:1",
+                "1:[5, 6]:Early:2",
+                "1:[7]:Early:3",
+                "1:[8, 9]:OnTime:4",
+            ]
+        };
+        let mut expected = expected.map(str::to_owned).to_vec();
+        expected.sort();
+        let direct_path = directory
+            .path()
+            .join(format!("direct-or-finally-{accumulating}"));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = ironbeam_prism_proof::or_finally_same_batch_fixture(
+            &direct_pipeline,
+            direct_path.clone(),
+            accumulating,
+        )
+        .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        assert_eq!(read_rows(&direct_path), expected);
+
+        let Some(endpoint) = endpoint.as_deref() else {
+            continue;
+        };
+        let portable_path = directory
+            .path()
+            .join(format!("portable-or-finally-{accumulating}"));
+        let pipeline = Pipeline::default();
+        ironbeam_prism_proof::or_finally_same_batch_fixture(
+            &pipeline,
+            portable_path.clone(),
+            accumulating,
+        )
+        .unwrap();
+        let (state, messages) = run_shared_fixture(
+            endpoint,
+            &pipeline,
+            &format!("or-finally-same-batch-{accumulating}"),
+            HashMap::from([
+                (
+                    "IRONBEAM_V5_PRISM_OR_FINALLY_SAME_BATCH".into(),
+                    portable_path.to_string_lossy().into_owned(),
+                ),
+                (
+                    "IRONBEAM_V5_PRISM_OR_FINALLY_SAME_BATCH_ACCUMULATING".into(),
+                    if accumulating { "1" } else { "0" }.into(),
+                ),
+            ]),
+        )
+        .await;
+        assert_eq!(state, 3, "Prism OrFinally batch failed: {messages:?}");
+        assert_eq!(read_rows(&portable_path), expected);
+    }
 }
 
 #[tokio::test]
