@@ -53,8 +53,10 @@ shapes still need runner tests.
 `BeamRow<S>` embeds its writer schema in the graph and uses Beam's row coder.
 An explicit reader schema can add nullable fields, remove fields, or reorder
 compatible fields, including fields inside nested rows, arrays, iterables,
-and maps. The streaming execution proof covers an integer/string projection;
-the wider nested cases have byte-level tests but no streaming runner proof.
+and maps. A two-window streaming proof projects reordered integer and string
+fields and a nullable nested row through a keyed shuffle on Direct and local
+Prism. Array, iterable, and map projection have byte-level tests; their
+streaming runner behavior remains unproved.
 
 Keyed batching can use encoded-value byte and count limits. On unbounded
 input, Ironbeam retains a coded partial batch per key and window and flushes it
