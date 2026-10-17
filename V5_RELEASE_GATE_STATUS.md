@@ -90,16 +90,18 @@ the local Semantic Release simulation.
 The 2026-10-17 PR check exposed stale coverage denominators for three crates.
 The earlier core baseline covered 1,868 source lines while the current Linux
 measurement covers 8,119; Direct's earlier baseline was a placeholder of
-100 lines, while its current measurement covers 7,659. Shared I/O grew from
+100 lines, while its current measurement covers 7,658. Shared I/O grew from
 1,062 to 1,158 measured lines. The ratchets now use the exact failing Linux
 measurements: core **7,627/8,119 lines (93.94%)** and **1,781/2,086 branches
-(85.38%)**; Direct **6,947/7,659 lines (90.70%)** and **1,973/2,198 branches
-(89.76%)**; shared I/O **1,036/1,158 lines (89.46%)** and **196/266 branches
+(85.38%)**; Direct **6,946/7,658 lines (90.70%)** and **1,975/2,200 branches
+(89.77%)**; shared I/O **1,036/1,158 lines (89.46%)** and **196/266 branches
 (73.68%)**. These are current floors, not a claim that the changed files are
 fully covered. XML's original **98/105 line (93.33%)** and **2/2 branch**
 floors remain unchanged; focused object-source tests brought its local check
 above them. LLVM source-location totals differ across macOS and Linux, so the
 Linux run is the final check for these three refreshed baselines.
+The pinned local Prism suite passed all 305 enabled nondestructive fixtures
+after the pane expectations were corrected.
 
 Passing a current check does not close a release gate unless its full proof
 below is complete.

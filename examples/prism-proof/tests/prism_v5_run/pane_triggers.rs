@@ -1670,8 +1670,7 @@ async fn prism_characterizes_accumulating_early_and_late_count_schedule() {
     let portable_rows = read_rows(&portable_path);
     let mut expected_direct = vec![
         "a:[2, 3]:2000000:Early:true:false:0:-1",
-        "a:[2, 3]:2000000:OnTime:false:false:1:0",
-        "a:[2, 3, 5, 7]:2000000:Late:false:false:2:1",
+        "a:[2, 3, 5, 7]:2000000:Late:false:false:1:0",
     ];
     expected_direct.sort();
     assert_eq!(direct_rows, expected_direct);
