@@ -24,6 +24,67 @@ pub fn two_source_count_then_time_boundary_fixture(
     count_boundary_fixture(pipeline, directory, CountBoundaryMode::ThenTime)
 }
 
+/// Fire exact two-element panes across three independent watermarked sources.
+pub fn three_source_count_boundary_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let source = |name: &str, values: Vec<((i32, i32), i64)>| {
+        pipeline
+            .test_stream_source(
+                name,
+                vec![
+                    TestStreamEvent::Elements(values),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                ],
+            )?
+            .fixed_windows(&format!("{name}-window"), 10_000_000)?
+            .early_count_trigger_named(&format!("{name}-trigger"), 2)
+    };
+    let first = source(
+        "triple-boundary-first",
+        vec![
+            ((1, 2), 1_000_000),
+            ((1, 3), 2_000_000),
+            ((1, 6), 3_000_000),
+        ],
+    )?;
+    let second = source("triple-boundary-second", vec![((1, 4), 4_000_000)])?;
+    let third = source(
+        "triple-boundary-third",
+        vec![((1, 5), 5_000_000), ((1, 7), 6_000_000)],
+    )?;
+    let sink_directory = directory.clone();
+    first
+        .co_group_homogeneous_named("triple-boundary-group", &[second, third])?
+        .reify_panes_named("triple-boundary-pane")?
+        .map_named("triple-boundary-row", |(pane, (key, values))| {
+            format!(
+                "{key}:{}:{}:{}:{:?}:{}",
+                values[0].len(),
+                values[1].len(),
+                values[2].len(),
+                pane.timing,
+                pane.index,
+            )
+        })?
+        .sink_named_with_config(
+            "triple-boundary-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("triple-boundary:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 #[derive(Clone, Copy)]
 enum CountBoundaryMode {
     Plain,

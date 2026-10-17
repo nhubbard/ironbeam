@@ -1,7 +1,8 @@
 use super::*;
 use ironbeam_prism_proof::{
-    two_source_count_and_time_boundary_fixture, two_source_count_boundary_fixture,
-    two_source_count_or_time_boundary_fixture, two_source_count_then_time_boundary_fixture,
+    three_source_count_boundary_fixture, two_source_count_and_time_boundary_fixture,
+    two_source_count_boundary_fixture, two_source_count_or_time_boundary_fixture,
+    two_source_count_then_time_boundary_fixture,
 };
 
 fn read_rows(path: &Path) -> Vec<String> {
@@ -44,6 +45,71 @@ fn assert_two_count_panes(rows: &[String]) {
     assert_eq!(indices, [0, 1]);
     assert_eq!(timestamps, [(0, 1_000_000), (1, 3_000_000)]);
     assert_eq!((left_total, right_total), (3, 1));
+}
+
+fn assert_three_source_count_panes(rows: &[String]) {
+    assert_eq!(rows.len(), 3, "expected three early panes: {rows:?}");
+    let mut totals = [0_usize; 3];
+    let mut indices = Vec::new();
+    for row in rows {
+        let parts = row.split(':').collect::<Vec<_>>();
+        assert_eq!(parts.len(), 6);
+        assert_eq!(parts[0], "1");
+        let sizes = [
+            parts[1].parse::<usize>().unwrap(),
+            parts[2].parse::<usize>().unwrap(),
+            parts[3].parse::<usize>().unwrap(),
+        ];
+        assert_eq!(sizes.iter().sum::<usize>(), 2, "pane overshot: {row}");
+        for (total, size) in totals.iter_mut().zip(sizes) {
+            *total += size;
+        }
+        assert_eq!(parts[4], "Early");
+        indices.push(parts[5].parse::<i64>().unwrap());
+    }
+    indices.sort();
+    assert_eq!(indices, [0, 1, 2]);
+    assert_eq!(totals, [3, 1, 2]);
+}
+
+#[test]
+fn direct_three_source_count_panes_fire_at_element_boundaries() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("direct-three-source-count-boundary");
+    let pipeline = Pipeline::default();
+    let sink = three_source_count_boundary_fixture(&pipeline, path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_three_source_count_panes(&read_rows(&path));
+}
+
+#[tokio::test]
+async fn prism_three_source_count_panes_fire_at_element_boundaries() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory
+        .path()
+        .join("portable-three-source-count-boundary");
+    let pipeline = Pipeline::default();
+    three_source_count_boundary_fixture(&pipeline, path.clone()).unwrap();
+    let (state, messages) = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "three-source-count-boundary",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_THREE_SOURCE_COUNT_BOUNDARY".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(state, 3, "Prism three-source count failed: {messages:?}");
+    assert_three_source_count_panes(&read_rows(&path));
 }
 
 #[test]
