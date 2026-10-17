@@ -779,8 +779,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     /// Select the value with the greatest event timestamp for each key.
     ///
     /// Equal timestamps retain a runner-dependent value. Use the tie-key
-    /// variant for deterministic selection across runners. Unbounded global
-    /// input requires an early count or processing-time trigger.
+    /// variant for deterministic selection across runners. The result keeps
+    /// the selected event's timestamp. Unbounded global input requires an
+    /// early count or processing-time trigger.
     pub fn latest_per_key_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
         if parent.time.output_time != WindowOutputTime::EarliestInPane {
@@ -853,12 +854,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 ..
             } = event;
             let (group_key, values) = *value.downcast::<(K, Vec<(i64, V)>)>().map_err(|_| {
-                Error::execution(&select_key, "direct", "latest group type mismatch")
+                Error::execution(&select_key, "runner", "latest group type mismatch")
             })?;
             let mut values = values.into_iter();
             let (mut latest_timestamp, mut latest_value) = values
                 .next()
-                .ok_or_else(|| Error::execution(&select_key, "direct", "latest group is empty"))?;
+                .ok_or_else(|| Error::execution(&select_key, "runner", "latest group is empty"))?;
             for (timestamp, value) in values {
                 if timestamp > latest_timestamp {
                     latest_timestamp = timestamp;
@@ -879,6 +880,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     /// Equal event times choose the greatest tie key. A repeated event time
     /// and tie key in one key/window pane is an error on every runner. An
     /// unbounded global input requires an early count or processing-time trigger.
+    /// The result keeps the selected event's timestamp.
     pub fn latest_per_key_by_named<Q: Element + Ord>(
         &self,
         key: &str,

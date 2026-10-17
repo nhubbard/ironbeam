@@ -1929,6 +1929,7 @@ impl<T: Element> PCollection<T> {
     ///
     /// Ties retain the first value encountered by the runner and are not
     /// portable. Use `latest_globally_by_named` for deterministic ties.
+    /// The result keeps the selected event's timestamp.
     /// An empty bounded input returns an execution error. Streaming input
     /// emits no result until a nonempty pane fires. Unbounded global input
     /// needs an early count or processing-time trigger.
@@ -2020,7 +2021,8 @@ impl<T: Element> PCollection<T> {
     /// Select the latest event in each window with a deterministic tie key.
     /// Equal event times choose the greatest tie key; duplicate pairs in one
     /// window pane fail. An empty bounded input fails; streaming input emits
-    /// no result until a nonempty pane fires.
+    /// no result until a nonempty pane fires. The result keeps the selected
+    /// event's timestamp.
     /// An unbounded global input requires an early count or processing-time
     /// trigger. Its values are retained until each pane fires.
     pub fn latest_globally_by_named<Q: Ord + Send + 'static>(

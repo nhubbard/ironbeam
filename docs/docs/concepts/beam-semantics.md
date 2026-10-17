@@ -246,7 +246,8 @@ also checks those values against new arrivals.
 Both latest-per-key selectors have the same triggered global-window support.
 Their two-key example selects the greatest event time in each pane and matches
 on both runners. The selector without a tie key remains runner-dependent when
-event times are equal.
+event times are equal. Both selectors retain the chosen event's timestamp in
+their output.
 Direct also checkpoints its early global keyed pane and recovers the later
 pane after a failed sink commit without repeating the committed row.
 
