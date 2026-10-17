@@ -83,6 +83,9 @@ but omits that pane after a bounded early firing.
 `FireIfNonempty` checks for values that arrived since the preceding firing.
 In accumulating mode, values retained from an early pane do not by themselves
 cause an on-time pane. `FireAlways` emits that pane with the accumulated values.
+In one tested two-source count-and-processing-time job, the pinned local Prism
+runner emits the retained values on time even under `FireIfNonempty`; Direct
+omits that pane. The corresponding test records both runner outputs.
 
 ### Final pane at window expiration
 

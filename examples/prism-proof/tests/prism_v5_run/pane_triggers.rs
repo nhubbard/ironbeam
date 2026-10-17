@@ -950,7 +950,7 @@ async fn prism_matches_direct_two_source_processing_time_panes() {
 }
 
 #[tokio::test]
-async fn prism_matches_direct_two_source_count_and_time_panes() {
+async fn prism_characterizes_two_source_count_and_time_panes() {
     struct DirectRows {
         rows: Arc<Mutex<Vec<String>>>,
         accepted: Arc<Mutex<HashSet<String>>>,
@@ -1055,11 +1055,16 @@ async fn prism_matches_direct_two_source_count_and_time_panes() {
         portable.sort();
         let early = "group:1:[[2], [4]]:Early:true:false:0:-1";
         if accumulating {
-            assert_eq!(direct, [early, "group:1:[[2], [4]]:OnTime:false:true:1:0",]);
+            assert_eq!(direct, [early]);
+            assert_eq!(
+                portable,
+                [early, "group:1:[[2], [4]]:OnTime:false:true:1:0"],
+                "Prism accumulating on-time pane changed"
+            );
         } else {
             assert_eq!(direct, [early]);
+            assert_eq!(portable, direct, "two-source count-and-time panes differ");
         }
-        assert_eq!(portable, direct, "two-source count-and-time panes differ");
     }
 }
 
