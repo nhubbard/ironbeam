@@ -12,6 +12,8 @@ mod distinct;
 mod global_combines;
 #[path = "prism_v5_run/global_count_per_element.rs"]
 mod global_count_per_element;
+#[path = "prism_v5_run/global_distinct_count_per_key.rs"]
+mod global_distinct_count_per_key;
 #[path = "prism_v5_run/global_distinct_per_key.rs"]
 mod global_distinct_per_key;
 #[path = "prism_v5_run/global_latest_keyed.rs"]

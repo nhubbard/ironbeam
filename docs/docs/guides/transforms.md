@@ -136,7 +136,9 @@ also produces the same values on both runners.
 `distinct_count_per_key_named` counts different values for each key and
 window. On unbounded input, it groups the values before counting. Direct and
 local Prism agree on a two-window test with repeated values. As with other
-grouped helpers, a large key can increase the runner's state use.
+grouped helpers, a large key can increase the runner's state use. In a tested
+global window with a count trigger, both runners emit distinct counts of one
+and two in successive early panes.
 
 `distinct_by_per_window_named` derives a key from each value and keeps one
 representative per key and window. It chooses the smallest encoded value, so
