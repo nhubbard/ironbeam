@@ -326,32 +326,40 @@ pub fn streaming_ordered_helpers_fixture(
         .fixed_windows("streaming-ordered-helpers-window", 10_000_000)?;
     let list = source
         .to_list_ordered_by_named("streaming-ordered-helpers-list", |row| row.0)?
+        .reify_timestamps_named("streaming-ordered-helpers-list-time")?
         .with_window_named("streaming-ordered-helpers-list-window")?
-        .flat_map_named("streaming-ordered-helpers-list-rows", |(window, rows)| {
+        .flat_map_named("streaming-ordered-helpers-list-rows", |(window, (time, rows))| {
             rows.into_iter()
                 .enumerate()
                 .map(|(index, (rank, value))| {
-                    format!("list:{}:{index}:{rank}:{value}", window.start_ns / 1_000_000)
+                    format!(
+                        "list:{}:{}:{index}:{rank}:{value}",
+                        window.start_ns / 1_000_000,
+                        time / 1_000_000
+                    )
                 })
                 .collect::<Vec<_>>()
         })?;
     let take = source
         .take_ordered_by_named("streaming-ordered-helpers-take", 2, |row| row.0)?
+        .reify_timestamps_named("streaming-ordered-helpers-take-time")?
         .with_window_named("streaming-ordered-helpers-take-window")?
-        .map_named("streaming-ordered-helpers-take-rows", |(window, (rank, value))| {
-            format!("take:{}:{rank}:{value}", window.start_ns / 1_000_000)
+        .map_named("streaming-ordered-helpers-take-rows", |(window, (time, (rank, value)))| {
+            format!("take:{}:{}:{rank}:{value}", window.start_ns / 1_000_000, time / 1_000_000)
         })?;
     let first = source
         .first_ordered_by_named("streaming-ordered-helpers-first", |row| row.0)?
+        .reify_timestamps_named("streaming-ordered-helpers-first-time")?
         .with_window_named("streaming-ordered-helpers-first-window")?
-        .map_named("streaming-ordered-helpers-first-rows", |(window, (rank, value))| {
-            format!("first:{}:{rank}:{value}", window.start_ns / 1_000_000)
+        .map_named("streaming-ordered-helpers-first-rows", |(window, (time, (rank, value)))| {
+            format!("first:{}:{}:{rank}:{value}", window.start_ns / 1_000_000, time / 1_000_000)
         })?;
     let distinct = source
         .distinct_by_ordered_by_named("streaming-ordered-helpers-distinct", |row| row.1, |row| row.0)?
+        .reify_timestamps_named("streaming-ordered-helpers-distinct-time")?
         .with_window_named("streaming-ordered-helpers-distinct-window")?
-        .map_named("streaming-ordered-helpers-distinct-rows", |(window, (rank, value))| {
-            format!("distinct:{}:{rank}:{value}", window.start_ns / 1_000_000)
+        .map_named("streaming-ordered-helpers-distinct-rows", |(window, (time, (rank, value)))| {
+            format!("distinct:{}:{}:{rank}:{value}", window.start_ns / 1_000_000, time / 1_000_000)
         })?;
     let sink_path = path.clone();
     let output = match route {

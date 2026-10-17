@@ -4,22 +4,22 @@ use ironbeam_prism_proof::{
 };
 
 const STREAMING_ORDERED_ROWS: [&str; 16] = [
-    "distinct:0:1:10",
-    "distinct:0:3:20",
-    "distinct:10:4:10",
-    "distinct:10:6:30",
-    "first:0:1:10",
-    "first:10:4:10",
-    "list:0:0:1:10",
-    "list:0:1:2:10",
-    "list:0:2:3:20",
-    "list:10:0:4:10",
-    "list:10:1:5:10",
-    "list:10:2:6:30",
-    "take:0:1:10",
-    "take:0:2:10",
-    "take:10:4:10",
-    "take:10:5:10",
+    "distinct:0:1:1:10",
+    "distinct:0:1:3:20",
+    "distinct:10:11:4:10",
+    "distinct:10:11:6:30",
+    "first:0:1:1:10",
+    "first:10:11:4:10",
+    "list:0:1:0:1:10",
+    "list:0:1:1:2:10",
+    "list:0:1:2:3:20",
+    "list:10:11:0:4:10",
+    "list:10:11:1:5:10",
+    "list:10:11:2:6:30",
+    "take:0:1:1:10",
+    "take:0:1:2:10",
+    "take:10:11:4:10",
+    "take:10:11:5:10",
 ];
 
 fn read_row_directory(path: &Path) -> Vec<String> {
