@@ -995,7 +995,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         {
             return Err(Error::graph(
                 key,
-                "unbounded global grouping requires an early count trigger",
+                "unbounded global grouping requires a finite window or early trigger",
             ));
         }
         let key_owned = key.to_owned();
