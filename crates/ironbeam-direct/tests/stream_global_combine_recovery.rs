@@ -1,7 +1,7 @@
 use ironbeam_core::{
-    Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
-    Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
-    UnboundedSource,
+    CombineFn, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
+    SourceProgress, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
+    UnboundedPoll, UnboundedSource,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::{HashSet, VecDeque};
@@ -52,6 +52,26 @@ struct FailOnceSink {
     pending: Vec<i32>,
 }
 
+struct Sum;
+
+impl CombineFn<i32, i32, i32> for Sum {
+    fn create(&self) -> i32 {
+        0
+    }
+
+    fn add_input(&self, accumulator: &mut i32, value: i32) {
+        *accumulator += value;
+    }
+
+    fn merge(&self, accumulator: &mut i32, other: i32) {
+        *accumulator += other;
+    }
+
+    fn finish(&self, accumulator: i32) -> i32 {
+        accumulator
+    }
+}
+
 impl TypedSink<i32> for FailOnceSink {
     fn begin_bundle(&mut self, instruction_id: &str) -> Result<(), Error> {
         self.bundle = Some(instruction_id.to_owned());
@@ -85,6 +105,12 @@ impl TypedSink<i32> for FailOnceSink {
 
 #[test]
 fn global_combine_restores_open_window_after_failed_sink_commit() {
+    for lifted in [false, true] {
+        run_restore_case(lifted);
+    }
+}
+
+fn run_restore_case(lifted: bool) {
     let directory = tempfile::tempdir().unwrap();
     let opens = Arc::new(Mutex::new(Vec::new()));
     let committed = Arc::new(Mutex::new(Vec::new()));
@@ -119,11 +145,14 @@ fn global_combine_restores_open_window_after_failed_sink_commit() {
             },
         )
         .unwrap();
-    let sink = source
-        .fixed_windows("window", 10_000_000)
-        .unwrap()
-        .combine_globally_named("sum", |values| values.into_iter().sum::<i32>())
-        .unwrap()
+    let windowed = source.fixed_windows("window", 10_000_000).unwrap();
+    let combined = if lifted {
+        windowed.combine_globally_lifted_named("sum", Sum)
+    } else {
+        windowed.combine_globally_named("sum", |values| values.into_iter().sum::<i32>())
+    }
+    .unwrap();
+    let sink = combined
         .sink_named_with_config(
             "sink",
             SinkSpec {
