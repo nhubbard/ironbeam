@@ -354,7 +354,7 @@ jobs:
           python3 scripts/check_coverage.py "${{ matrix.package }}" coverage-v5.json | tee -a "$GITHUB_STEP_SUMMARY"
           cargo llvm-cov report -p "${{ matrix.package }}" --branch --lcov --output-path "lcov-${{ matrix.package }}.info"
       - name: Upload implementation coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
         with:
           files: lcov-${{ matrix.package }}.info
           flags: ${{ matrix.package }}
