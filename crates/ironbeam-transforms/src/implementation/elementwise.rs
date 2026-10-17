@@ -64,7 +64,11 @@ pub trait ElementwiseExt<T: Element> {
         T: Display;
     /// Collect all values into a vector in Direct encounter order.
     fn to_list_globally_named(&self, key: &str) -> Result<PCollection<Vec<T>>, Error>;
-    /// Collect values in a portable order. Order keys must be unique per window.
+    /// Collect each window's values in ascending order of `order_key`.
+    ///
+    /// Each nonempty window produces one vector. A bounded, empty global
+    /// window produces an empty vector. Duplicate order keys in a window
+    /// fail the job. Unbounded input requires a finite window.
     fn to_list_ordered_by_named<Q: Ord + Send + 'static>(
         &self,
         key: &str,
@@ -72,7 +76,10 @@ pub trait ElementwiseExt<T: Element> {
     ) -> Result<PCollection<Vec<T>>, Error>;
     /// Emit at most `limit` values in Direct encounter order.
     fn take_named(&self, key: &str, limit: usize) -> Result<PCollection<T>, Error>;
-    /// Emit at most `limit` values by a unique order key in each window.
+    /// Emit at most `limit` values per window, in ascending order of `order_key`.
+    ///
+    /// Order keys must be unique across the whole window, including values
+    /// beyond `limit`. Unbounded input requires a finite window.
     fn take_ordered_by_named<Q: Ord + Send + 'static>(
         &self,
         key: &str,
@@ -81,7 +88,10 @@ pub trait ElementwiseExt<T: Element> {
     ) -> Result<PCollection<T>, Error>;
     /// Emit the first value in Direct encounter order, if any.
     fn first_named(&self, key: &str) -> Result<PCollection<T>, Error>;
-    /// Emit the value with the smallest unique order key in each window.
+    /// Emit the value with the smallest `order_key` in each nonempty window.
+    ///
+    /// Duplicate order keys fail the job. Unbounded input requires a finite
+    /// window.
     fn first_ordered_by_named<Q: Ord + Send + 'static>(
         &self,
         key: &str,
@@ -110,8 +120,11 @@ pub trait ElementwiseExt<T: Element> {
         key: &str,
         by: impl Fn(&T) -> K + Send + Sync + 'static,
     ) -> Result<PCollection<T>, Error>;
-    /// Keep the first value for each derived key in explicit window order.
-    /// Order keys must be unique within a window, including discarded values.
+    /// Keep the first value for each derived key in ascending `order_key` order.
+    ///
+    /// Selection is independent within each window. Order keys must be unique
+    /// across the whole window, including discarded values. Unbounded input
+    /// requires a finite window.
     fn distinct_by_ordered_by_named<K: Eq + Hash + Send + 'static, Q: Ord + Send + 'static>(
         &self,
         key: &str,
