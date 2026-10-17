@@ -1664,6 +1664,17 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             pipeline,
             capture.into(),
             ironbeam_prism_proof::StreamingGlobalCombineRoute::All,
+            false,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
+    if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_GLOBAL_END_TIME") {
+        return ironbeam_prism_proof::streaming_global_combine_fixture(
+            pipeline,
+            capture.into(),
+            ironbeam_prism_proof::StreamingGlobalCombineRoute::All,
+            true,
         )
         .map(|_| ())
         .map_err(Into::into);

@@ -236,8 +236,9 @@ event timestamps agree. Direct does not yet support that merged streaming route.
 
 Vector and accumulator based global combines also use a constant key and
 `GroupByKey` on unbounded input. A two-window TestStream gives the same vector,
-count, and sum results and event timestamps on Direct and local Prism. The
-group retains coded values until a pane fires, so a large window can use
+count, and sum results and event timestamps on Direct and local Prism under
+earliest-in-pane and end-of-window output time. The group retains coded values
+until a pane fires, so a large window can use
 substantial state even for a count or sum. A separate fixed-window case
 matches early and on-time count and sum panes, including pane indices and
 latest-in-pane timestamps, in both discarding and accumulating modes.

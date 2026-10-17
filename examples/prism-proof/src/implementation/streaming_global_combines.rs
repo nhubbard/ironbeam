@@ -17,6 +17,7 @@ pub fn streaming_global_combine_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
     route: StreamingGlobalCombineRoute,
+    end_of_window: bool,
 ) -> Result<Sink<String>, Error> {
     let source = pipeline
         .test_stream_source(
@@ -29,6 +30,11 @@ pub fn streaming_global_combine_fixture(
             ],
         )?
         .fixed_windows("streaming-global-combine-window", 10_000_000)?;
+    let source = if end_of_window {
+        source.end_of_window_output_time_named("streaming-global-combine-output-time")?
+    } else {
+        source
+    };
     let vector = source
         .combine_globally_named("streaming-global-combine-vector", |mut values| {
             values.sort();
@@ -90,7 +96,10 @@ pub fn streaming_global_combine_fixture(
             replay: Replay::Idempotent,
             commit: true,
         },
-        format!("streaming-global-combine:{}", path.display()),
+        format!(
+            "streaming-global-combine:{end_of_window}:{}",
+            path.display()
+        ),
         move || {
             Ok(Box::new(IdempotentRowSink {
                 directory: directory.clone(),
