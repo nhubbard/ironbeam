@@ -2,6 +2,15 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Release operation
+        required: true
+        type: choice
+        default: semantic-release
+        options:
+          - semantic-release
+          - manual-root-5.0.0
 
 permissions: { }
 
@@ -21,6 +30,7 @@ jobs:
 
     steps:
       - name: Generate GitHub App token
+        if: inputs.mode == 'semantic-release'
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
@@ -30,7 +40,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
           persist-credentials: false
 
       - name: Require main and validate the workspace release order
@@ -46,18 +56,29 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Setup Node.js
+        if: inputs.mode == 'semantic-release'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
         with:
           node-version: 'lts/*'
 
       - name: Install semantic-release and plugins
+        if: inputs.mode == 'semantic-release'
         run: npm ci
 
       - name: Authenticate with crates.io (trusted publishing)
         id: crates-auth
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18  # v1.0.5
 
+      - name: Publish the 5.0.0 root crate
+        if: inputs.mode == 'manual-root-5.0.0'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+          IRONBEAM_RELEASE_CONFIRM: publish-5.0.0
+          IRONBEAM_RELEASE_START_AT: ironbeam
+        run: bash scripts/publish_v5_packages.sh publish
+
       - name: Semantic Release
+        if: inputs.mode == 'semantic-release'
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
