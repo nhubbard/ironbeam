@@ -1,5 +1,30 @@
 use super::*;
 
+struct OrFinallyReplaySink(IdempotentRowSink);
+
+impl TypedSink<String> for OrFinallyReplaySink {
+    fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+        self.0.begin_bundle(id)
+    }
+
+    fn write(&mut self, value: String) -> Result<(), Error> {
+        if value.ends_with(":Early:2")
+            && std::env::var_os("IRONBEAM_V5_PRISM_KILL_OR_FINALLY_EARLY").is_some()
+        {
+            await_supervised_source_replacement(Some(&[1]))?;
+        }
+        self.0.write(value)
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        self.0.commit()
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        self.0.abort()
+    }
+}
+
 /// Place a repeated count and its final threshold in one TestStream batch.
 pub fn or_finally_same_batch_fixture(
     pipeline: &Pipeline,
@@ -180,10 +205,15 @@ pub fn or_finally_two_source_fixture(
             },
             format!("or-finally-dual:{accumulating}:{}", directory.display()),
             move || {
-                Ok(Box::new(IdempotentRowSink {
+                let sink = IdempotentRowSink {
                     directory: sink_directory.clone(),
                     pending: Vec::new(),
-                }))
+                };
+                if std::env::var_os("IRONBEAM_V5_PRISM_KILL_OR_FINALLY_EARLY").is_some() {
+                    Ok(Box::new(OrFinallyReplaySink(sink)) as Box<dyn TypedSink<String>>)
+                } else {
+                    Ok(Box::new(sink) as Box<dyn TypedSink<String>>)
+                }
             },
         )
 }
