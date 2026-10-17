@@ -136,6 +136,86 @@ fn two_sources_accumulate_count_and_processing_time_panes() {
     run_two_sources_accumulating_count_and_timer(CountTimerMode::All);
 }
 
+#[test]
+fn two_source_count_and_time_fires_within_batch_after_timer_is_ready() {
+    let pipeline = Pipeline::default();
+    let first = pipeline
+        .test_stream_source(
+            "first",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                TestStreamEvent::Elements(vec![
+                    ((1, 3), 2_000_000),
+                    ((1, 4), 3_000_000),
+                    ((1, 5), 4_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("first-window", 10_000_000)
+        .unwrap()
+        .count_and_processing_time_trigger_named("first-trigger", 2, 5_000_000)
+        .unwrap();
+    let second = pipeline
+        .test_stream_source(
+            "second",
+            vec![TestStreamEvent::AdvanceWatermark(10_000_000)],
+        )
+        .unwrap()
+        .fixed_windows("second-window", 10_000_000)
+        .unwrap()
+        .count_and_processing_time_trigger_named("second-trigger", 2, 5_000_000)
+        .unwrap();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let sink = first
+        .co_group_homogeneous_named("group", &[second])
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("format", |(pane, (key, values))| {
+            format!("{key}:{values:?}:{:?}:{}", pane.timing, pane.index)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "multi-count-and-time-element-boundary-v1".to_owned(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        fail_once: None,
+                        panic_once: None,
+                        fail_write_once: None,
+                        bundle_ids: None,
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        ["1:[[2, 3], []]:Early:0", "1:[[4, 5], []]:OnTime:1"]
+    );
+}
+
 #[derive(Clone, Copy)]
 enum CountTimerMode {
     Any,

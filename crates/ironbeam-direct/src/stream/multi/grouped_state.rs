@@ -306,8 +306,9 @@ impl MultiWindowState {
             Self::Early { policy, .. } | Self::EarlyLate { policy, .. } => match policy {
                 EarlyPolicy::Count(count)
                 | EarlyPolicy::CountOrProcessingTime(count, _)
+                | EarlyPolicy::CountAndProcessingTime(count, _)
                 | EarlyPolicy::CountThenProcessingTime(count, _) => Some(*count),
-                EarlyPolicy::ProcessingTime(_) | EarlyPolicy::CountAndProcessingTime(_, _) => None,
+                EarlyPolicy::ProcessingTime(_) => None,
             },
             Self::Rows { .. } | Self::Late { .. } => None,
         };
