@@ -7,10 +7,10 @@ on:
         description: Release operation
         required: true
         type: choice
-        default: semantic-release
+        default: manual-root-5.0.0
         options:
-          - semantic-release
           - manual-root-5.0.0
+          - semantic-release
 
 permissions: { }
 
