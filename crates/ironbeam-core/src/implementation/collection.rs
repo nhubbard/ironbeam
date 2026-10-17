@@ -590,22 +590,30 @@ impl<T: Element> PCollection<T> {
         }));
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
     }
-    /// Fire a global, fixed, or sliding window early when its element count reaches `count`.
-    /// Beam may combine several threshold crossings into one pane within a
-    /// bundle. Direct supports this policy for single-input keyed grouping.
+    /// Fire a discarding early pane after `count` new elements for a key and window.
+    ///
+    /// Direct checks after each element, including elements in the same source
+    /// batch and elements from several grouped sources. Other Beam runners may
+    /// combine threshold crossings within a bundle.
+    ///
+    /// Returns an error for a zero or oversized count, or for session windows.
     pub fn early_count_trigger_named(&self, key: &str, count: u64) -> Result<Self, Error> {
         self.count_trigger_named(key, count, false)
     }
 
-    /// Fire repeated early panes that each contain all values seen in the window.
-    /// This requires a registered value coder when Direct runs the keyed fold.
+    /// Fire repeated early panes that retain all prior values in the key and window.
+    ///
+    /// Direct requires a registered value coder for the keyed fold. The count
+    /// must be a positive 32-bit value; session windows are unsupported.
     pub fn accumulating_count_trigger_named(&self, key: &str, count: u64) -> Result<Self, Error> {
         self.count_trigger_named(key, count, true)
     }
 
     /// Repeat count-based early panes until `final_count` total values have
     /// arrived in a key and window. The final condition emits one last early
-    /// pane and stops early firing for that scope.
+    /// pane and stops early firing for that scope. The final pane may contain
+    /// fewer than `count` new values when `final_count` falls between count
+    /// boundaries.
     pub fn count_or_finally_trigger_named(
         &self,
         key: &str,
@@ -727,6 +735,9 @@ impl<T: Element> PCollection<T> {
 
     /// Repeatedly fire a discarding pane when either `count` new elements
     /// arrive or `delay_ns` elapses after the first pending element.
+    ///
+    /// Direct checks the count after each element. The delay must be a
+    /// positive whole number of milliseconds.
     pub fn count_or_processing_time_trigger_named(
         &self,
         key: &str,
@@ -861,7 +872,8 @@ impl<T: Element> PCollection<T> {
     }
 
     /// Repeatedly fire a count pane, then a processing-time pane for later
-    /// input. Each phase starts when the preceding phase has fired.
+    /// input. Each phase starts when the preceding phase has fired. Direct
+    /// checks the count after each element, including within a source batch.
     pub fn count_then_processing_time_trigger_named(
         &self,
         key: &str,
