@@ -56,7 +56,9 @@ for package in "${packages[@]}"; do
   fi
   if [[ "$started" == true ]]; then
     registry_url="https://crates.io/api/v1/crates/$package/$release_version"
-    status="$(curl --silent --show-error --retry 3 --output /dev/null --write-out '%{http_code}' "$registry_url")"
+    status="$(curl --silent --show-error --retry 3 \
+      --user-agent 'ironbeam-publisher/5 (+https://github.com/nhubbard/ironbeam)' \
+      --output /dev/null --write-out '%{http_code}' "$registry_url")"
     case "$status" in
       200) echo "Already published: $package $release_version" ;;
       404)
