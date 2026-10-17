@@ -1599,6 +1599,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
         .map(|_| ())
         .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_OR_FINALLY_MULTI_SCOPE") {
+        return ironbeam_prism_proof::or_finally_multi_scope_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_FIRE_ALWAYS") {
         return pane_metadata_fixture_fire_always(pipeline, path.into()).map(|_| ()).map_err(Into::into);
     }

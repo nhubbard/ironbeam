@@ -2,6 +2,64 @@ use super::*;
 use ironbeam_prism_proof::count_or_finally_trigger_fixture;
 
 #[tokio::test]
+async fn prism_matches_direct_or_finally_across_keys_and_windows() {
+    let mut expected = [
+        "0..10000000:a:[1, 2]:Early:0",
+        "0..10000000:a:[3, 4]:Early:1",
+        "0..10000000:a:[5, 6]:Early:2",
+        "0..10000000:a:[7]:Early:3",
+        "0..10000000:a:[8, 9]:OnTime:4",
+        "0..10000000:b:[10, 11]:Early:0",
+        "0..10000000:b:[12]:OnTime:1",
+        "10000000..20000000:a:[20, 21]:Early:0",
+        "10000000..20000000:a:[22]:OnTime:1",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    expected.sort();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-or-finally-scopes");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        ironbeam_prism_proof::or_finally_multi_scope_fixture(&direct_pipeline, direct_path.clone())
+            .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(read_rows(&direct_path), expected);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_path = directory.path().join("portable-or-finally-scopes");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::or_finally_multi_scope_fixture(&pipeline, portable_path.clone()).unwrap();
+    let (state, messages) = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "or-finally-multi-scope",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_OR_FINALLY_MULTI_SCOPE".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(state, 3, "Prism OrFinally scopes failed: {messages:?}");
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_or_finally_when_final_count_is_in_one_batch() {
     let read_rows = |path: &Path| {
         let mut rows = std::fs::read_dir(path)
