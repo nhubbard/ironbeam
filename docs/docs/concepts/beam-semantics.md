@@ -236,6 +236,9 @@ event timestamps agree. Direct does not yet support that merged streaming route.
 The explicit-order keyed fold also runs in an unbounded global window with an
 early count trigger. A two-key TestStream produces matching early and final
 pane values, indices, and event timestamps on Direct and local Prism.
+The deterministic latest-per-key selector has the same triggered global-window
+support. Its two-key example selects the greatest event time in each pane and
+matches on both runners.
 
 Vector and accumulator based global combines also use a constant key and
 `GroupByKey` on unbounded input. A two-window TestStream gives the same vector,

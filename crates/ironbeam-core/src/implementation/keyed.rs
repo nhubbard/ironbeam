@@ -870,17 +870,22 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     }
     /// Select the latest event per key/window with a deterministic tie key.
     /// Equal event times choose the greatest tie key. A repeated event time
-    /// and tie key in one key/window is an error on every runner.
+    /// and tie key in one key/window is an error on every runner. An unbounded
+    /// global input requires an early count or processing-time trigger.
     pub fn latest_per_key_by_named<Q: Element + Ord>(
         &self,
         key: &str,
         tie_key: impl Fn(&V) -> Q + Send + Sync + 'static,
     ) -> Result<Self, Error> {
         let parent = self.parent()?;
-        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+        if parent.boundedness == Boundedness::Unbounded
+            && parent.time.window == Window::Global
+            && parent.time.trigger.early_count().is_none()
+            && parent.time.trigger.early_processing_time().is_none()
+        {
             return Err(Error::graph(
                 key,
-                "unbounded global aggregation requires a finite window",
+                "unbounded global aggregation requires a finite window or early trigger",
             ));
         }
         let reify_key = format!("{key}/tie");

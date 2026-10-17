@@ -89,6 +89,9 @@ sum implementations retain pane zero and commit pane one once after restart.
 An explicit-order keyed fold now accepts an unbounded global window with an
 early trigger. Direct and pinned Prism agree on its two-key early and final
 panes, ordered values, pane indices, and event timestamps.
+The deterministic latest-per-key selector likewise accepts an early-triggered
+unbounded global window. Its two-key early and final pane values, indices, and
+event timestamps match Direct and pinned Prism.
 Direct also emits the expected eight rows across four global-window branches under a
 processing-time trigger. The pinned Prism panics in
 `aggregateStageKind.buildProcessingTimeBundle` on that fixture; its comparison

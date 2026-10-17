@@ -225,6 +225,48 @@ pub fn streaming_global_ordered_keyed_fixture(
         )
 }
 
+/// Select the latest event per key in early and final global panes.
+pub fn streaming_global_latest_keyed_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    pipeline
+        .test_stream_source(
+            "latest-global-stream-source",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, 3_i32), 1_000_000),
+                    ((1, 2), 2_000_000),
+                    ((2, 9), 3_000_000),
+                ]),
+                TestStreamEvent::Elements(vec![((1, 4), 4_000_000)]),
+            ],
+        )?
+        .early_count_trigger_named("latest-global-trigger", 2)?
+        .latest_per_key_by_named("latest-global-keyed", |value| *value)?
+        .reify_timestamps_named("latest-global-time")?
+        .reify_panes_named("latest-global-pane")?
+        .map_named("latest-global-row", |(pane, (time, (key, value)))| {
+            format!("{key}:{:?}:{}:{time}:{value}", pane.timing, pane.index)
+        })?
+        .sink_named_with_config(
+            "latest-global-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("latest-global:{}", path.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_path.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 pub fn ordered_global_fixture(
     pipeline: &Pipeline,
     nonempty: PathBuf,
