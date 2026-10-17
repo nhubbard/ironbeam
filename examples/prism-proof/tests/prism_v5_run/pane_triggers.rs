@@ -1,6 +1,108 @@
 use super::*;
 use ironbeam_prism_proof::count_or_finally_trigger_fixture;
 
+fn assert_two_source_or_finally_rows(rows: &[String], accumulating: bool) {
+    assert_eq!(
+        rows.len(),
+        5,
+        "expected four early panes and one on-time pane: {rows:?}"
+    );
+    let mut panes = Vec::new();
+    for row in rows {
+        let parts = row.split(':').collect::<Vec<_>>();
+        assert_eq!(parts.len(), 5);
+        assert_eq!(parts[0], "1");
+        panes.push((
+            parts[4].parse::<usize>().unwrap(),
+            parts[1].parse::<usize>().unwrap(),
+            parts[2].parse::<usize>().unwrap(),
+            parts[3],
+        ));
+    }
+    panes.sort_by_key(|pane| pane.0);
+    let expected_sizes = if accumulating {
+        [2, 4, 6, 7, 9]
+    } else {
+        [2, 2, 2, 1, 2]
+    };
+    for (index, (pane_index, left, right, timing)) in panes.iter().enumerate() {
+        assert_eq!(*pane_index, index);
+        assert_eq!(left + right, expected_sizes[index]);
+        assert_eq!(*timing, if index == 4 { "OnTime" } else { "Early" });
+    }
+    if accumulating {
+        assert_eq!((panes[4].1, panes[4].2), (5, 4));
+    } else {
+        assert_eq!(panes.iter().map(|pane| pane.1).sum::<usize>(), 5);
+        assert_eq!(panes.iter().map(|pane| pane.2).sum::<usize>(), 4);
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_or_finally_across_two_sources() {
+    let directory = tempfile::tempdir().unwrap();
+    let endpoint = std::env::var("IRONBEAM_PRISM_ENDPOINT").ok();
+    let _prism_job = prism_job_lock().lock().await;
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    for accumulating in [false, true] {
+        let direct_path = directory
+            .path()
+            .join(format!("direct-or-finally-dual-{accumulating}"));
+        let direct_pipeline = Pipeline::default();
+        let sink = ironbeam_prism_proof::or_finally_two_source_fixture(
+            &direct_pipeline,
+            direct_path.clone(),
+            accumulating,
+        )
+        .unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        assert_two_source_or_finally_rows(&read_rows(&direct_path), accumulating);
+
+        let Some(endpoint) = endpoint.as_deref() else {
+            continue;
+        };
+        let portable_path = directory
+            .path()
+            .join(format!("portable-or-finally-dual-{accumulating}"));
+        let pipeline = Pipeline::default();
+        ironbeam_prism_proof::or_finally_two_source_fixture(
+            &pipeline,
+            portable_path.clone(),
+            accumulating,
+        )
+        .unwrap();
+        let (state, messages) = run_shared_fixture(
+            endpoint,
+            &pipeline,
+            &format!("or-finally-dual-{accumulating}"),
+            HashMap::from([
+                (
+                    "IRONBEAM_V5_PRISM_OR_FINALLY_TWO_SOURCE".into(),
+                    portable_path.to_string_lossy().into_owned(),
+                ),
+                (
+                    "IRONBEAM_V5_PRISM_OR_FINALLY_TWO_SOURCE_ACCUMULATING".into(),
+                    if accumulating { "1" } else { "0" }.into(),
+                ),
+            ]),
+        )
+        .await;
+        assert_eq!(state, 3, "Prism two-source OrFinally failed: {messages:?}");
+        assert_two_source_or_finally_rows(&read_rows(&portable_path), accumulating);
+    }
+}
+
 #[tokio::test]
 async fn prism_matches_direct_or_finally_across_keys_and_windows() {
     let mut expected = [

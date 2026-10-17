@@ -118,3 +118,72 @@ pub fn or_finally_multi_scope_fixture(
             },
         )
 }
+
+/// Share one final-count cursor across two independent grouped sources.
+pub fn or_finally_two_source_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    accumulating: bool,
+) -> Result<Sink<String>, Error> {
+    let make_source = |name: &str, batches: Vec<Vec<((i32, i32), i64)>>| {
+        let mut events = batches
+            .into_iter()
+            .map(TestStreamEvent::Elements)
+            .collect::<Vec<_>>();
+        events.push(TestStreamEvent::AdvanceWatermark(10_000_000));
+        let source = pipeline
+            .test_stream_source(name, events)?
+            .fixed_windows(&format!("{name}-window"), 10_000_000)?;
+        if accumulating {
+            source.accumulating_count_or_finally_trigger_named(&format!("{name}-trigger"), 2, 7)
+        } else {
+            source.count_or_finally_trigger_named(&format!("{name}-trigger"), 2, 7)
+        }
+    };
+    let first = make_source(
+        "or-finally-dual-first",
+        vec![
+            vec![
+                ((1, 1), 1_000_000),
+                ((1, 2), 2_000_000),
+                ((1, 3), 3_000_000),
+            ],
+            vec![((1, 4), 4_000_000), ((1, 5), 5_000_000)],
+        ],
+    )?;
+    let second = make_source(
+        "or-finally-dual-second",
+        vec![
+            vec![((1, 6), 6_000_000), ((1, 7), 7_000_000)],
+            vec![((1, 8), 8_000_000), ((1, 9), 9_000_000)],
+        ],
+    )?;
+    let sink_directory = directory.clone();
+    first
+        .co_group_homogeneous_named("or-finally-dual-group", &[second])?
+        .reify_panes_named("or-finally-dual-pane")?
+        .map_named("or-finally-dual-row", |(pane, (key, values))| {
+            format!(
+                "{key}:{}:{}:{:?}:{}",
+                values[0].len(),
+                values[1].len(),
+                pane.timing,
+                pane.index,
+            )
+        })?
+        .sink_named_with_config(
+            "or-finally-dual-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("or-finally-dual:{accumulating}:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}

@@ -1604,6 +1604,18 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_OR_FINALLY_TWO_SOURCE") {
+        let accumulating =
+            std::env::var("IRONBEAM_V5_PRISM_OR_FINALLY_TWO_SOURCE_ACCUMULATING").as_deref()
+                == Ok("1");
+        return ironbeam_prism_proof::or_finally_two_source_fixture(
+            pipeline,
+            path.into(),
+            accumulating,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_FIRE_ALWAYS") {
         return pane_metadata_fixture_fire_always(pipeline, path.into()).map(|_| ()).map_err(Into::into);
     }
