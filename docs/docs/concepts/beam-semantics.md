@@ -247,6 +247,8 @@ An unbounded global window can use these combines and the explicit-order list
 when it has an early count or processing-time trigger. A three-element
 TestStream with a count trigger produces matching early and final panes on
 Direct and local Prism. Without an early trigger, the graph is rejected.
+A Direct checkpoint also preserves the early pane and its index across a
+failed final-pane sink commit.
 
 Direct also restores an open grouped window after a sink commit failure and
 resumes the source from its saved cursor.

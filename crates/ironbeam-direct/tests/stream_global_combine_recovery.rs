@@ -7,7 +7,7 @@ use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicUsize, Ordering},
 };
 
 struct Script {
@@ -47,7 +47,8 @@ fn batch(
 struct FailOnceSink {
     committed: Arc<Mutex<Vec<i32>>>,
     accepted: Arc<Mutex<HashSet<String>>>,
-    fail_commit: Arc<AtomicBool>,
+    commit_attempts: Arc<AtomicUsize>,
+    fail_at_commit: usize,
     bundle: Option<String>,
     pending: Vec<i32>,
 }
@@ -84,7 +85,7 @@ impl TypedSink<i32> for FailOnceSink {
     }
 
     fn commit(&mut self) -> Result<(), Error> {
-        if self.fail_commit.swap(false, Ordering::SeqCst) {
+        if self.commit_attempts.fetch_add(1, Ordering::SeqCst) + 1 == self.fail_at_commit {
             return Err(Error::execution("sink", "direct", "commit failed once"));
         }
         let bundle = self.bundle.take().expect("bundle ID was bound");
@@ -106,16 +107,24 @@ impl TypedSink<i32> for FailOnceSink {
 #[test]
 fn global_combine_restores_open_window_after_failed_sink_commit() {
     for lifted in [false, true] {
-        run_restore_case(lifted);
+        run_restore_case(lifted, false);
     }
 }
 
-fn run_restore_case(lifted: bool) {
+#[test]
+fn global_trigger_combine_restores_pane_index_after_failed_sink_commit() {
+    for lifted in [false, true] {
+        run_restore_case(lifted, true);
+    }
+}
+
+fn run_restore_case(lifted: bool, global_trigger: bool) {
     let directory = tempfile::tempdir().unwrap();
     let opens = Arc::new(Mutex::new(Vec::new()));
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
-    let fail_commit = Arc::new(AtomicBool::new(true));
+    let commit_attempts = Arc::new(AtomicUsize::new(0));
+    let fail_at_commit = if global_trigger { 2 } else { 1 };
     let pipeline = Pipeline::default();
     let opens_for_source = Arc::clone(&opens);
     let source = pipeline
@@ -145,13 +154,30 @@ fn run_restore_case(lifted: bool) {
             },
         )
         .unwrap();
-    let windowed = source.fixed_windows("window", 10_000_000).unwrap();
+    let windowed = if global_trigger {
+        source
+            .early_count_trigger_named("global-trigger", 2)
+            .unwrap()
+    } else {
+        source.fixed_windows("window", 10_000_000).unwrap()
+    };
     let combined = if lifted {
         windowed.combine_globally_lifted_named("sum", Sum)
     } else {
         windowed.combine_globally_named("sum", |values| values.into_iter().sum::<i32>())
     }
     .unwrap();
+    let combined = if global_trigger {
+        combined
+            .reify_panes_named("pane")
+            .unwrap()
+            .map_named("pane-and-value", |(pane, value)| {
+                pane.index as i32 * 100 + value
+            })
+            .unwrap()
+    } else {
+        combined
+    };
     let sink = combined
         .sink_named_with_config(
             "sink",
@@ -164,12 +190,13 @@ fn run_restore_case(lifted: bool) {
             {
                 let committed = Arc::clone(&committed);
                 let accepted = Arc::clone(&accepted);
-                let fail_commit = Arc::clone(&fail_commit);
+                let commit_attempts = Arc::clone(&commit_attempts);
                 move || {
                     Ok(Box::new(FailOnceSink {
                         committed: Arc::clone(&committed),
                         accepted: Arc::clone(&accepted),
-                        fail_commit: Arc::clone(&fail_commit),
+                        commit_attempts: Arc::clone(&commit_attempts),
+                        fail_at_commit,
                         bundle: None,
                         pending: Vec::new(),
                     }))
@@ -194,7 +221,11 @@ fn run_restore_case(lifted: bool) {
         .err()
         .unwrap();
     assert_eq!(error.kind, ErrorKind::Execution);
-    assert!(committed.lock().unwrap().is_empty());
+    if global_trigger {
+        assert_eq!(*committed.lock().unwrap(), [3]);
+    } else {
+        assert!(committed.lock().unwrap().is_empty());
+    }
     assert_eq!(
         DirectRunner
             .start_stream_sink(&sink, &config)
@@ -204,6 +235,10 @@ fn run_restore_case(lifted: bool) {
             .status(),
         JobStatus::Succeeded
     );
-    assert_eq!(*committed.lock().unwrap(), [6]);
+    if global_trigger {
+        assert_eq!(*committed.lock().unwrap(), [3, 103]);
+    } else {
+        assert_eq!(*committed.lock().unwrap(), [6]);
+    }
     assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
 }

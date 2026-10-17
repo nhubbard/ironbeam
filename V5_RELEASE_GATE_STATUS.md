@@ -83,6 +83,10 @@ the local Semantic Release simulation.
 Passing a current check does not close a release gate unless its full proof
 below is complete.
 
+The global-window early-count recovery fixture commits pane zero, fails the
+next sink commit, then resumes from source cursor 1. Both callback-based and lifted
+sum implementations retain pane zero and commit pane one once after restart.
+
 The release documentation check generates all-feature Rustdoc JSON and
 requires a direct description for public functions, trait methods, and types
 in all 34 publishable handwritten crates: 907 functions, 329 trait methods,
