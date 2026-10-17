@@ -58,8 +58,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         O: Element,
     {
         let parent = self.parent()?;
-        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
-            if parent.time.trigger.early_count().is_none()
+        if parent.boundedness == Boundedness::Unbounded {
+            if parent.time.window == Window::Global
+                && parent.time.trigger.early_count().is_none()
                 && parent.time.trigger.early_processing_time().is_none()
             {
                 return Err(Error::graph(

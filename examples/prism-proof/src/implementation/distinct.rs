@@ -39,6 +39,53 @@ pub fn bounded_distinct_per_key_fixture(
         )
 }
 
+/// Count unique values for each key in two watermarked fixed windows.
+pub fn streaming_distinct_count_per_key_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "distinct-count-stream",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("k".to_owned(), "a".to_owned()), 1_000_000),
+                    (("k".to_owned(), "a".to_owned()), 2_000_000),
+                    (("k".to_owned(), "b".to_owned()), 3_000_000),
+                    (("q".to_owned(), "a".to_owned()), 4_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![
+                    (("k".to_owned(), "a".to_owned()), 11_000_000),
+                    (("k".to_owned(), "a".to_owned()), 12_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )?
+        .fixed_windows("distinct-count-windows", 10_000_000)?
+        .distinct_count_per_key_named("distinct-count-group", "distinct-count")?
+        .with_window_named("distinct-count-window")?
+        .map_named("distinct-count-row", |(window, (group, count))| {
+            format!("{}:{group}:{count}", window.start_ns)
+        })?
+        .sink_named_with_config(
+            "distinct-count-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("distinct-count-stream:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// One value per window, including the earliest event timestamp.
 pub fn distinct_window_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();

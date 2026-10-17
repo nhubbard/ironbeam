@@ -42,6 +42,8 @@ mod side_input_replay;
 mod source_finalization;
 #[path = "prism_v5_run/state_fanout.rs"]
 mod state_fanout;
+#[path = "prism_v5_run/streaming_distinct_count_per_key.rs"]
+mod streaming_distinct_count_per_key;
 #[path = "prism_v5_run/timer_state.rs"]
 mod timer_state;
 
