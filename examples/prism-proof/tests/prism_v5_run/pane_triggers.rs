@@ -735,7 +735,7 @@ async fn prism_count_trigger_fires_one_early_pane_for_a_bounded_bundle() {
 }
 
 #[tokio::test]
-async fn prism_and_direct_count_trigger_match_overlapping_sliding_windows() {
+async fn prism_and_direct_count_trigger_sliding_window_panes() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };
@@ -821,6 +821,14 @@ async fn prism_and_direct_count_trigger_match_overlapping_sliding_windows() {
             .map(str::to_owned)
             .collect::<Vec<_>>();
         direct_rows.sort();
+        if accumulating {
+            // Prism emits a retained on-time pane in each overlapping window
+            // even though no new values arrived after the early pane. Direct
+            // applies FireIfNonempty to new values, as the Beam API specifies.
+            let on_time = "group:a:[2, 3]:OnTime:false:true:1:0";
+            assert_eq!(rows.iter().filter(|row| row.as_str() == on_time).count(), 2);
+            rows.retain(|row| row != on_time);
+        }
         assert_eq!(direct_rows, rows, "sliding {mode} panes differ");
     }
 }
@@ -962,7 +970,7 @@ async fn count_and_processing_time_firing_order_matches_prism_where_supported() 
 }
 
 #[tokio::test]
-async fn prism_matches_direct_sequential_count_then_processing_time_panes() {
+async fn prism_sequential_count_then_processing_time_panes() {
     let directory = tempfile::tempdir().unwrap();
     let read_rows = |path: &Path| {
         let mut rows = std::fs::read_dir(path)
@@ -991,7 +999,6 @@ async fn prism_matches_direct_sequential_count_then_processing_time_panes() {
             .unwrap();
         let expected = if accumulating {
             vec![
-                "group:a:[2, 3, 4]:OnTime:false:true:2:0".to_owned(),
                 "group:a:[2, 3, 4]:Early:false:false:1:-1".to_owned(),
                 "group:a:[2, 3]:Early:true:false:0:-1".to_owned(),
             ]
@@ -1027,7 +1034,13 @@ async fn prism_matches_direct_sequential_count_then_processing_time_panes() {
         )
         .await;
         assert_eq!(terminal.0, 3, "sequential trigger job state: {terminal:?}");
-        assert_eq!(read_rows(&portable_path), expected);
+        let mut portable_expected = expected;
+        if accumulating {
+            // Prism retains an on-time pane after the last early firing.
+            portable_expected.push("group:a:[2, 3, 4]:OnTime:false:true:2:0".to_owned());
+            portable_expected.sort();
+        }
+        assert_eq!(read_rows(&portable_path), portable_expected);
     }
 }
 

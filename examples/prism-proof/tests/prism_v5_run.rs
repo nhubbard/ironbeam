@@ -6015,11 +6015,7 @@ async fn assert_accumulating_early_cogroup_panes(global: bool) {
     let direct_rows = direct_rows.lock().unwrap().clone();
     assert_eq!(
         direct_rows,
-        [
-            "a:[[2], []]:Early:0",
-            "a:[[2], [4]]:Early:1",
-            "a:[[2], [4]]:OnTime:2",
-        ]
+        ["a:[[2], []]:Early:0", "a:[[2], [4]]:Early:1",]
     );
 
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
@@ -6061,6 +6057,8 @@ async fn assert_accumulating_early_cogroup_panes(global: bool) {
         .collect::<Vec<_>>();
     prism_rows.sort();
     let mut direct_rows_sorted = direct_rows;
+    // Prism retains an on-time pane without new values after early firing.
+    direct_rows_sorted.push("a:[[2], [4]]:OnTime:2".to_owned());
     direct_rows_sorted.sort();
     assert_eq!(prism_rows, direct_rows_sorted);
 }
