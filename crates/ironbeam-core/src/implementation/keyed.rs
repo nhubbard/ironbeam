@@ -45,7 +45,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     }
 
     /// Combine values for each key and window. An unbounded global input
-    /// needs an early count trigger; each firing materializes a group pane
+    /// needs an early count or processing-time trigger; each firing materializes a group pane
     /// and applies the combiner to that pane.
     pub fn combine_values_lifted_named<C, A, O>(
         &self,
@@ -64,7 +64,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             {
                 return Err(Error::graph(
                     key,
-                    "unbounded global keyed combine requires an early count trigger",
+                    "unbounded global keyed combine requires a finite window or early trigger",
                 ));
             }
             let grouped = self.group_by_key_named(&format!("{key}/group"))?;

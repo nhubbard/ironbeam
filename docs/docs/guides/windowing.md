@@ -150,7 +150,7 @@ Direct checkpoints both the retained values and the count at the last firing.
 Its accumulating keyed fold requires a value coder. A bounded overlapping
 sliding-window proof matches Direct and pinned Prism in both accumulation modes. This support covers
 single-input keyed grouping in global, fixed, and sliding windows. An unbounded
-global group needs a count trigger: without one, its only normal firing is at
+global group needs an early trigger: without one, its only normal firing is at
 source completion, which may never occur. For example, a test stream can apply
 `early_count_trigger_named("early", 2)` directly to its global keyed elements,
 then call `group_by_key_named("group")`. Direct and Prism both emit an early
@@ -162,7 +162,9 @@ with this trigger. It combines each emitted group pane, so the example input
 `2, 3, 4` yields an early sum of `5` and a final sum of `4` in discarding
 mode, or `9` in accumulating mode. This path materializes the values in each
 pane before applying the combiner; use finite windows when long-lived keys
-must have bounded retained state.
+must have bounded retained state. A processing-time trigger works on Direct for
+the same global-window pattern. The pinned local Prism panics while firing that
+timer, so only the count-trigger form has a portable runner proof here.
 
 To combine early and late count firings, set allowed lateness and use the combined policy
 described below.
