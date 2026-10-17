@@ -1,7 +1,7 @@
 use super::*;
 use ironbeam_prism_proof::{
     streaming_global_combine_fixture, streaming_global_combine_panes_fixture,
-    StreamingGlobalCombineRoute,
+    streaming_late_global_combine_fixture, LateGlobalCombineRoute, StreamingGlobalCombineRoute,
 };
 
 const EXPECTED: [&str; 6] = [
@@ -174,4 +174,58 @@ async fn prism_runs_accumulating_global_combine_panes() {
         "Prism accumulating global panes failed: {messages:?}"
     );
     assert_eq!(read_rows(&path), EXPECTED_ACCUM_PANES);
+}
+
+const EXPECTED_LATE: [&str; 4] = [
+    "count:Late:1:4:1",
+    "count:OnTime:0:1:2",
+    "sum:Late:1:4:3",
+    "sum:OnTime:0:1:3",
+];
+
+#[test]
+fn direct_runs_late_global_combine_panes() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut rows = Vec::new();
+    for (name, route) in [
+        ("count", LateGlobalCombineRoute::Count),
+        ("sum", LateGlobalCombineRoute::Sum),
+    ] {
+        let path = directory.path().join(name);
+        let pipeline = Pipeline::default();
+        let sink = streaming_late_global_combine_fixture(&pipeline, path.clone(), route).unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        rows.extend(read_rows(&path));
+    }
+    rows.sort();
+    assert_eq!(rows, EXPECTED_LATE);
+}
+
+#[tokio::test]
+async fn prism_runs_late_global_combine_panes() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("portable-global-late");
+    let pipeline = Pipeline::default();
+    streaming_late_global_combine_fixture(&pipeline, path.clone(), LateGlobalCombineRoute::All)
+        .unwrap();
+    let (state, messages) = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "streaming-global-late",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAMING_GLOBAL_LATE".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(state, 3, "Prism late global combines failed: {messages:?}");
+    assert_eq!(read_rows(&path), EXPECTED_LATE);
 }
