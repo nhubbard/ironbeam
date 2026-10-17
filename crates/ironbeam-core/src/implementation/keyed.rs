@@ -133,8 +133,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         self.next_fold(key, Operation::FoldOrderedPerKey, factory, None)
     }
     /// Fold each key/window in an explicit order on Direct and portable runners.
-    /// The order key must be unique within its key/window. The result timestamp
-    /// is the timestamp of the first value in that order. An unbounded global
+    /// The order key must be unique within each key/window pane. The result
+    /// timestamp is that of the first value in order. An unbounded global
     /// input requires an early count or processing-time trigger.
     pub fn fold_values_ordered_by_named<Q, C, A, O>(
         &self,
@@ -206,7 +206,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     return Err(Error::execution(
                         &node_key,
                         "runner",
-                        "duplicate ordered fold key in key/window",
+                        "duplicate ordered fold key in key/window pane",
                     ));
                 }
             }
@@ -353,7 +353,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     /// Map fixed-size value batches in a unique order within each key/window.
     /// The returned batch must contain one value per input. Each output keeps
     /// the corresponding input event time. Portable runners may shuffle before
-    /// grouping, so order keys must be unique within a key/window.
+    /// grouping, so order keys must be unique within each key/window pane.
     pub fn map_values_batches_ordered_by_named<Q, O>(
         &self,
         key: &str,
@@ -427,7 +427,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     return Err(Error::execution(
                         &node_key,
                         "runner",
-                        "duplicate ordered batch key in key/window",
+                        "duplicate ordered batch key in key/window pane",
                     ));
                 }
             }
@@ -870,8 +870,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     }
     /// Select the latest event per key/window with a deterministic tie key.
     /// Equal event times choose the greatest tie key. A repeated event time
-    /// and tie key in one key/window is an error on every runner. An unbounded
-    /// global input requires an early count or processing-time trigger.
+    /// and tie key in one key/window pane is an error on every runner. An
+    /// unbounded global input requires an early count or processing-time trigger.
     pub fn latest_per_key_by_named<Q: Element + Ord>(
         &self,
         key: &str,
@@ -938,7 +938,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     return Err(Error::execution(
                         &select_key,
                         "runner",
-                        "duplicate latest tie key in key/window/event time",
+                        "duplicate latest tie key in key/window pane/event time",
                     ));
                 }
                 if is_later {

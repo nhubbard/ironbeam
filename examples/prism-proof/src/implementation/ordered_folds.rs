@@ -184,6 +184,7 @@ pub fn streaming_ordered_keyed_fixture(
 }
 
 /// Fold each key in explicit order across early and final global panes.
+/// The final pane reuses an order key from the earlier discarded pane.
 pub fn streaming_global_ordered_keyed_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
@@ -198,7 +199,7 @@ pub fn streaming_global_ordered_keyed_fixture(
                     ((1, (1, 2)), 2_000_000),
                     ((2, (1, 9)), 3_000_000),
                 ]),
-                TestStreamEvent::Elements(vec![((1, (3, 4)), 4_000_000)]),
+                TestStreamEvent::Elements(vec![((1, (1, 4)), 4_000_000)]),
             ],
         )?
         .early_count_trigger_named("ordered-global-trigger", 2)?

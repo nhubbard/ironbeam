@@ -233,9 +233,16 @@ input, the helpers use a constant key and `GroupByKey` so Direct can retain
 open windows in its checkpoint. Direct runs each helper branch separately;
 Prism also runs the four branches merged into one sink. The tested rows and
 event timestamps agree. Direct does not yet support that merged streaming route.
+
 The explicit-order keyed fold also runs in an unbounded global window with an
 early count trigger. A two-key TestStream produces matching early and final
 pane values, indices, and event timestamps on Direct and local Prism.
+
+In discarding mode, uniqueness is checked within each pane: the same order key
+may appear again in a later pane. The global keyed fixture verifies this on
+both runners. An accumulating pane includes retained earlier values, so it
+also checks those values against new arrivals.
+
 The deterministic latest-per-key selector has the same triggered global-window
 support. Its two-key example selects the greatest event time in each pane and
 matches on both runners.

@@ -1786,8 +1786,8 @@ impl<T: Element> PCollection<T> {
         self.next_fold(key, Operation::FoldOrderedGlobal, factory, None)
     }
     /// Fold each window in an explicit order on Direct and portable runners.
-    /// Order keys must be unique within a window. An unbounded global input
-    /// requires an early trigger. A bounded empty global input emits
+    /// Order keys must be unique within each window pane. An unbounded global
+    /// input requires an early trigger. A bounded empty global input emits
     /// `fold.finish(fold.create())` at timestamp zero. A nonempty result uses
     /// the event timestamp of the value with the smallest order key.
     pub fn fold_globally_ordered_by_named<Q, C, A, O>(
@@ -1836,7 +1836,7 @@ impl<T: Element> PCollection<T> {
                         return Err(Error::execution(
                             &node_key,
                             "runner",
-                            "duplicate ordered fold key in key/window",
+                            "duplicate ordered fold key in key/window pane",
                         ));
                     }
                 }
@@ -1890,7 +1890,7 @@ impl<T: Element> PCollection<T> {
                     return Err(Error::execution(
                         &node_key,
                         "runner",
-                        "duplicate ordered fold key in key/window",
+                        "duplicate ordered fold key in key/window pane",
                     ));
                 }
             }
@@ -1976,7 +1976,8 @@ impl<T: Element> PCollection<T> {
         )
     }
     /// Select the latest event in each window with a deterministic tie key.
-    /// Equal event times choose the greatest tie key; duplicate pairs fail.
+    /// Equal event times choose the greatest tie key; duplicate pairs in one
+    /// window pane fail.
     /// An unbounded global input requires an early count or processing-time
     /// trigger. Its values are retained until each pane fires.
     pub fn latest_globally_by_named<Q: Ord + Send + 'static>(
@@ -2018,7 +2019,7 @@ impl<T: Element> PCollection<T> {
                         return Err(Error::execution(
                             &node_key,
                             "runner",
-                            "duplicate latest tie key in window/event time",
+                            "duplicate latest tie key in window pane/event time",
                         ));
                     }
                     if is_later {
@@ -2061,7 +2062,7 @@ impl<T: Element> PCollection<T> {
                             return Err(Error::execution(
                                 &node_key,
                                 "runner",
-                                "duplicate latest tie key in key/window/event time",
+                                "duplicate latest tie key in key/window pane/event time",
                             ));
                         }
                         if is_later {

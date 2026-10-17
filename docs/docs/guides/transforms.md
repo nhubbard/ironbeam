@@ -108,10 +108,10 @@ fn main() -> Result<(), ironbeam::Error> {
 ```
 
 `to_list_ordered_by_named` and `take_ordered_by_named` use the same rule.
-Order keys must be unique within each window, including rows removed by
+Order keys must be unique within each emitted pane, including rows removed by
 `distinct_by_ordered_by_named`. A duplicate key fails the job. A shared
 Direct and local Prism fixture checks all four helpers on one graph. These
-helpers collect the window's input before selecting values; they are best
+helpers collect the pane's input before selecting values; they are best
 suited to finite, bounded groups.
 
 `distinct_per_window_named` emits each distinct value once in each window. It

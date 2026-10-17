@@ -86,13 +86,20 @@ below is complete.
 The global-window early-count recovery fixture commits pane zero, fails the
 next sink commit, then resumes from source cursor 1. Both callback-based and lifted
 sum implementations retain pane zero and commit pane one once after restart.
+
 An explicit-order keyed fold now accepts an unbounded global window with an
 early trigger. Direct and pinned Prism agree on its two-key early and final
 panes, ordered values, pane indices, and event timestamps.
+
+The global keyed fixture reuses an order key in a later discarding pane;
+Direct and pinned Prism both accept it and retain the same rows. Public
+ordered-helper contracts now state uniqueness per emitted pane.
+
 The deterministic latest-per-key selector likewise accepts an early-triggered
 unbounded global window. Its two-key early and final pane values, indices, and
 event timestamps match Direct and pinned Prism.
-Direct also emits the expected eight rows across four global-window branches under a
+
+Direct also emits the expected ten rows across five global-window branches under a
 processing-time trigger. The pinned Prism panics in
 `aggregateStageKind.buildProcessingTimeBundle` on that fixture; its comparison
 is an ignored diagnostic, outside the portable support claim.
