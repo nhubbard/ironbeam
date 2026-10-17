@@ -151,8 +151,10 @@ values. With separate values `2` and `3`, the first early pane contains `[2]`,
 the second contains `[2, 3]`, and the on-time pane contains `[2, 3]` again.
 Direct checkpoints both the retained values and the count at the last firing.
 Its accumulating keyed fold requires a value coder. A bounded overlapping
-sliding-window proof matches Direct and pinned Prism in both accumulation modes. This support covers
-single-input keyed grouping in global, fixed, and sliding windows. An unbounded
+sliding-window proof matches Direct and pinned Prism in both accumulation modes.
+Single-input keyed grouping is covered in global, fixed, and sliding windows.
+For homogeneous co-groups, a fixed-window proof with three independent sources
+produces three panes of two elements on both runners. An unbounded
 global group needs an early trigger: without one, its only normal firing is at
 source completion, which may never occur. For example, a test stream can apply
 `early_count_trigger_named("early", 2)` directly to its global keyed elements,
@@ -286,8 +288,9 @@ the closed window until expiry, including the index for the next late pane.
 Direct supports this policy for single-input GroupByKey with the default
 trigger, a late count trigger, or combined early and late counts. The
 multi-source path retains coded GroupByKey state through expiry with the
-default or late element-count trigger. It also serves homogeneous co-groups built from
-Flatten and GroupByKey. In a two-source test, both runners emit an on-time
+default, late count, and combined early and late count triggers. It also
+serves homogeneous co-groups built from Flatten and GroupByKey. In a
+two-source test, both runners emit an on-time
 pane containing `[[2], [4]]`, then a late pane containing `[[3], []]`;
 a row after expiry is dropped. Direct restores both source cursors and the
 closed group's pane index from a checkpoint. Typed joins and heterogeneous
@@ -298,8 +301,9 @@ late count on each input before `co_group_homogeneous_named`. With a count of
 two, Direct and pinned Prism emit `[[2], [4]]` on time, `[[3, 5], []]`
 when the second late element arrives, and a final partial `[[7], []]` pane
 at expiry. The source watermarks must leave the window open while those late
-elements arrive. Combined early and late count triggers remain limited to
-single-input grouping on Direct.
+elements arrive. Direct also checkpoints combined early and late count
+triggers for homogeneous co-groups with two independent source cursors, in
+both discarding and accumulating modes.
 
 The same count policy applies to typed joins and heterogeneous co-groups.
 With a main value `2` and side value `"right"`, a heterogeneous co-group
