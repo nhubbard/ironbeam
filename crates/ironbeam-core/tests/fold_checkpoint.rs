@@ -795,7 +795,7 @@ fn accumulating_late_group_releases_state_at_expiry() {
     assert_eq!(released, 1);
     let saved: serde_json::Value =
         serde_json::from_slice(&fold.checkpoint_state().unwrap().unwrap()).unwrap();
-    assert!(saved["groups"].as_array().unwrap().is_empty());
+    assert_eq!(saved["groups"], serde_json::json!([]));
 }
 
 #[test]

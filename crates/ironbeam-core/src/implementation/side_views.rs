@@ -60,9 +60,9 @@ fn validate_mapped_side_windows(key: &str, main: &Time, side: &Time) -> Result<(
     Ok(())
 }
 
-fn mapped_side_window(main: WindowInterval, side: &Window) -> Result<WindowInterval, Error> {
+fn mapped_side_window(main: WindowInterval, side_window: &Window) -> Result<WindowInterval, Error> {
     let timestamp = i128::from(main.end_ns) - 1_000_000;
-    let (size, period, offset, sliding) = match side {
+    let (size, period, offset, sliding) = match side_window {
         Window::Fixed { size_ns } => (*size_ns, *size_ns, 0, false),
         Window::FixedOffset { size_ns, offset_ns } => (*size_ns, *size_ns, *offset_ns, false),
         Window::Sliding { size_ns, period_ns, offset_ns } => {

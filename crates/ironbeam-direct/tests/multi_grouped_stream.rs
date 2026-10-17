@@ -875,10 +875,12 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
         std::thread::sleep(Duration::from_millis(1));
     }
     let initial = match mode {
-        LateMode::EarlyCount => vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"],
-        LateMode::EarlyBatch => vec!["1:[[2, 3], []]:Early:0", "1:[[5], [4]]:Early:1"],
-        LateMode::OrFinallyBatch => vec!["1:[[2, 3], []]:Early:0", "1:[[5], [4]]:Early:1"],
-        LateMode::EarlyLateCount => vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"],
+        LateMode::EarlyCount | LateMode::EarlyLateCount => {
+            vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"]
+        }
+        LateMode::EarlyBatch | LateMode::OrFinallyBatch => {
+            vec!["1:[[2, 3], []]:Early:0", "1:[[5], [4]]:Early:1"]
+        }
         LateMode::EarlyLateAccumulating => vec!["1:[[2], []]:Early:0", "1:[[2], [4]]:Early:1"],
         LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => {
             vec!["1:[[2], []]:Early:0", "1:[[2], [4]]:Early:1"]

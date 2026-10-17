@@ -51,6 +51,7 @@ impl FakePubSubIO {
             ));
         }
         state.topics.insert(topic.to_owned(), Vec::new());
+        drop(state);
         Ok(())
     }
 

@@ -110,6 +110,7 @@ impl UnboundedSource<Timestamped<(i32, i32)>> for SlidingOrderedSource {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // The restart fixture keeps both source batches and windows visible.
 fn sliding_ordered_list_state_restores_each_window_and_source_cursor() {
     let directory = tempfile::tempdir().unwrap();
     let opens = Arc::new(Mutex::new(Vec::new()));

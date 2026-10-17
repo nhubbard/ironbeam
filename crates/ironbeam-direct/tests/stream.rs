@@ -517,7 +517,7 @@ fn session_late_count_fires_full_and_partial_panes_in_both_modes() {
                         ironbeam_core::PaneTiming::Late
                     }
                 );
-                pane.index as i32 * 10_000 + values.iter().sum::<i32>()
+                i32::try_from(pane.index).unwrap() * 10_000 + values.iter().sum::<i32>()
             })
             .unwrap()
             .sink_named_with_config(

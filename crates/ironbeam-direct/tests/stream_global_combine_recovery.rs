@@ -118,6 +118,7 @@ fn global_trigger_combine_restores_pane_index_after_failed_sink_commit() {
     }
 }
 
+#[allow(clippy::too_many_lines)] // The fixture exercises both combine modes through the same recovery path.
 fn run_restore_case(lifted: bool, global_trigger: bool) {
     let directory = tempfile::tempdir().unwrap();
     let opens = Arc::new(Mutex::new(Vec::new()));
@@ -172,7 +173,7 @@ fn run_restore_case(lifted: bool, global_trigger: bool) {
             .reify_panes_named("pane")
             .unwrap()
             .map_named("pane-and-value", |(pane, value)| {
-                pane.index as i32 * 100 + value
+                i32::try_from(pane.index).unwrap() * 100 + value
             })
             .unwrap()
     } else {
@@ -270,7 +271,7 @@ fn keyed_latest_restores_global_trigger_panes_after_failed_sink_commit() {
         .reify_panes_named("keyed-latest-pane")
         .unwrap()
         .map_named("keyed-latest-row", |(pane, (key, value))| {
-            pane.index as i32 * 1_000 + key * 100 + value
+            i32::try_from(pane.index).unwrap() * 1_000 + key * 100 + value
         })
         .unwrap()
         .sink_named_with_config(

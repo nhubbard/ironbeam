@@ -2167,7 +2167,7 @@ fn run_grouped_stream(
                 // Fire at the element boundary. Draining only after a source
                 // batch lets a batch overshoot a count trigger.
                 if let Some(threshold) = route.trigger.early_count()
-                    && !prior_watermark.is_some_and(|watermark| resolved.end_ns <= watermark)
+                    && prior_watermark.is_none_or(|watermark| resolved.end_ns > watermark)
                 {
                     let (mut fired, released) =
                         catch_unwind(AssertUnwindSafe(|| fold.drain_ready_count(threshold)))

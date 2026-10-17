@@ -1198,6 +1198,7 @@ fn multi_grouped_fold_panics_and_invalid_release_counts_are_typed_errors() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // One fixture checks every empty-state checkpoint version.
 fn multi_grouped_state_versions_and_empty_snapshots_are_distinct() {
     use grouped_state::MultiWindowState;
 

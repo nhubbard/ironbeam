@@ -15,7 +15,7 @@ fn cloud_error(key: &str, error: impl std::fmt::Display) -> Error {
 fn copy_and_hash(mut reader: impl Read, mut writer: impl Write) -> io::Result<(u64, [u8; 32])> {
     let mut digest = Sha256::new();
     let mut length = 0_u64;
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = vec![0_u8; 64 * 1024];
     loop {
         let count = match reader.read(&mut buffer) {
             Ok(count) => count,

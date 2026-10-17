@@ -134,12 +134,10 @@ fn incomplete_work_and_output_without_a_claim_fail_the_job() {
                 VERSION,
                 |_| OffsetRange::new(0, 3),
                 move |_, context| {
-                    if emit_without_claim {
-                        context.emit(7_i32, 0)?;
-                    } else {
+                    if !emit_without_claim {
                         assert!(context.try_claim(0)?);
-                        context.emit(7_i32, 0)?;
                     }
+                    context.emit(7_i32, 0)?;
                     Ok(())
                 },
             )
@@ -177,7 +175,7 @@ fn direct_processes_callback_residuals_with_restored_watermarks() {
                     if !context.try_claim(offset)? {
                         break;
                     }
-                    context.emit(offset as i32, offset * 1_000_000)?;
+                    context.emit(i32::try_from(offset).unwrap(), offset * 1_000_000)?;
                     if offset < 2 {
                         context.tracker().try_split(0.0)?;
                         context.update_watermark((offset + 1) * 1_000_000)?;

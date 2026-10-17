@@ -719,7 +719,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
             released = released.saturating_add(values.len());
             if final_ready {
-                self.early_finished.insert(scope.clone());
+                self.early_finished.insert(scope);
             }
             if self.on_time_behavior == WindowOnTimeBehavior::FireAlways
                 || self.closing_behavior == WindowClosingBehavior::EmitAlways

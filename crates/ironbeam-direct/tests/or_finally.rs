@@ -210,6 +210,7 @@ fn count_or_finally_keeps_key_and_window_cursors_independent() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // The test checks pane identities across both accumulation modes and recovery.
 fn count_or_finally_cursor_survives_checkpoint() {
     for accumulating in [false, true] {
         let directory = tempfile::tempdir().unwrap();

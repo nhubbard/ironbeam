@@ -243,6 +243,7 @@ impl Pipeline {
             return Err(Error::graph(key, "splittable transform node is missing"));
         }
         builder.registry.splittable.insert(key.to_owned(), registration);
+        drop(builder);
         Ok(())
     }
     /// Build a bounded collection from an owned vector.

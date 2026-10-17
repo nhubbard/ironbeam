@@ -4,7 +4,7 @@ use serde::de::DeserializeOwned;
 
 use super::read_msgpack_lazy;
 
-/// Read concatenated MessagePack records from one provider-bound object.
+/// Read concatenated `MessagePack` records from one provider-bound object.
 ///
 /// The source fixes the object's content identity when the graph is built.
 /// Each worker open streams the object to a temporary file and rejects changed
@@ -30,7 +30,7 @@ pub fn cloud_msgpack_streaming_uri_source<T: Element + DeserializeOwned>(
     )
 }
 
-/// Read a sorted, fixed set of MessagePack objects under a provider prefix.
+/// Read a sorted, fixed set of `MessagePack` objects under a provider prefix.
 ///
 /// Each object becomes a stable source split. Workers need the provider for
 /// the URI scheme and temporary disk space for the largest object.

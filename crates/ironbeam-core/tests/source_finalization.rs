@@ -21,7 +21,7 @@ impl UnboundedSource<Timestamped<i32>> for Once {
     }
 }
 
-fn source_progress(replay: Replay) -> SourceProgress {
+const fn source_progress(replay: Replay) -> SourceProgress {
     SourceProgress {
         stable_split_id: true,
         replay,
@@ -71,7 +71,7 @@ fn finalized_source_validates_progress_and_is_reconstructed_in_registry() {
             .kind,
         ErrorKind::Recovery
     );
-    invalid = valid.clone();
+    invalid = valid;
     invalid.checkpoint_position = Some(Vec::new());
     assert_eq!(
         registry

@@ -32,6 +32,7 @@ impl OffsetWatermarkEstimator {
             ));
         }
         *current = Some(watermark_ns);
+        drop(current);
         Ok(())
     }
 
@@ -57,7 +58,7 @@ pub struct OffsetProcessContext<U> {
 impl<U> OffsetProcessContext<U> {
     /// Create a context for an already validated tracker and watermark.
     #[must_use]
-    pub fn new(tracker: OffsetRangeTracker, estimator: OffsetWatermarkEstimator) -> Self {
+    pub const fn new(tracker: OffsetRangeTracker, estimator: OffsetWatermarkEstimator) -> Self {
         Self {
             tracker,
             estimator,

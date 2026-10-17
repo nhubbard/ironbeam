@@ -165,19 +165,19 @@ impl MultiWindowState {
         route: &MultiGroupedStreamRoute,
         deadline_ns: i64,
     ) -> Result<Vec<Envelope>, Error> {
-        let (folds, buffered, policy) = match self {
-            Self::Early {
-                folds,
-                buffered,
-                policy,
-            }
-            | Self::EarlyLate {
-                folds,
-                buffered,
-                policy,
-                ..
-            } => (folds, buffered, policy),
-            _ => return Ok(Vec::new()),
+        let (Self::Early {
+            folds,
+            buffered,
+            policy,
+        }
+        | Self::EarlyLate {
+            folds,
+            buffered,
+            policy,
+            ..
+        }) = self
+        else {
+            return Ok(Vec::new());
         };
         let mut panes = Vec::new();
         for (fold, rows) in folds.values_mut() {
@@ -293,6 +293,8 @@ impl MultiWindowState {
         }
     }
 
+    // Keep the four state variants in one match so each event has one admission boundary.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn add(
         &mut self,
         registry: &Registry,
@@ -406,7 +408,7 @@ impl MultiWindowState {
                 *count += 1;
                 *buffered += 1;
                 if let Some(threshold) = early_count
-                    && !prior_watermark.is_some_and(|watermark| resolved_end <= watermark)
+                    && prior_watermark.is_none_or(|watermark| resolved_end > watermark)
                 {
                     let (mut fired, released) = catch_group_user(
                         &route.group_key,

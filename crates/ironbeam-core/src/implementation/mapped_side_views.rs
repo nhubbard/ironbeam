@@ -52,7 +52,7 @@ impl<T: Element> PCollection<T> {
             return Err(Error::graph(key, "mapped side input must be bounded"));
         }
         validate_mapped_side_windows(key, &main.time, &other.time)?;
-        let side_window = other.time.window.clone();
+        let side_window = other.time.window;
         let key_owned = key.to_owned();
         let materialize = Arc::new(materialize);
         let f = Arc::new(f);
