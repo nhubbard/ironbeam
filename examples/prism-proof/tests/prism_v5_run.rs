@@ -8751,8 +8751,8 @@ async fn prism_matches_direct_beam_calendar_row_after_reshuffle() {
         rows
     };
     let expected = [
-        "date=-1,time=1000000000,uuid=1:-1",
-        "date=0,time=2000000000,uuid=2:-2",
+        "date=-1,time=1000000000,uuid=1:-1,instant=-2:123456789,duration=2:987654321",
+        "date=0,time=2000000000,uuid=2:-2,instant=-1:123456789,duration=4:987654321",
     ];
     assert_eq!(read_rows(&direct_path), expected);
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {

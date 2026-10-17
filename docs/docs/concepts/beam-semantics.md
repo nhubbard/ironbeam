@@ -65,11 +65,13 @@ global-window source flushes its last partial batch at source completion. A
 continuing global source needs a count, byte, or processing-time limit to
 release a partial batch.
 
-A bounded RowCoder fixture carries Beam date, time, and UUID logical fields
-through a reshuffle. Direct and the pinned local Prism job produce the same
-decoded values after that wire boundary. The date uses epoch days, the time
-uses nanoseconds since midnight, and the UUID uses a nested row containing
-its most and least significant 64-bit halves.
+A bounded RowCoder fixture carries Beam date, time, UUID, nanosecond instant,
+and nanosecond duration logical fields through a reshuffle. Direct and the
+pinned local Prism job produce the same decoded values after that wire
+boundary. The date uses epoch days, the time uses nanoseconds since midnight,
+and the UUID uses a nested row containing its most and least significant
+64-bit halves. The two nanosecond types use a nested row containing signed
+seconds and a 32-bit nanosecond fraction.
 
 For an unbounded fixed or sliding window with allowed lateness,
 `group_into_batches_with_max_buffering_duration_named` uses a repeated

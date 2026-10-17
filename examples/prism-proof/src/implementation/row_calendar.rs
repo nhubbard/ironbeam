@@ -14,6 +14,13 @@ const fn int64_type() -> FieldType {
     }
 }
 
+const fn int32_type() -> FieldType {
+    FieldType {
+        nullable: false,
+        type_info: Some(field_type::TypeInfo::AtomicType(AtomicType::Int32 as i32)),
+    }
+}
+
 fn field(name: &str, ty: FieldType) -> Field {
     Field {
         name: name.into(),
@@ -34,7 +41,7 @@ fn logical_type(urn: &str, representation: FieldType) -> FieldType {
 }
 
 impl RowSchema for CalendarRowSchema {
-    const TYPE_ID: &'static str = "tests/prism-beam-calendar-row-v1";
+    const TYPE_ID: &'static str = "tests/prism-beam-calendar-row-v2";
 
     fn schema() -> Schema {
         let uuid_schema = Schema {
@@ -44,8 +51,12 @@ impl RowSchema for CalendarRowSchema {
             ],
             ..Default::default()
         };
+        let nanos_schema = Schema {
+            fields: vec![field("seconds", int64_type()), field("nanos", int32_type())],
+            ..Default::default()
+        };
         Schema {
-            id: "ee36ab85-41fb-46d5-b6fc-227603d3cf8a".into(),
+            id: "cc349d41-82f6-4987-a613-93342042f219".into(),
             fields: vec![
                 field(
                     "date",
@@ -67,6 +78,30 @@ impl RowSchema for CalendarRowSchema {
                         },
                     ),
                 ),
+                field(
+                    "instant",
+                    logical_type(
+                        "beam:logical_type:nanos_instant:v1",
+                        FieldType {
+                            nullable: false,
+                            type_info: Some(field_type::TypeInfo::RowType(RowType {
+                                schema: Some(nanos_schema.clone()),
+                            })),
+                        },
+                    ),
+                ),
+                field(
+                    "duration",
+                    logical_type(
+                        "beam:logical_type:nanos_duration:v1",
+                        FieldType {
+                            nullable: false,
+                            type_info: Some(field_type::TypeInfo::RowType(RowType {
+                                schema: Some(nanos_schema),
+                            })),
+                        },
+                    ),
+                ),
             ],
             ..Default::default()
         }
@@ -77,6 +112,14 @@ const fn int64(value: i64) -> FieldValue {
     FieldValue {
         field_value: Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
             value: Some(atomic_type_value::Value::Int64(value)),
+        })),
+    }
+}
+
+const fn int32(value: i32) -> FieldValue {
+    FieldValue {
+        field_value: Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+            value: Some(atomic_type_value::Value::Int32(value)),
         })),
     }
 }
@@ -95,6 +138,14 @@ fn logical_int64(value: i64) -> FieldValue {
     logical(int64(value))
 }
 
+fn logical_nanos(seconds: i64, nanos: i32) -> FieldValue {
+    logical(FieldValue {
+        field_value: Some(field_value::FieldValue::RowValue(Row {
+            values: vec![int64(seconds), int32(nanos)],
+        })),
+    })
+}
+
 fn row_for(id: i64) -> BeamRow<CalendarRowSchema> {
     BeamRow::<CalendarRowSchema>::new(Row {
         values: vec![
@@ -105,6 +156,8 @@ fn row_for(id: i64) -> BeamRow<CalendarRowSchema> {
                     values: vec![int64(id), int64(-id)],
                 })),
             }),
+            logical_nanos(id - 3, 123_456_789),
+            logical_nanos(id * 2, 987_654_321),
         ],
     })
     .expect("calendar fixture matches its Beam schema")
@@ -124,6 +177,32 @@ fn logical_i64(field: &FieldValue) -> i64 {
         panic!("calendar int64 representation missing");
     };
     *value
+}
+
+fn logical_nanos_parts(field: &FieldValue) -> (i64, i32) {
+    let Some(field_value::FieldValue::LogicalTypeValue(value)) = &field.field_value else {
+        panic!("nanosecond logical value missing");
+    };
+    let Some(field_value::FieldValue::RowValue(row)) = value
+        .value
+        .as_ref()
+        .and_then(|value| value.field_value.as_ref())
+    else {
+        panic!("nanosecond row representation missing");
+    };
+    let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+        value: Some(atomic_type_value::Value::Int64(seconds)),
+    })) = &row.values[0].field_value
+    else {
+        panic!("nanosecond seconds missing");
+    };
+    let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+        value: Some(atomic_type_value::Value::Int32(nanos)),
+    })) = &row.values[1].field_value
+    else {
+        panic!("nanosecond fraction missing");
+    };
+    (*seconds, *nanos)
 }
 
 pub fn beam_calendar_row_fixture(
@@ -162,7 +241,11 @@ pub fn beam_calendar_row_fixture(
             else {
                 panic!("UUID least significant bits missing");
             };
-            format!("date={date},time={time},uuid={most}:{least}")
+            let (instant_seconds, instant_nanos) = logical_nanos_parts(&fields[3]);
+            let (duration_seconds, duration_nanos) = logical_nanos_parts(&fields[4]);
+            format!(
+                "date={date},time={time},uuid={most}:{least},instant={instant_seconds}:{instant_nanos},duration={duration_seconds}:{duration_nanos}"
+            )
         })?
         .sink_named_with_config(
             "beam-calendar-capture",
