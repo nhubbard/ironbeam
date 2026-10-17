@@ -105,6 +105,7 @@ pub fn streaming_global_combine_panes_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
     route: StreamingGlobalCombineRoute,
+    accumulating: bool,
 ) -> Result<Sink<String>, Error> {
     let source = pipeline
         .test_stream_source(
@@ -117,8 +118,12 @@ pub fn streaming_global_combine_panes_fixture(
             ],
         )?
         .fixed_windows("streaming-global-panes-window", 10_000_000)?
-        .latest_in_pane_output_time_named("streaming-global-panes-output-time")?
-        .early_count_trigger_named("streaming-global-panes-trigger", 2)?;
+        .latest_in_pane_output_time_named("streaming-global-panes-output-time")?;
+    let source = if accumulating {
+        source.accumulating_count_trigger_named("streaming-global-panes-trigger", 2)?
+    } else {
+        source.early_count_trigger_named("streaming-global-panes-trigger", 2)?
+    };
     let count = source
         .count_globally_named("streaming-global-panes-count")?
         .reify_timestamps_named("streaming-global-panes-count-time")?
@@ -170,7 +175,7 @@ pub fn streaming_global_combine_panes_fixture(
             replay: Replay::Idempotent,
             commit: true,
         },
-        format!("streaming-global-panes:{}", path.display()),
+        format!("streaming-global-panes:{accumulating}:{}", path.display()),
         move || {
             Ok(Box::new(IdempotentRowSink {
                 directory: directory.clone(),

@@ -76,27 +76,41 @@ const EXPECTED_PANES: [&str; 4] = [
     "sum:Early:0:3:3",
     "sum:OnTime:1:6:3",
 ];
+const EXPECTED_ACCUM_PANES: [&str; 4] = [
+    "count:Early:0:3:2",
+    "count:OnTime:1:6:3",
+    "sum:Early:0:3:3",
+    "sum:OnTime:1:6:6",
+];
 
 #[test]
 fn direct_runs_early_global_combine_panes() {
     let directory = tempfile::tempdir().unwrap();
-    let mut rows = Vec::new();
-    for (name, route) in [
-        ("count", StreamingGlobalCombineRoute::Count),
-        ("sum", StreamingGlobalCombineRoute::Sum),
-    ] {
-        let path = directory.path().join(name);
-        let pipeline = Pipeline::default();
-        let sink = streaming_global_combine_panes_fixture(&pipeline, path.clone(), route).unwrap();
-        DirectRunner
-            .start_stream_sink(&sink, &JobConfig::default())
-            .unwrap()
-            .wait()
+    for (accumulating, expected) in [(false, EXPECTED_PANES), (true, EXPECTED_ACCUM_PANES)] {
+        let mut rows = Vec::new();
+        for (name, route) in [
+            ("count", StreamingGlobalCombineRoute::Count),
+            ("sum", StreamingGlobalCombineRoute::Sum),
+        ] {
+            let path = directory.path().join(format!("{accumulating}-{name}"));
+            let pipeline = Pipeline::default();
+            let sink = streaming_global_combine_panes_fixture(
+                &pipeline,
+                path.clone(),
+                route,
+                accumulating,
+            )
             .unwrap();
-        rows.extend(read_rows(&path));
+            DirectRunner
+                .start_stream_sink(&sink, &JobConfig::default())
+                .unwrap()
+                .wait()
+                .unwrap();
+            rows.extend(read_rows(&path));
+        }
+        rows.sort();
+        assert_eq!(rows, expected);
     }
-    rows.sort();
-    assert_eq!(rows, EXPECTED_PANES);
 }
 
 #[tokio::test]
@@ -112,6 +126,7 @@ async fn prism_runs_early_global_combine_panes() {
         &pipeline,
         path.clone(),
         StreamingGlobalCombineRoute::All,
+        false,
     )
     .unwrap();
     let (state, messages) = run_shared_fixture(
@@ -126,4 +141,37 @@ async fn prism_runs_early_global_combine_panes() {
     .await;
     assert_eq!(state, 3, "Prism global panes failed: {messages:?}");
     assert_eq!(read_rows(&path), EXPECTED_PANES);
+}
+
+#[tokio::test]
+async fn prism_runs_accumulating_global_combine_panes() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("portable-global-accum-panes");
+    let pipeline = Pipeline::default();
+    streaming_global_combine_panes_fixture(
+        &pipeline,
+        path.clone(),
+        StreamingGlobalCombineRoute::All,
+        true,
+    )
+    .unwrap();
+    let (state, messages) = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "streaming-global-accum-panes",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAMING_GLOBAL_ACCUM_PANES".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        state, 3,
+        "Prism accumulating global panes failed: {messages:?}"
+    );
+    assert_eq!(read_rows(&path), EXPECTED_ACCUM_PANES);
 }
