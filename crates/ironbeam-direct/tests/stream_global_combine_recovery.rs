@@ -1,0 +1,180 @@
+use ironbeam_core::{
+    Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
+    Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
+    UnboundedSource,
+};
+use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
+use std::collections::{HashSet, VecDeque};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
+
+struct Script {
+    polls: VecDeque<UnboundedPoll<Timestamped<i32>>>,
+}
+
+impl UnboundedSource<Timestamped<i32>> for Script {
+    fn poll(&mut self, _max_elements: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
+        Ok(self.polls.pop_front().unwrap_or(UnboundedPoll::Pending))
+    }
+}
+
+fn batch(
+    cursor: u8,
+    watermark: i64,
+    completed: bool,
+    values: &[(i32, i64)],
+) -> UnboundedPoll<Timestamped<i32>> {
+    UnboundedPoll::Ready(UnboundedBatch {
+        elements: values
+            .iter()
+            .map(|(value, timestamp_ns)| Timestamped {
+                value: *value,
+                timestamp_ns: *timestamp_ns,
+            })
+            .collect(),
+        progress: ProgressSignal {
+            source_key: "events".into(),
+            split_id: "split-0".into(),
+            checkpoint_position: Some(vec![cursor]),
+            event_time_ns: Some(watermark),
+            completed,
+        },
+    })
+}
+
+struct FailOnceSink {
+    committed: Arc<Mutex<Vec<i32>>>,
+    accepted: Arc<Mutex<HashSet<String>>>,
+    fail_commit: Arc<AtomicBool>,
+    bundle: Option<String>,
+    pending: Vec<i32>,
+}
+
+impl TypedSink<i32> for FailOnceSink {
+    fn begin_bundle(&mut self, instruction_id: &str) -> Result<(), Error> {
+        self.bundle = Some(instruction_id.to_owned());
+        Ok(())
+    }
+
+    fn write(&mut self, value: i32) -> Result<(), Error> {
+        self.pending.push(value);
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        if self.fail_commit.swap(false, Ordering::SeqCst) {
+            return Err(Error::execution("sink", "direct", "commit failed once"));
+        }
+        let bundle = self.bundle.take().expect("bundle ID was bound");
+        if self.accepted.lock().unwrap().insert(bundle) {
+            self.committed
+                .lock()
+                .unwrap()
+                .extend(self.pending.drain(..));
+        }
+        Ok(())
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        self.pending.clear();
+        Ok(())
+    }
+}
+
+#[test]
+fn global_combine_restores_open_window_after_failed_sink_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let fail_commit = Arc::new(AtomicBool::new(true));
+    let pipeline = Pipeline::default();
+    let opens_for_source = Arc::clone(&opens);
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "global-combine-recovery-source-v1".into(),
+            0,
+            move |cursor| {
+                opens_for_source.lock().unwrap().push(cursor.clone());
+                let final_batch = batch(2, 10_000_000, true, &[(3, 6_000_000)]);
+                let polls = match cursor.as_deref() {
+                    None => vec![
+                        batch(1, 5_000_000, false, &[(1, 1_000_000), (2, 3_000_000)]),
+                        final_batch,
+                    ],
+                    Some([1]) => vec![final_batch],
+                    _ => return Err(Error::incompatible("unexpected global combine cursor")),
+                };
+                Ok(Box::new(Script {
+                    polls: polls.into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap();
+    let sink = source
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .combine_globally_named("sum", |values| values.into_iter().sum::<i32>())
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "global-combine-recovery-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                let fail_commit = Arc::clone(&fail_commit);
+                move || {
+                    Ok(Box::new(FailOnceSink {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        fail_commit: Arc::clone(&fail_commit),
+                        bundle: None,
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 1,
+            recover: true,
+            binary_build_id: "global-combine-recovery-test".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let error = DirectRunner
+        .start_stream_sink(&sink, &config)
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert!(committed.lock().unwrap().is_empty());
+    assert_eq!(
+        DirectRunner
+            .start_stream_sink(&sink, &config)
+            .unwrap()
+            .wait()
+            .unwrap()
+            .status(),
+        JobStatus::Succeeded
+    );
+    assert_eq!(*committed.lock().unwrap(), [6]);
+    assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
+}

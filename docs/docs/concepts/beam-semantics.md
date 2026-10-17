@@ -241,6 +241,8 @@ group retains coded values until a pane fires, so a large window can use
 substantial state even for a count or sum. A separate fixed-window case
 matches early and on-time count and sum panes, including pane indices and
 latest-in-pane timestamps, in both discarding and accumulating modes.
+Direct also restores an open grouped window after a sink commit failure and
+resumes the source from its saved cursor.
 
 The `to_list_ordered_by_named`, `take_ordered_by_named`,
 `first_ordered_by_named`, and `distinct_by_ordered_by_named` helpers use the
