@@ -1684,6 +1684,17 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             pipeline,
             capture.into(),
             ironbeam_prism_proof::GlobalTriggerRoute::All,
+            ironbeam_prism_proof::GlobalTriggerPolicy::Count,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
+    if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_TIME_TRIGGER_COMBINES") {
+        return ironbeam_prism_proof::streaming_global_trigger_fixture(
+            pipeline,
+            capture.into(),
+            ironbeam_prism_proof::GlobalTriggerRoute::All,
+            ironbeam_prism_proof::GlobalTriggerPolicy::ProcessingTime,
         )
         .map(|_| ())
         .map_err(Into::into);

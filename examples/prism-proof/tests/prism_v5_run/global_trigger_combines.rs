@@ -1,5 +1,7 @@
 use super::*;
-use ironbeam_prism_proof::{streaming_global_trigger_fixture, GlobalTriggerRoute};
+use ironbeam_prism_proof::{
+    streaming_global_trigger_fixture, GlobalTriggerPolicy, GlobalTriggerRoute,
+};
 
 const EXPECTED: [&str; 8] = [
     "count:Early:0:2:2",
@@ -23,6 +25,15 @@ fn read_rows(path: &Path) -> Vec<String> {
 
 #[test]
 fn direct_runs_unbounded_global_combine_trigger() {
+    direct_runs_global_trigger(GlobalTriggerPolicy::Count);
+}
+
+#[test]
+fn direct_runs_unbounded_global_processing_time_trigger() {
+    direct_runs_global_trigger(GlobalTriggerPolicy::ProcessingTime);
+}
+
+fn direct_runs_global_trigger(trigger: GlobalTriggerPolicy) {
     let directory = tempfile::tempdir().unwrap();
     let mut rows = Vec::new();
     for (name, route) in [
@@ -33,7 +44,8 @@ fn direct_runs_unbounded_global_combine_trigger() {
     ] {
         let path = directory.path().join(name);
         let pipeline = Pipeline::default();
-        let sink = streaming_global_trigger_fixture(&pipeline, path.clone(), route).unwrap();
+        let sink =
+            streaming_global_trigger_fixture(&pipeline, path.clone(), route, trigger).unwrap();
         DirectRunner
             .start_stream_sink(&sink, &JobConfig::default())
             .unwrap()
@@ -47,6 +59,24 @@ fn direct_runs_unbounded_global_combine_trigger() {
 
 #[tokio::test]
 async fn prism_runs_unbounded_global_combine_trigger() {
+    prism_runs_global_trigger(
+        "IRONBEAM_V5_PRISM_GLOBAL_TRIGGER_COMBINES",
+        GlobalTriggerPolicy::Count,
+    )
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "pinned Prism panics in aggregateStageKind.buildProcessingTimeBundle for the global window"]
+async fn prism_runs_unbounded_global_processing_time_trigger() {
+    prism_runs_global_trigger(
+        "IRONBEAM_V5_PRISM_GLOBAL_TIME_TRIGGER_COMBINES",
+        GlobalTriggerPolicy::ProcessingTime,
+    )
+    .await;
+}
+
+async fn prism_runs_global_trigger(env: &str, trigger: GlobalTriggerPolicy) {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };
@@ -54,15 +84,13 @@ async fn prism_runs_unbounded_global_combine_trigger() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("portable-global-trigger");
     let pipeline = Pipeline::default();
-    streaming_global_trigger_fixture(&pipeline, path.clone(), GlobalTriggerRoute::All).unwrap();
+    streaming_global_trigger_fixture(&pipeline, path.clone(), GlobalTriggerRoute::All, trigger)
+        .unwrap();
     let (state, messages) = run_shared_fixture(
         &endpoint,
         &pipeline,
         "global-trigger-combines",
-        HashMap::from([(
-            "IRONBEAM_V5_PRISM_GLOBAL_TRIGGER_COMBINES".into(),
-            path.to_string_lossy().into_owned(),
-        )]),
+        HashMap::from([(env.into(), path.to_string_lossy().into_owned())]),
     )
     .await;
     assert_eq!(

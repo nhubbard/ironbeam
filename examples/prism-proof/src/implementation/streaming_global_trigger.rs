@@ -13,22 +13,34 @@ pub enum GlobalTriggerRoute {
     Ordered,
 }
 
+/// Choose how the global window emits its first pane.
+#[derive(Clone, Copy)]
+pub enum GlobalTriggerPolicy {
+    Count,
+    ProcessingTime,
+}
+
 /// Exercise finite panes in an unbounded global window with an early trigger.
 pub fn streaming_global_trigger_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
     route: GlobalTriggerRoute,
+    trigger: GlobalTriggerPolicy,
 ) -> Result<Sink<String>, Error> {
-    let source = pipeline
-        .test_stream_source(
-            "global-trigger-source",
-            vec![
-                TestStreamEvent::Elements(vec![(2_i32, 2_000_000), (3, 3_000_000)]),
-                TestStreamEvent::AdvanceProcessingTime(1_000_000),
-                TestStreamEvent::Elements(vec![(4, 4_000_000)]),
-            ],
-        )?
-        .early_count_trigger_named("global-trigger", 2)?;
+    let source = pipeline.test_stream_source(
+        "global-trigger-source",
+        vec![
+            TestStreamEvent::Elements(vec![(2_i32, 2_000_000), (3, 3_000_000)]),
+            TestStreamEvent::AdvanceProcessingTime(1_000_000),
+            TestStreamEvent::Elements(vec![(4, 4_000_000)]),
+        ],
+    )?;
+    let source = match trigger {
+        GlobalTriggerPolicy::Count => source.early_count_trigger_named("global-trigger", 2)?,
+        GlobalTriggerPolicy::ProcessingTime => {
+            source.early_processing_time_trigger_named("global-trigger", 1_000_000)?
+        }
+    };
     let vector = source
         .combine_globally_named("global-trigger-vector", |mut values| {
             values.sort();

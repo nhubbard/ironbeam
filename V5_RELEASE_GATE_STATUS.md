@@ -86,6 +86,10 @@ below is complete.
 The global-window early-count recovery fixture commits pane zero, fails the
 next sink commit, then resumes from source cursor 1. Both callback-based and lifted
 sum implementations retain pane zero and commit pane one once after restart.
+Direct also emits the expected eight rows across four global-window branches under a
+processing-time trigger. The pinned Prism panics in
+`aggregateStageKind.buildProcessingTimeBundle` on that fixture; its comparison
+is an ignored diagnostic, outside the portable support claim.
 
 The release documentation check generates all-feature Rustdoc JSON and
 requires a direct description for public functions, trait methods, and types

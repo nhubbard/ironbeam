@@ -249,6 +249,10 @@ TestStream with a count trigger produces matching early and final panes on
 Direct and local Prism. Without an early trigger, the graph is rejected.
 A Direct checkpoint also preserves the early pane and its index across a
 failed final-pane sink commit.
+Direct also runs this global-window example with a processing-time trigger.
+The pinned local Prism panics while firing its aggregation timer for that
+schedule, so global-window processing-time panes have no portable runner
+proof in this release.
 
 Direct also restores an open grouped window after a sink commit failure and
 resumes the source from its saved cursor.
