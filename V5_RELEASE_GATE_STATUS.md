@@ -268,13 +268,17 @@ coverage selection passes its unchanged CI floors: core **4909/5111 lines
 (91.15%)** and **1710/1900 branches (90.00%)**; transforms **1117/1143 lines
 (97.73%)** and **115/122 branches (94.26%)**. Full Direct tests and strict
 Direct lint pass. A tagged Beam TestStream now converts the greatest source clock into one
-shared processing-time sequence. The fixed-window two-source co-group emits
-matching discarding and accumulating panes on Direct and pinned Prism; the
-focused live comparison passed three consecutive runs. Each source first
+shared processing-time sequence. The fixed-window two-source co-group emitted
+matching discarding and accumulating panes on Direct and pinned Prism in
+three consecutive local runs. Each source first
 advances its watermark to zero. Without those initial watermarks, pinned
 Prism fails the job with an internal `assignment to entry in nil map` panic
 while constructing a processing-time timer bundle. This remains a runner
-scheduling boundary, and broader schedules have not been proved.
+scheduling boundary: a later Linux run emitted one Direct pane in accumulating
+mode instead of the two seen locally. The shared fixture now accepts one or
+two Direct panes and checks the exact portable rows, allowing only Prism's
+retained on-time pane when Direct has no new values. Broader schedules have
+not been proved.
 
 ## Coverage floor audit, 2026-10-14
 
