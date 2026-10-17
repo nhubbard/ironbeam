@@ -342,6 +342,7 @@ fn run_multi_grouped_stream(
     mut processing_clock_ns: Option<i64>,
 ) -> Result<(), Error> {
     let mut materialized_bounded = false;
+    let mut bounded_early_panes = Vec::new();
     for (index, source) in route.sources.iter().enumerate() {
         if !source.bounded
             || sources[index]
@@ -378,7 +379,13 @@ fn run_multi_grouped_stream(
                     config,
                     handle,
                 )? {
-                    state.add(registry, route, event, None, config.buffer_budget_elements)?;
+                    bounded_early_panes.extend(state.add(
+                        registry,
+                        route,
+                        event,
+                        None,
+                        config.buffer_budget_elements,
+                    )?);
                 }
             }
         }
@@ -428,7 +435,8 @@ fn run_multi_grouped_stream(
             state.arm_processing_time(processing_clock_ns.expect("processing clock set"))?;
         }
         let combined = multi_progress(sequence, &sources);
-        let panes = state.drain(registry, route, None, &combined)?;
+        let mut panes = bounded_early_panes;
+        panes.extend(state.drain(registry, route, None, &combined)?);
         publish_multi_grouped_step(
             registry,
             route,
@@ -515,6 +523,7 @@ fn run_multi_grouped_stream(
                 .fetch_max(count, Ordering::Relaxed);
             handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
             let old_watermark = multi_progress(sequence, &sources).event_time_ns;
+            let mut early_panes = Vec::new();
             for input in batch.elements {
                 for event in apply_branch_paths(
                     registry,
@@ -524,13 +533,13 @@ fn run_multi_grouped_stream(
                     config,
                     handle,
                 )? {
-                    state.add(
+                    early_panes.extend(state.add(
                         registry,
                         route,
                         event,
                         old_watermark,
                         config.buffer_budget_elements,
-                    )?;
+                    )?);
                 }
             }
             if let Some(now_ns) = processing_clock_ns {
@@ -545,7 +554,7 @@ fn run_multi_grouped_stream(
                 .checked_add(1)
                 .ok_or_else(|| Error::resource("checkpoint", "multi-group sequence exhausted"))?;
             let combined = multi_progress(sequence, &sources);
-            let closing = state.drain(registry, route, old_watermark, &combined)?;
+            early_panes.extend(state.drain(registry, route, old_watermark, &combined)?);
             publish_multi_grouped_step(
                 registry,
                 route,
@@ -559,7 +568,7 @@ fn run_multi_grouped_stream(
                 &sources,
                 &combined,
                 processing_clock_ns,
-                closing,
+                early_panes,
             )?;
             if let Some(signal) = sources[index]
                 .as_ref()

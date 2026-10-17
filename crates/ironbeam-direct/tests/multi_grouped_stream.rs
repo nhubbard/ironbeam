@@ -71,7 +71,7 @@ fn bounded_multi_source_group_finishes_during_materialization() {
         .unwrap();
     assert_eq!(
         committed.lock().unwrap().as_slice(),
-        ["1:[[2], [4]]:Early:0"]
+        ["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"]
     );
 }
 

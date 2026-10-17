@@ -1,6 +1,8 @@
 include!("records_and_joins.rs");
 mod distinct;
 pub use distinct::*;
+mod multi_count_boundary;
+pub use multi_count_boundary::*;
 mod offset_sdf;
 pub use offset_sdf::*;
 mod combining_state;

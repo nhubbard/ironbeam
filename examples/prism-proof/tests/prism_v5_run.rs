@@ -48,6 +48,8 @@ mod state_fanout;
 mod streaming_distinct_count_per_key;
 #[path = "prism_v5_run/timer_state.rs"]
 mod timer_state;
+#[path = "prism_v5_run/two_source_count_boundary.rs"]
+mod two_source_count_boundary;
 
 extern crate prost_v5 as prost;
 

@@ -300,8 +300,19 @@ impl MultiWindowState {
         event: Envelope,
         prior_watermark: Option<i64>,
         budget_elements: usize,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<Envelope>, Error> {
         let window = stream_window(&event, &route.group_key)?;
+        let early_count = match self {
+            Self::Early { policy, .. } | Self::EarlyLate { policy, .. } => match policy {
+                EarlyPolicy::Count(count) => Some(*count),
+                EarlyPolicy::ProcessingTime(_)
+                | EarlyPolicy::CountOrProcessingTime(_, _)
+                | EarlyPolicy::CountAndProcessingTime(_, _)
+                | EarlyPolicy::CountThenProcessingTime(_, _) => None,
+            },
+            Self::Rows { .. } | Self::Late { .. } => None,
+        };
+        let mut panes = Vec::new();
         match self {
             Self::Rows { windows, buffered } => {
                 let original_expired =
@@ -319,7 +330,7 @@ impl MultiWindowState {
                         window.1
                     };
                 if prior_watermark.is_some_and(|watermark| resolved_end <= watermark) {
-                    return Ok(());
+                    return Ok(panes);
                 }
                 if *buffered >= budget_elements {
                     return Err(Error::resource(
@@ -369,7 +380,7 @@ impl MultiWindowState {
                 if prior_watermark.is_some_and(|watermark| {
                     resolved_end.saturating_add(*allowed_lateness_ns) <= watermark
                 }) {
-                    return Ok(());
+                    return Ok(panes);
                 }
                 if *buffered >= budget_elements {
                     return Err(Error::resource(
@@ -394,12 +405,28 @@ impl MultiWindowState {
                 catch_group_user(&route.group_key, "group fold panicked", || fold.add(event))?;
                 *count += 1;
                 *buffered += 1;
+                if let Some(threshold) = early_count
+                    && !prior_watermark.is_some_and(|watermark| resolved_end <= watermark)
+                {
+                    let (mut fired, released) = catch_group_user(
+                        &route.group_key,
+                        "group early count trigger panicked",
+                        || fold.drain_ready_count(threshold),
+                    )?;
+                    *count = count.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "early fold released too many rows")
+                    })?;
+                    *buffered = buffered.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    panes.append(&mut fired);
+                }
             }
             Self::Early {
                 folds, buffered, ..
             } => {
                 if prior_watermark.is_some_and(|watermark| window.1 <= watermark) {
-                    return Ok(());
+                    return Ok(panes);
                 }
                 if *buffered >= budget_elements {
                     return Err(Error::resource(
@@ -421,9 +448,22 @@ impl MultiWindowState {
                 catch_group_user(&route.group_key, "group fold panicked", || fold.add(event))?;
                 *rows += 1;
                 *buffered += 1;
+                if let Some(threshold) = early_count {
+                    let (mut fired, released) =
+                        catch_group_user(&route.group_key, "group count trigger panicked", || {
+                            fold.drain_ready_count(threshold)
+                        })?;
+                    *rows = rows.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "count trigger released too many rows")
+                    })?;
+                    *buffered = buffered.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    panes.append(&mut fired);
+                }
             }
         }
-        Ok(())
+        Ok(panes)
     }
 
     #[allow(clippy::too_many_lines)] // Pane emission and state release share one watermark transition.
