@@ -101,6 +101,9 @@ fold on unbounded input; its previous bounded-fold override failed at runtime.
 Two-key early and final pane values, indices, and event timestamps match
 Direct and pinned Prism. Equal-time values still need an explicit tie key for
 portable selection.
+Direct also restores the encounter-order selector from a checkpoint after its
+early pane commits and the next sink commit fails. The three keyed rows are
+published once after restart, with the final pane index preserved.
 
 Direct also emits the expected twelve rows across six global-window branches under a
 processing-time trigger. The pinned Prism panics in

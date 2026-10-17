@@ -1,7 +1,7 @@
 use ironbeam_core::{
     CombineFn, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
-    SourceProgress, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
-    UnboundedPoll, UnboundedSource,
+    SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
+    UnboundedBatch, UnboundedPoll, UnboundedSource,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::{HashSet, VecDeque};
@@ -241,4 +241,92 @@ fn run_restore_case(lifted: bool, global_trigger: bool) {
         assert_eq!(*committed.lock().unwrap(), [6]);
     }
     assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
+}
+
+#[test]
+fn keyed_latest_restores_global_trigger_panes_after_failed_sink_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let commit_attempts = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "keyed-latest-source",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, 3_i32), 1_000_000),
+                    ((1, 2), 2_000_000),
+                    ((2, 9), 3_000_000),
+                ]),
+                TestStreamEvent::Elements(vec![((1, 4), 4_000_000)]),
+            ],
+        )
+        .unwrap()
+        .early_count_trigger_named("keyed-latest-trigger", 2)
+        .unwrap()
+        .latest_per_key_named("keyed-latest")
+        .unwrap()
+        .reify_panes_named("keyed-latest-pane")
+        .unwrap()
+        .map_named("keyed-latest-row", |(pane, (key, value))| {
+            pane.index as i32 * 1_000 + key * 100 + value
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "keyed-latest-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "keyed-latest-recovery-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                let commit_attempts = Arc::clone(&commit_attempts);
+                move || {
+                    Ok(Box::new(FailOnceSink {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        commit_attempts: Arc::clone(&commit_attempts),
+                        fail_at_commit: 2,
+                        bundle: None,
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 1,
+            recover: true,
+            binary_build_id: "keyed-latest-recovery-test".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let error = DirectRunner
+        .start_stream_sink(&sink, &config)
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(*committed.lock().unwrap(), [102]);
+
+    assert_eq!(
+        DirectRunner
+            .start_stream_sink(&sink, &config)
+            .unwrap()
+            .wait()
+            .unwrap()
+            .status(),
+        JobStatus::Succeeded
+    );
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort_unstable();
+    assert_eq!(rows, [102, 209, 1104]);
 }

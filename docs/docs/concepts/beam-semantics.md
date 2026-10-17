@@ -247,6 +247,8 @@ Both latest-per-key selectors have the same triggered global-window support.
 Their two-key example selects the greatest event time in each pane and matches
 on both runners. The selector without a tie key remains runner-dependent when
 event times are equal.
+Direct also checkpoints its early global keyed pane and recovers the later
+pane after a failed sink commit without repeating the committed row.
 
 Vector and accumulator based global combines also use a constant key and
 `GroupByKey` on unbounded input. A two-window TestStream gives the same vector,
