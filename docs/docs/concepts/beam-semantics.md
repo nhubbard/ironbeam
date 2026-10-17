@@ -234,6 +234,12 @@ open windows in its checkpoint. Direct runs each helper branch separately;
 Prism also runs the four branches merged into one sink. The tested rows and
 event timestamps agree. Direct does not yet support that merged streaming route.
 
+Vector and accumulator based global combines also use a constant key and
+`GroupByKey` on unbounded input. A two-window TestStream gives the same vector,
+count, and sum results and event timestamps on Direct and local Prism. The
+group retains coded values until a pane fires, so a large window can use
+substantial state even for a count or sum.
+
 The `to_list_ordered_by_named`, `take_ordered_by_named`,
 `first_ordered_by_named`, and `distinct_by_ordered_by_named` helpers use the
 same explicit-order fold. A shared bounded Direct/Prism graph verifies their

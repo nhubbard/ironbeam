@@ -6,6 +6,8 @@ mod bag_state;
 mod combining_state;
 #[path = "prism_v5_run/distinct.rs"]
 mod distinct;
+#[path = "prism_v5_run/global_combines.rs"]
+mod global_combines;
 #[path = "prism_v5_run/keyed_batches.rs"]
 mod keyed_batches;
 #[path = "prism_v5_run/map_state.rs"]

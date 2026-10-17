@@ -1,4 +1,5 @@
 type VectorCombineEntry<T> = (Vec<T>, i64, i64, Option<WindowInterval>);
+type StreamGlobalRows<T> = (u8, Vec<(i64, T)>);
 
 #[derive(Clone, Copy, Default)]
 struct TimePolicyOverride {
@@ -38,6 +39,12 @@ impl<T: Element> PCollection<T> {
             .node(&self.key)
             .cloned()
             .ok_or_else(|| Error::graph(&self.key, "collection missing"))
+    }
+
+    fn stream_global_group(&self, key: &str) -> Result<PCollection<StreamGlobalRows<T>>, Error> {
+        self.reify_timestamps_named(&format!("{key}/time"))?
+            .map_named(&format!("{key}/key"), |row| (0_u8, row))?
+            .group_by_key_named(&format!("{key}/group"))
     }
     fn next<U: Element>(
         &self,
@@ -1548,6 +1555,8 @@ impl<T: Element> PCollection<T> {
     /// An empty bounded global collection invokes `f` with an empty vector.
     /// For large inputs, prefer a mergeable combiner to avoid materializing
     /// every value. An unbounded global collection requires a finite window.
+    /// In that case, the runner groups and retains the window's values before
+    /// calling `f`; large windows need a corresponding state budget.
     pub fn combine_globally_named<U: Element>(
         &self,
         key: &str,
@@ -1559,6 +1568,47 @@ impl<T: Element> PCollection<T> {
                 key,
                 "unbounded global aggregation requires a finite window",
             ));
+        }
+        if parent.boundedness == Boundedness::Unbounded {
+            let grouped = self.stream_global_group(key)?;
+            let node_key = key.to_owned();
+            let output_time = parent.time.output_time;
+            let select = Transform::Single(Arc::new(move |event| {
+                let Envelope {
+                    pane,
+                    value,
+                    window,
+                    assigned_window,
+                    ..
+                } = event;
+                let (_, values) = *value.downcast::<(u8, Vec<(i64, T)>)>().map_err(|_| {
+                    Error::execution(&node_key, "runner", "global combine group type mismatch")
+                })?;
+                let mut values = values.into_iter();
+                let (mut earliest, first) = values.next().ok_or_else(|| {
+                    Error::execution(&node_key, "runner", "global combine group is empty")
+                })?;
+                let mut latest = earliest;
+                let mut collected = vec![first];
+                for (timestamp_ns, value) in values {
+                    earliest = earliest.min(timestamp_ns);
+                    latest = latest.max(timestamp_ns);
+                    collected.push(value);
+                }
+                Ok(Some(Envelope {
+                    pane,
+                    value: Box::new(f(collected)),
+                    timestamp_ns: grouped_output_timestamp(
+                        output_time,
+                        earliest,
+                        Some(latest),
+                        assigned_window,
+                    ),
+                    window,
+                    assigned_window,
+                }))
+            }));
+            return grouped.next(key, Operation::Map, Some(select), None);
         }
         let key_owned = key.to_owned();
         let output_window = parent.time.window.clone();
@@ -1607,7 +1657,8 @@ impl<T: Element> PCollection<T> {
     /// Combine each window with a mergeable accumulator.
     ///
     /// The accumulator can be merged across partitions. Unbounded global
-    /// input requires a finite window before this transform.
+    /// input requires a finite window before this transform. The streaming
+    /// route groups and retains each window's values until a pane fires.
     pub fn combine_globally_lifted_named<C, A, O>(
         &self,
         key: &str,
@@ -1624,6 +1675,47 @@ impl<T: Element> PCollection<T> {
                 key,
                 "unbounded global aggregation requires a finite window",
             ));
+        }
+        if parent.boundedness == Boundedness::Unbounded {
+            let grouped = self.stream_global_group(key)?;
+            let node_key = key.to_owned();
+            let output_time = parent.time.output_time;
+            let select = Transform::Single(Arc::new(move |event| {
+                let Envelope {
+                    pane,
+                    value,
+                    window,
+                    assigned_window,
+                    ..
+                } = event;
+                let (_, values) = *value.downcast::<(u8, Vec<(i64, T)>)>().map_err(|_| {
+                    Error::execution(&node_key, "runner", "lifted global combine group type mismatch")
+                })?;
+                let mut accumulator = combiner.create();
+                let mut earliest = None::<i64>;
+                let mut latest = None::<i64>;
+                for (timestamp_ns, value) in values {
+                    earliest = Some(earliest.map_or(timestamp_ns, |old| old.min(timestamp_ns)));
+                    latest = Some(latest.map_or(timestamp_ns, |old| old.max(timestamp_ns)));
+                    combiner.add_input(&mut accumulator, value);
+                }
+                let earliest = earliest.ok_or_else(|| {
+                    Error::execution(&node_key, "runner", "lifted global combine group is empty")
+                })?;
+                Ok(Some(Envelope {
+                    pane,
+                    value: Box::new(combiner.finish(accumulator)),
+                    timestamp_ns: grouped_output_timestamp(
+                        output_time,
+                        earliest,
+                        latest,
+                        assigned_window,
+                    ),
+                    window,
+                    assigned_window,
+                }))
+            }));
+            return grouped.next(key, Operation::Map, Some(select), None);
         }
         let window = parent.time.window;
         let output_time = parent.time.output_time;
@@ -1706,10 +1798,7 @@ impl<T: Element> PCollection<T> {
             ));
         }
         if parent.boundedness == Boundedness::Unbounded {
-            let keyed = self
-                .reify_timestamps_named(&format!("{key}/time"))?
-                .map_named(&format!("{key}/key"), |row| (0_u8, row))?;
-            let grouped = keyed.group_by_key_named(&format!("{key}/group"))?;
+            let grouped = self.stream_global_group(key)?;
             let node_key = key.to_owned();
             let select = Transform::Single(Arc::new(move |event| {
                 let Envelope {
