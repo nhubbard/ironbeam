@@ -619,6 +619,11 @@ fn multi_source_early_count_restores_cursors_and_pane_indices() {
 }
 
 #[test]
+fn multi_source_count_batch_boundaries_survive_checkpoint_restart() {
+    assert_multi_source_late_group_restores_cursors_and_panes(LateMode::EarlyBatch);
+}
+
+#[test]
 fn multi_source_accumulating_early_count_restores_values_and_panes() {
     assert_multi_source_late_group_restores_cursors_and_panes(LateMode::EarlyAccumulating);
 }
@@ -644,6 +649,7 @@ enum LateMode {
     DiscardingCount,
     AccumulatingCount,
     EarlyCount,
+    EarlyBatch,
     EarlyAccumulating,
     EarlyLateCount,
     EarlyLateAccumulating,
@@ -675,13 +681,24 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                 move |cursor| {
                     opens.lock().unwrap().push((index, cursor.clone()));
                     let (rows, position, completed) = match cursor.as_deref() {
-                        None => (vec![if index == 0 { 2 } else { 4 }], 1, false),
+                        None => (
+                            if mode == LateMode::EarlyBatch && index == 0 {
+                                vec![2, 3, 5]
+                            } else {
+                                vec![if index == 0 { 2 } else { 4 }]
+                            },
+                            1,
+                            false,
+                        ),
                         Some([1]) if !hold.load(Ordering::SeqCst) => (
-                            if index == 0 {
+                            if mode == LateMode::EarlyBatch && index == 0 {
+                                vec![6, 7]
+                            } else if index == 0 {
                                 if matches!(
                                     mode,
                                     LateMode::Default
                                         | LateMode::EarlyCount
+                                        | LateMode::EarlyBatch
                                         | LateMode::EarlyAccumulating
                                         | LateMode::GlobalEarlyAccumulating
                                 ) {
@@ -722,6 +739,7 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                                         && matches!(
                                             mode,
                                             LateMode::EarlyCount
+                                                | LateMode::EarlyBatch
                                                 | LateMode::EarlyAccumulating
                                                 | LateMode::GlobalEarlyAccumulating
                                         )
@@ -773,6 +791,9 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                 .unwrap(),
             LateMode::EarlyCount => windowed
                 .early_count_trigger_named(&format!("trigger-{index}"), 1)
+                .unwrap(),
+            LateMode::EarlyBatch => windowed
+                .early_count_trigger_named(&format!("trigger-{index}"), 2)
                 .unwrap(),
             LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => windowed
                 .accumulating_count_trigger_named(&format!("trigger-{index}"), 1)
@@ -840,6 +861,7 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
     }
     let initial = match mode {
         LateMode::EarlyCount => vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"],
+        LateMode::EarlyBatch => vec!["1:[[2, 3], []]:Early:0", "1:[[5], [4]]:Early:1"],
         LateMode::EarlyLateCount => vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"],
         LateMode::EarlyLateAccumulating => vec!["1:[[2], []]:Early:0", "1:[[2], [4]]:Early:1"],
         LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => {
@@ -863,6 +885,7 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
         LateMode::EarlyLateCount => "1:[[3, 5], []]:Late:2",
         LateMode::EarlyLateAccumulating => "1:[[2, 3, 5], [4]]:Late:2",
         LateMode::EarlyCount => "1:[[3], []]:Early:2",
+        LateMode::EarlyBatch => "1:[[6, 7], []]:Early:2",
         LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => {
             "1:[[2, 3], [4]]:Early:2"
         }
