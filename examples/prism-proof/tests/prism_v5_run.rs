@@ -2,6 +2,8 @@
 
 #[path = "prism_v5_run/bag_state.rs"]
 mod bag_state;
+#[path = "prism_v5_run/bounded_distinct_per_key.rs"]
+mod bounded_distinct_per_key;
 #[path = "prism_v5_run/combining_state.rs"]
 mod combining_state;
 #[path = "prism_v5_run/distinct.rs"]

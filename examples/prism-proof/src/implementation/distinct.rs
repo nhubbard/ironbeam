@@ -2,6 +2,43 @@ use super::*;
 use ironbeam_core::PaneTiming;
 use ironbeam_transforms::{ElementwiseExt, KeyedExt};
 
+/// Deduplicate bounded keyed values through a portable grouping boundary.
+pub fn bounded_distinct_per_key_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    pipeline
+        .from_vec(
+            "keyed-distinct-input",
+            vec![
+                ("k".to_owned(), "a".to_owned()),
+                ("k".to_owned(), "a".to_owned()),
+                ("k".to_owned(), "b".to_owned()),
+                ("q".to_owned(), "a".to_owned()),
+            ],
+        )?
+        .distinct_per_key_named("keyed-distinct-group", "keyed-distinct")?
+        .map_named("keyed-distinct-row", |(group, value)| {
+            format!("{group}:{value}")
+        })?
+        .sink_named_with_config(
+            "keyed-distinct-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("keyed-distinct:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// One value per window, including the earliest event timestamp.
 pub fn distinct_window_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();

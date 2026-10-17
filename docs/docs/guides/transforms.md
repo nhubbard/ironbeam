@@ -127,11 +127,12 @@ Both runners emit an on-time `a` followed by a late `a` after two additional
 rows of that value arrive before the window expires.
 
 For keyed input, `distinct_per_key_named` keeps one copy of each value for a
-key and emitted pane. Its unbounded path groups values through a shuffle, so
-their output order is unspecified. A value may appear again in a later
+key and emitted pane. It groups values through a shuffle, so their output
+order is unspecified. A value may appear again in a later
 discarding pane. A global-window early-trigger fixture produces the same
 value rows on Direct and local Prism; their pane labels differ after the
-additional grouping.
+additional grouping. A bounded two-key fixture also produces the same values
+on both runners.
 
 `distinct_by_per_window_named` derives a key from each value and keeps one
 representative per key and window. It chooses the smallest encoded value, so

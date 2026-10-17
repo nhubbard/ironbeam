@@ -380,6 +380,7 @@ pub trait KeyedExt<K: Element, V: Element> {
     ///
     /// Unbounded input requires a closing window or a trigger. A value can
     /// appear again in a later pane when the trigger discards prior contents.
+    /// Output order after grouping is unspecified.
     fn distinct_per_key_named(
         &self,
         group_key: &str,
