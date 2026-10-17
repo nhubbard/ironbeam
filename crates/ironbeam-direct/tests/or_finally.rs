@@ -381,19 +381,22 @@ fn count_or_finally_cursor_survives_checkpoint() {
             .wait()
             .unwrap();
         assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![2])]);
+        // Count fires on row 6; the final threshold fires separately on row 7.
         let expected: &[&str] = if accumulating {
             &[
                 "1:[1, 2]:Early:0",
                 "1:[1, 2, 3, 4]:Early:1",
-                "1:[1, 2, 3, 4, 5, 6, 7]:Early:2",
-                "1:[1, 2, 3, 4, 5, 6, 7, 8, 9]:OnTime:3",
+                "1:[1, 2, 3, 4, 5, 6]:Early:2",
+                "1:[1, 2, 3, 4, 5, 6, 7]:Early:3",
+                "1:[1, 2, 3, 4, 5, 6, 7, 8, 9]:OnTime:4",
             ]
         } else {
             &[
                 "1:[1, 2]:Early:0",
                 "1:[3, 4]:Early:1",
-                "1:[5, 6, 7]:Early:2",
-                "1:[8, 9]:OnTime:3",
+                "1:[5, 6]:Early:2",
+                "1:[7]:Early:3",
+                "1:[8, 9]:OnTime:4",
             ]
         };
         assert_eq!(committed.lock().unwrap().as_slice(), expected);
