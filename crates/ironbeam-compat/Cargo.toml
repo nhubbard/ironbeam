@@ -49,7 +49,7 @@ csv = { version = "1", optional = true }
 flate2 = { version = "1", optional = true }
 parquet = { version = "59", optional = true }
 postcard = { version = "1", features = ["alloc"], optional = true }
-serde_arrow = { version = "0.14", features = ["arrow-59"], optional = true }
+serde_arrow = { version = "0.15", features = ["arrow-59"], optional = true }
 sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
 testcontainers = { version = "0.27", features = ["blocking"], optional = true }
 testcontainers-modules = { version = "0.15", features = ["mongo", "postgres", "mysql"], optional = true }
