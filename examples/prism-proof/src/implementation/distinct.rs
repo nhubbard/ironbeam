@@ -173,6 +173,52 @@ pub fn streaming_count_per_element_fixture(
         )
 }
 
+/// Count repeated values in an unbounded global window with an early pane.
+pub fn streaming_global_count_per_element_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "global-count-stream",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ("a".to_owned(), 1_000_000),
+                    ("a".to_owned(), 2_000_000),
+                    ("b".to_owned(), 3_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![("a".to_owned(), 11_000_000)]),
+            ],
+        )?
+        .early_count_trigger_named("global-count-trigger", 2)?
+        .count_per_element_named("global-counts")?
+        .reify_timestamps_named("global-count-output-time")?
+        .reify_panes_named("global-count-pane")?
+        .map_named("global-count-row", |(pane, (timestamp, (value, count)))| {
+            format!(
+                "{value}:{:?}:{}:{timestamp}:{count}",
+                pane.timing, pane.index
+            )
+        })?
+        .sink_named_with_config(
+            "global-count-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("global-count-stream:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 pub fn streaming_distinct_window_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,

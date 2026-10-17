@@ -150,7 +150,10 @@ for each open key and window; a large key can reach the configured state
 budget. On unbounded input, use a finite window or an early trigger for the
 global window. `count_per_element_named` also works on watermarked input. Its
 streaming path groups each value and emits a count when the matching window
-closes; the bounded path uses an incremental combiner.
+closes or its trigger fires; the bounded path uses an incremental combiner.
+An unbounded global-window example with an early count trigger produces
+matching per-value counts, pane indices, and event timestamps on Direct and
+local Prism.
 
 For an unbounded keyed collection, call `early_processing_time_trigger_named("timer", 5_000_000)` before `group_by_key_named` to emit an early pane five milliseconds after the first row in a key and window. A later row can arm another firing. `accumulating_processing_time_trigger_named` retains earlier values in each new pane; the other method discards values after each firing. The delay is a positive whole number of milliseconds expressed in nanoseconds. The policy accepts global, fixed, and sliding windows; session windows are rejected. Direct uses the source's scripted clock when supplied and wall time otherwise, so an idle source can still fire. Direct and local Prism have matching fixed-window results for a single TestStream source with explicit processing-time advances.
 
