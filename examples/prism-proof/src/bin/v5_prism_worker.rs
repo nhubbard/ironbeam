@@ -1693,6 +1693,17 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             pipeline,
             capture.into(),
             ironbeam_prism_proof::LateGlobalCombineRoute::All,
+            false,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
+    if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_GLOBAL_ACCUM_LATE") {
+        return ironbeam_prism_proof::streaming_late_global_combine_fixture(
+            pipeline,
+            capture.into(),
+            ironbeam_prism_proof::LateGlobalCombineRoute::All,
+            true,
         )
         .map(|_| ())
         .map_err(Into::into);

@@ -246,7 +246,9 @@ Direct also restores an open grouped window after a sink commit failure and
 resumes the source from its saved cursor.
 
 A late-count trigger emits matching on-time and late count and sum panes on
-both runners when an element arrives within allowed lateness.
+both runners when an element arrives within allowed lateness. The tested
+discarding and accumulating modes retain their respective pane values and
+timestamps.
 
 The `to_list_ordered_by_named`, `take_ordered_by_named`,
 `first_ordered_by_named`, and `distinct_by_ordered_by_named` helpers use the

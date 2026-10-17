@@ -16,6 +16,7 @@ pub fn streaming_late_global_combine_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
     route: LateGlobalCombineRoute,
+    accumulating: bool,
 ) -> Result<Sink<String>, Error> {
     let source = pipeline
         .test_stream_source(
@@ -28,8 +29,12 @@ pub fn streaming_late_global_combine_fixture(
             ],
         )?
         .fixed_windows("late-global-window", 10_000_000)?
-        .allowed_lateness_named("late-global-lateness", 10_000_000)?
-        .late_count_trigger_named("late-global-trigger", 1)?;
+        .allowed_lateness_named("late-global-lateness", 10_000_000)?;
+    let source = if accumulating {
+        source.accumulating_late_count_trigger_named("late-global-trigger", 1)?
+    } else {
+        source.late_count_trigger_named("late-global-trigger", 1)?
+    };
     let count = source
         .count_globally_named("late-global-count")?
         .reify_timestamps_named("late-global-count-time")?
@@ -67,7 +72,7 @@ pub fn streaming_late_global_combine_fixture(
             replay: Replay::Idempotent,
             commit: true,
         },
-        format!("late-global:{}", path.display()),
+        format!("late-global:{accumulating}:{}", path.display()),
         move || {
             Ok(Box::new(IdempotentRowSink {
                 directory: directory.clone(),

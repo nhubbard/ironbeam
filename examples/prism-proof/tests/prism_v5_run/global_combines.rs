@@ -182,27 +182,37 @@ const EXPECTED_LATE: [&str; 4] = [
     "sum:Late:1:4:3",
     "sum:OnTime:0:1:3",
 ];
+const EXPECTED_ACCUM_LATE: [&str; 4] = [
+    "count:Late:1:1:3",
+    "count:OnTime:0:1:2",
+    "sum:Late:1:1:6",
+    "sum:OnTime:0:1:3",
+];
 
 #[test]
 fn direct_runs_late_global_combine_panes() {
     let directory = tempfile::tempdir().unwrap();
-    let mut rows = Vec::new();
-    for (name, route) in [
-        ("count", LateGlobalCombineRoute::Count),
-        ("sum", LateGlobalCombineRoute::Sum),
-    ] {
-        let path = directory.path().join(name);
-        let pipeline = Pipeline::default();
-        let sink = streaming_late_global_combine_fixture(&pipeline, path.clone(), route).unwrap();
-        DirectRunner
-            .start_stream_sink(&sink, &JobConfig::default())
-            .unwrap()
-            .wait()
-            .unwrap();
-        rows.extend(read_rows(&path));
+    for (accumulating, expected) in [(false, EXPECTED_LATE), (true, EXPECTED_ACCUM_LATE)] {
+        let mut rows = Vec::new();
+        for (name, route) in [
+            ("count", LateGlobalCombineRoute::Count),
+            ("sum", LateGlobalCombineRoute::Sum),
+        ] {
+            let path = directory.path().join(format!("{accumulating}-{name}"));
+            let pipeline = Pipeline::default();
+            let sink =
+                streaming_late_global_combine_fixture(&pipeline, path.clone(), route, accumulating)
+                    .unwrap();
+            DirectRunner
+                .start_stream_sink(&sink, &JobConfig::default())
+                .unwrap()
+                .wait()
+                .unwrap();
+            rows.extend(read_rows(&path));
+        }
+        rows.sort();
+        assert_eq!(rows, expected);
     }
-    rows.sort();
-    assert_eq!(rows, EXPECTED_LATE);
 }
 
 #[tokio::test]
@@ -214,8 +224,13 @@ async fn prism_runs_late_global_combine_panes() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("portable-global-late");
     let pipeline = Pipeline::default();
-    streaming_late_global_combine_fixture(&pipeline, path.clone(), LateGlobalCombineRoute::All)
-        .unwrap();
+    streaming_late_global_combine_fixture(
+        &pipeline,
+        path.clone(),
+        LateGlobalCombineRoute::All,
+        false,
+    )
+    .unwrap();
     let (state, messages) = run_shared_fixture(
         &endpoint,
         &pipeline,
@@ -228,4 +243,37 @@ async fn prism_runs_late_global_combine_panes() {
     .await;
     assert_eq!(state, 3, "Prism late global combines failed: {messages:?}");
     assert_eq!(read_rows(&path), EXPECTED_LATE);
+}
+
+#[tokio::test]
+async fn prism_runs_accumulating_late_global_combine_panes() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("portable-global-accum-late");
+    let pipeline = Pipeline::default();
+    streaming_late_global_combine_fixture(
+        &pipeline,
+        path.clone(),
+        LateGlobalCombineRoute::All,
+        true,
+    )
+    .unwrap();
+    let (state, messages) = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "streaming-global-accum-late",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAMING_GLOBAL_ACCUM_LATE".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        state, 3,
+        "Prism accumulating late global combines failed: {messages:?}"
+    );
+    assert_eq!(read_rows(&path), EXPECTED_ACCUM_LATE);
 }
