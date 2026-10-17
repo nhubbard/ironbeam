@@ -624,6 +624,11 @@ fn multi_source_count_batch_boundaries_survive_checkpoint_restart() {
 }
 
 #[test]
+fn multi_source_or_finally_cursor_survives_checkpoint_restart() {
+    assert_multi_source_late_group_restores_cursors_and_panes(LateMode::OrFinallyBatch);
+}
+
+#[test]
 fn multi_source_accumulating_early_count_restores_values_and_panes() {
     assert_multi_source_late_group_restores_cursors_and_panes(LateMode::EarlyAccumulating);
 }
@@ -650,6 +655,7 @@ enum LateMode {
     AccumulatingCount,
     EarlyCount,
     EarlyBatch,
+    OrFinallyBatch,
     EarlyAccumulating,
     EarlyLateCount,
     EarlyLateAccumulating,
@@ -682,7 +688,9 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                     opens.lock().unwrap().push((index, cursor.clone()));
                     let (rows, position, completed) = match cursor.as_deref() {
                         None => (
-                            if mode == LateMode::EarlyBatch && index == 0 {
+                            if matches!(mode, LateMode::EarlyBatch | LateMode::OrFinallyBatch)
+                                && index == 0
+                            {
                                 vec![2, 3, 5]
                             } else {
                                 vec![if index == 0 { 2 } else { 4 }]
@@ -691,7 +699,9 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                             false,
                         ),
                         Some([1]) if !hold.load(Ordering::SeqCst) => (
-                            if mode == LateMode::EarlyBatch && index == 0 {
+                            if matches!(mode, LateMode::EarlyBatch | LateMode::OrFinallyBatch)
+                                && index == 0
+                            {
                                 vec![6, 7]
                             } else if index == 0 {
                                 if matches!(
@@ -699,6 +709,7 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                                     LateMode::Default
                                         | LateMode::EarlyCount
                                         | LateMode::EarlyBatch
+                                        | LateMode::OrFinallyBatch
                                         | LateMode::EarlyAccumulating
                                         | LateMode::GlobalEarlyAccumulating
                                 ) {
@@ -740,6 +751,7 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                                             mode,
                                             LateMode::EarlyCount
                                                 | LateMode::EarlyBatch
+                                                | LateMode::OrFinallyBatch
                                                 | LateMode::EarlyAccumulating
                                                 | LateMode::GlobalEarlyAccumulating
                                         )
@@ -794,6 +806,9 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                 .unwrap(),
             LateMode::EarlyBatch => windowed
                 .early_count_trigger_named(&format!("trigger-{index}"), 2)
+                .unwrap(),
+            LateMode::OrFinallyBatch => windowed
+                .count_or_finally_trigger_named(&format!("trigger-{index}"), 2, 5)
                 .unwrap(),
             LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => windowed
                 .accumulating_count_trigger_named(&format!("trigger-{index}"), 1)
@@ -862,6 +877,7 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
     let initial = match mode {
         LateMode::EarlyCount => vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"],
         LateMode::EarlyBatch => vec!["1:[[2, 3], []]:Early:0", "1:[[5], [4]]:Early:1"],
+        LateMode::OrFinallyBatch => vec!["1:[[2, 3], []]:Early:0", "1:[[5], [4]]:Early:1"],
         LateMode::EarlyLateCount => vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"],
         LateMode::EarlyLateAccumulating => vec!["1:[[2], []]:Early:0", "1:[[2], [4]]:Early:1"],
         LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => {
@@ -886,6 +902,7 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
         LateMode::EarlyLateAccumulating => "1:[[2, 3, 5], [4]]:Late:2",
         LateMode::EarlyCount => "1:[[3], []]:Early:2",
         LateMode::EarlyBatch => "1:[[6, 7], []]:Early:2",
+        LateMode::OrFinallyBatch => "1:[[6], []]:Early:2",
         LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => {
             "1:[[2, 3], [4]]:Early:2"
         }
@@ -897,6 +914,9 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
         LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating
     ) {
         expected.push("1:[[2, 3], [4]]:OnTime:3");
+    }
+    if mode == LateMode::OrFinallyBatch {
+        expected.push("1:[[7], []]:OnTime:3");
     }
     assert_eq!(committed.lock().unwrap().as_slice(), expected);
     assert_eq!(
