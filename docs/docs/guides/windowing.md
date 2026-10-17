@@ -174,6 +174,38 @@ timer, so only the count-trigger form has a portable runner proof here.
 To combine early and late count firings, set allowed lateness and use the combined policy
 described below.
 
+### A final count for early panes
+
+`count_or_finally_trigger_named` repeats an early count trigger until a
+key and window have received `final_count` elements. That final element fires
+one last early pane, even when fewer than `count` new elements have arrived
+since the preceding pane. Later elements remain available for the on-time
+firing.
+
+```rust
+use ironbeam::{Error, Pipeline};
+
+fn main() -> Result<(), Error> {
+    let pipeline = Pipeline::default();
+    let values = pipeline.from_vec(
+        "values",
+        (1_i32..=9).map(|value| ("a".to_owned(), value)).collect(),
+    )?;
+    let _grouped = values
+        .fixed_windows("windows", 10_000_000)?
+        .count_or_finally_trigger_named("final-count", 2, 7)?
+        .group_by_key_named("group")?;
+    Ok(())
+}
+```
+
+In a tested fixed window, elements one through six form three two-element
+early panes. Element seven forms the final early pane; elements eight and
+nine appear on time. `accumulating_count_or_finally_trigger_named` retains
+earlier values in each pane. The final-count cursor belongs to each key and
+window. Direct and the pinned local Prism runner also produce the same pane
+sizes when two or three independent sources feed one homogeneous co-group.
+
 ### Count and processing time together
 
 `count_and_processing_time_trigger_named` waits for both a positive element
