@@ -809,7 +809,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let grouped = self
             .reify_keyed_timestamp_named(&format!("{key}/timestamp"))?
             .group_by_key_named(&group_key)?;
-        if parent.boundedness == Boundedness::Bounded {
+        if parent.boundedness == Boundedness::Bounded
+            || parent.time.trigger == WindowTrigger::Default
+        {
             let fold_key = group_key.clone();
             let fold_factory: FoldFactory = Arc::new(move || {
                 Box::new(LatestPerKeyFoldState::<K, V> {

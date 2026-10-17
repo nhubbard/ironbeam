@@ -96,8 +96,10 @@ Direct and pinned Prism both accept it and retain the same rows. Public
 ordered-helper contracts now state uniqueness per emitted pane.
 
 Both latest-per-key selectors accept an early-triggered unbounded global
-window. The encounter-order variant now keeps the trigger-aware GroupByKey
-fold on unbounded input; its previous bounded-fold override failed at runtime.
+window. The encounter-order variant keeps the trigger-aware GroupByKey fold
+when an unbounded trigger needs pane state; its previous incremental-fold
+override failed at runtime. Default-trigger windows retain that incremental
+fold and its bounded keyed state.
 Two-key early and final pane values, indices, and event timestamps match
 Direct and pinned Prism. Equal-time values still need an explicit tie key for
 portable selection.
