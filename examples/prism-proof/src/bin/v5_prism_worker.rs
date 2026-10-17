@@ -757,6 +757,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_TWO_SOURCE_COUNT_THEN_TIME_BOUNDARY") {
+        return ironbeam_prism_proof::two_source_count_then_time_boundary_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_REPRESENTATIVE_DISTINCT") {
         return representative_distinct_fixture(pipeline, path.into())
             .map(|_| ())

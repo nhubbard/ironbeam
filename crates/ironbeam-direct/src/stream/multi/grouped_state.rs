@@ -304,12 +304,10 @@ impl MultiWindowState {
         let window = stream_window(&event, &route.group_key)?;
         let early_count = match self {
             Self::Early { policy, .. } | Self::EarlyLate { policy, .. } => match policy {
-                EarlyPolicy::Count(count) | EarlyPolicy::CountOrProcessingTime(count, _) => {
-                    Some(*count)
-                }
-                EarlyPolicy::ProcessingTime(_)
-                | EarlyPolicy::CountAndProcessingTime(_, _)
-                | EarlyPolicy::CountThenProcessingTime(_, _) => None,
+                EarlyPolicy::Count(count)
+                | EarlyPolicy::CountOrProcessingTime(count, _)
+                | EarlyPolicy::CountThenProcessingTime(count, _) => Some(*count),
+                EarlyPolicy::ProcessingTime(_) | EarlyPolicy::CountAndProcessingTime(_, _) => None,
             },
             Self::Rows { .. } | Self::Late { .. } => None,
         };

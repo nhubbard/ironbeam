@@ -5,7 +5,7 @@ pub fn two_source_count_boundary_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    count_boundary_fixture(pipeline, directory, false)
+    count_boundary_fixture(pipeline, directory, CountBoundaryMode::Plain)
 }
 
 /// Fire a count-or-processing-time pane at the count boundary within one batch.
@@ -13,13 +13,28 @@ pub fn two_source_count_or_time_boundary_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    count_boundary_fixture(pipeline, directory, true)
+    count_boundary_fixture(pipeline, directory, CountBoundaryMode::OrTime)
+}
+
+/// Fire the first sequential count pane at the boundary within one batch.
+pub fn two_source_count_then_time_boundary_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    count_boundary_fixture(pipeline, directory, CountBoundaryMode::ThenTime)
+}
+
+#[derive(Clone, Copy)]
+enum CountBoundaryMode {
+    Plain,
+    OrTime,
+    ThenTime,
 }
 
 fn count_boundary_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
-    count_or_time: bool,
+    mode: CountBoundaryMode,
 ) -> Result<Sink<String>, Error> {
     let left = pipeline
         .test_stream_source(
@@ -34,10 +49,20 @@ fn count_boundary_fixture(
             ],
         )?
         .fixed_windows("count-boundary-left-window", 10_000_000)?;
-    let left = if count_or_time {
-        left.count_or_processing_time_trigger_named("count-boundary-left-trigger", 2, 5_000_000)?
-    } else {
-        left.early_count_trigger_named("count-boundary-left-trigger", 2)?
+    let left = match mode {
+        CountBoundaryMode::Plain => {
+            left.early_count_trigger_named("count-boundary-left-trigger", 2)?
+        }
+        CountBoundaryMode::OrTime => left.count_or_processing_time_trigger_named(
+            "count-boundary-left-trigger",
+            2,
+            5_000_000,
+        )?,
+        CountBoundaryMode::ThenTime => left.count_then_processing_time_trigger_named(
+            "count-boundary-left-trigger",
+            2,
+            5_000_000,
+        )?,
     };
     let right = pipeline
         .test_stream_source(
@@ -48,14 +73,20 @@ fn count_boundary_fixture(
             ],
         )?
         .fixed_windows("count-boundary-right-window", 10_000_000)?;
-    let right = if count_or_time {
-        right.count_or_processing_time_trigger_named(
+    let right = match mode {
+        CountBoundaryMode::Plain => {
+            right.early_count_trigger_named("count-boundary-right-trigger", 2)?
+        }
+        CountBoundaryMode::OrTime => right.count_or_processing_time_trigger_named(
             "count-boundary-right-trigger",
             2,
             5_000_000,
-        )?
-    } else {
-        right.early_count_trigger_named("count-boundary-right-trigger", 2)?
+        )?,
+        CountBoundaryMode::ThenTime => right.count_then_processing_time_trigger_named(
+            "count-boundary-right-trigger",
+            2,
+            5_000_000,
+        )?,
     };
     let sink_directory = directory.clone();
     left.co_group_homogeneous_named("count-boundary-group", &[right])?
