@@ -46,7 +46,7 @@ the local Semantic Release simulation.
 | Workspace | All 35 publishable packages, including `beam-proto` and the root facade, are staged at 5.0.0. | New crate names need an initial manual crates.io publication before Trusted Publishing can be configured. Publication is held. |
 | Direct | V4 reference behavior and v5 helpers pass. Checkpointed unbounded fan-in, joins, session groups, and two independent post-split value-state branches have tested schedules. Distinct branch event timers route to their own sinks. | General stateful DAG fanout, broader timer failure schedules, and complete multi-source session pane agreement. |
 | Portable | The 217 supported nondestructive Prism fixtures passed on Linux; they cover Beam rows, streams, state, timers, grouping, side inputs, I/O, and worker-child replay. | Hosted Dataflow, some session panes, and remote provider replay. |
-| Early count | Fixed and sliding window panes match on Direct and Prism; Direct restores a partial pane after restart. | Wider fan-in and trigger combinations. |
+| Early count | Fixed windows and discarding sliding windows match on Direct and Prism; Direct restores a partial pane after restart. | In the tested accumulating sliding windows, pinned Prism emits a retained on-time pane after early firing with no new values; Direct follows `FireIfNonempty` and omits it. Wider fan-in and trigger combinations remain open. |
 | Accumulating early and late count | The combined policy has distinct graph identity and tested panes on both runners. | Exact scheduling differs in one accumulating stream. |
 | Processing-time triggers | Whole-millisecond delays have fixed-window Direct and Prism proofs, including scripted clocks and Direct restart. | Mixed clock domains, session merging, and synchronized time. |
 | Count-and-time triggers | Repeated Beam `AfterAll` count-and-time schedules have Direct and Prism cases. | Other `AfterAll` expressions and wider fan-in. |
@@ -85,7 +85,21 @@ the local Semantic Release simulation.
 | Object-backed finalization | The object journal validates listed bundle records, completion markers, identity, and declared sinks. A publication plan pairs its completed manifest with runner-committed sink counts; local object-provider tests cover incomplete callbacks, corrupt markers, unknown entries, and foreign identities. The Dataflow entrypoint accepts a provider registry and journal URI for the worker and supervised children. A live local Prism job kills one execution child, recovers in its replacement, reaches `DONE`, and authorizes publication from its object journal and committed metrics. The hosted object adapter has a bounded streaming upload followed by conditional creation, with local large-object, duplicate, concurrent-create, and reader-failure tests. A cross-crate test now stages two large fragments through `ObjectFinalResult`, publishes through that adapter, and verifies exact bytes and idempotent retry. The Dataflow driver can retrieve regional service metrics as typed records. | Map hosted service metrics to exact committed sink counts, supply a GCS-backed registry, and prove publication through a controlled service. |
 | GCP clients | Opt-in Cloud Storage, Pub/Sub, BigQuery, and Secret Manager adapters compile and have isolated tests. | Live service and hosted Dataflow proofs. |
 | Quality | Core, Direct, Graphx, and local Prism suites have passing gates; later sections record exact runs. | Hosted execution and registry publication remain staged. |
-| Coverage gate integrity | CI compares source-location coverage to unchanged floors and catches stale denominators. | See the exact audit below. |
+| Coverage gate integrity | CI compares source-location coverage against measured Linux floors. The core, Direct, and shared I/O floors were refreshed from the failing PR run after substantial new source was added; XML was brought back above its existing floor with focused tests. | Confirm the refreshed floors in the next Linux CI run; see the audit below. |
+
+The 2026-10-17 PR check exposed stale coverage denominators for three crates.
+The earlier core baseline covered 1,868 source lines while the current Linux
+measurement covers 8,119; Direct's earlier baseline was a placeholder of
+100 lines, while its current measurement covers 7,659. Shared I/O grew from
+1,062 to 1,158 measured lines. The ratchets now use the exact failing Linux
+measurements: core **7,627/8,119 lines (93.94%)** and **1,781/2,086 branches
+(85.38%)**; Direct **6,947/7,659 lines (90.70%)** and **1,973/2,198 branches
+(89.76%)**; shared I/O **1,036/1,158 lines (89.46%)** and **196/266 branches
+(73.68%)**. These are current floors, not a claim that the changed files are
+fully covered. XML's original **98/105 line (93.33%)** and **2/2 branch**
+floors remain unchanged; focused object-source tests brought its local check
+above them. LLVM source-location totals differ across macOS and Linux, so the
+Linux run is the final check for these three refreshed baselines.
 
 Passing a current check does not close a release gate unless its full proof
 below is complete.

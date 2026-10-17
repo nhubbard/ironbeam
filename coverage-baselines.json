@@ -13,23 +13,23 @@
   "ironbeam-core": {
     "source": "crates/ironbeam-core/src",
     "lines": {
-      "covered": 1794,
-      "count": 1868
+      "covered": 7627,
+      "count": 8119
     },
     "branches": {
-      "covered": 324,
-      "count": 376
+      "covered": 1781,
+      "count": 2086
     }
   },
   "ironbeam-direct": {
     "source": "crates/ironbeam-direct/src",
     "lines": {
-      "covered": 91,
-      "count": 100
+      "covered": 6947,
+      "count": 7659
     },
     "branches": {
-      "covered": 90,
-      "count": 100
+      "covered": 1973,
+      "count": 2198
     }
   },
   "ironbeam-metrics": {
@@ -57,12 +57,12 @@
   "ironbeam-io": {
     "source": "crates/ironbeam-io/src",
     "lines": {
-      "covered": 953,
-      "count": 1062
+      "covered": 1036,
+      "count": 1158
     },
     "branches": {
-      "covered": 190,
-      "count": 256
+      "covered": 196,
+      "count": 266
     }
   },
   "ironbeam-io-jsonl": {

@@ -85,6 +85,29 @@ fn xml_object_uri_and_prefix_read_sorted_documents() {
             },
         ]
     );
+
+    let one = directory.path().join("bucket/one");
+    std::fs::create_dir_all(&one).unwrap();
+    std::fs::copy(input.join("a.xml"), one.join("a.xml")).unwrap();
+    let single_prefix = cloud_xml_uri_prefix_source::<Row>(
+        &Pipeline::default(),
+        "single-prefix",
+        &stores,
+        "file://bucket/one/",
+    )
+    .unwrap()
+    .output("single-prefix-out")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&single_prefix, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![Row {
+            id: 1,
+            name: "Ada".into(),
+        }]
+    );
 }
 
 #[test]
@@ -120,12 +143,34 @@ fn xml_object_rejects_changed_content_on_reopen() {
             .kind,
         ErrorKind::Recovery
     );
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .expect("removed XML object must fail")
+            .kind,
+        ErrorKind::Io
+    );
 }
 
 #[test]
 fn xml_object_rejects_invalid_uri_and_empty_prefix() {
     let directory = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(directory.path().join("bucket/empty")).unwrap();
     let stores = stores(directory.path());
+    assert_eq!(
+        cloud_xml_uri_source::<Row>(
+            &Pipeline::default(),
+            "missing",
+            &stores,
+            "file://bucket/missing.xml",
+        )
+        .err()
+        .expect("missing XML object must fail")
+        .kind,
+        ErrorKind::Io
+    );
     assert!(
         cloud_xml_uri_source::<Row>(&Pipeline::default(), "invalid", &stores, "not-a-uri",)
             .is_err()
