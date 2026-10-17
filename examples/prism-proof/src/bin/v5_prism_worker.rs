@@ -1532,6 +1532,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_OR_FINALLY_SAME_BATCH") {
+        return ironbeam_prism_proof::or_finally_same_batch_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_PROCESSING_TIME") {
         let accumulating = std::env::var("IRONBEAM_V5_PRISM_PROCESSING_ACCUMULATING")
             .as_deref()

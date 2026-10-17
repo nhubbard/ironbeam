@@ -2,6 +2,57 @@ use super::*;
 use ironbeam_prism_proof::count_or_finally_trigger_fixture;
 
 #[tokio::test]
+async fn prism_matches_direct_or_finally_when_final_count_is_in_one_batch() {
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = [
+        "1:[1, 2]:Early:0",
+        "1:[3, 4]:Early:1",
+        "1:[5, 6]:Early:2",
+        "1:[7]:Early:3",
+        "1:[8, 9]:OnTime:4",
+    ];
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-or-finally-batch");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        ironbeam_prism_proof::or_finally_same_batch_fixture(&direct_pipeline, direct_path.clone())
+            .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(read_rows(&direct_path), expected);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_path = directory.path().join("portable-or-finally-batch");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::or_finally_same_batch_fixture(&pipeline, portable_path.clone()).unwrap();
+    let (state, messages) = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "or-finally-same-batch",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_OR_FINALLY_SAME_BATCH".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(state, 3, "Prism OrFinally batch failed: {messages:?}");
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_count_or_finally_panes() {
     let directory = tempfile::tempdir().unwrap();
     let endpoint = std::env::var("IRONBEAM_PRISM_ENDPOINT").ok();

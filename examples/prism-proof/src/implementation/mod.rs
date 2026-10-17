@@ -5,6 +5,8 @@ mod multi_count_boundary;
 pub use multi_count_boundary::*;
 mod multi_conjunctive_boundary;
 pub use multi_conjunctive_boundary::*;
+mod or_finally_batch;
+pub use or_finally_batch::*;
 mod offset_sdf;
 pub use offset_sdf::*;
 mod combining_state;
