@@ -3,6 +3,8 @@ mod distinct;
 pub use distinct::*;
 mod multi_count_boundary;
 pub use multi_count_boundary::*;
+mod multi_conjunctive_boundary;
+pub use multi_conjunctive_boundary::*;
 mod offset_sdf;
 pub use offset_sdf::*;
 mod combining_state;
