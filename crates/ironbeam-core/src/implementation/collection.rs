@@ -1929,14 +1929,55 @@ impl<T: Element> PCollection<T> {
     ///
     /// Ties retain the first value encountered by the runner and are not
     /// portable. Use `latest_globally_by_named` for deterministic ties.
-    /// Empty input returns an execution error.
+    /// Empty input returns an execution error. Unbounded global input needs
+    /// an early count or processing-time trigger.
     pub fn latest_globally_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
-        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+        if parent.boundedness == Boundedness::Unbounded
+            && parent.time.window == Window::Global
+            && parent.time.trigger.early_count().is_none()
+            && parent.time.trigger.early_processing_time().is_none()
+        {
             return Err(Error::graph(
                 key,
-                "unbounded global aggregation requires a finite window",
+                "unbounded global aggregation requires a finite window or early trigger",
             ));
+        }
+        if parent.boundedness == Boundedness::Unbounded {
+            let grouped = self.stream_global_group(key)?;
+            let node_key = key.to_owned();
+            let select = Transform::Single(Arc::new(move |event| {
+                let Envelope {
+                    pane,
+                    value,
+                    window,
+                    assigned_window,
+                    ..
+                } = event;
+                let (_, values) = *value.downcast::<(u8, Vec<(i64, T)>)>().map_err(|_| {
+                    Error::execution(&node_key, "runner", "latest global group type mismatch")
+                })?;
+                let mut latest = None;
+                for (timestamp_ns, value) in values {
+                    if latest
+                        .as_ref()
+                        .is_none_or(|(current, _): &(i64, T)| timestamp_ns > *current)
+                    {
+                        latest = Some((timestamp_ns, value));
+                    }
+                }
+                let (timestamp_ns, value) = latest.ok_or_else(|| {
+                    Error::execution(&node_key, "runner", "latest global group is empty")
+                })?;
+                Ok(Some(Envelope {
+                    pane,
+                    value: Box::new(value),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                }))
+            }));
+            return grouped.next(key, Operation::Map, Some(select), None);
         }
         let node_key = key.to_owned();
         let aggregate: Aggregate = Arc::new(move |mut inputs| {

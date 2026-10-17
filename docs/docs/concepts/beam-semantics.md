@@ -257,7 +257,7 @@ matches early and on-time count and sum panes, including pane indices and
 latest-in-pane timestamps, in both discarding and accumulating modes.
 
 An unbounded global window can use these combines, the explicit-order list,
-and deterministic latest selection
+and both latest selectors
 when it has an early count or processing-time trigger. A three-element
 TestStream with a count trigger produces matching early and final panes on
 Direct and local Prism. Without an early trigger, the graph is rejected.
@@ -266,7 +266,8 @@ failed final-pane sink commit.
 Direct also runs this global-window example with a processing-time trigger.
 The pinned local Prism panics while firing its aggregation timer for that
 schedule, so global-window processing-time panes have no portable runner
-proof in this release.
+proof in this release. The selector without a tie key chooses a
+runner-dependent value when event times are equal.
 
 Direct also restores an open grouped window after a sink commit failure and
 resumes the source from its saved cursor.

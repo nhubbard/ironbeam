@@ -3,9 +3,11 @@ use ironbeam_prism_proof::{
     streaming_global_trigger_fixture, GlobalTriggerPolicy, GlobalTriggerRoute,
 };
 
-const EXPECTED: [&str; 10] = [
+const EXPECTED: [&str; 12] = [
     "count:Early:0:2:2",
     "count:OnTime:1:4:1",
+    "latest-encounter:Early:0:3:3",
+    "latest-encounter:OnTime:1:4:4",
     "latest:Early:0:3:3",
     "latest:OnTime:1:4:4",
     "ordered:Early:0:2:[2, 3]",
@@ -44,6 +46,7 @@ fn direct_runs_global_trigger(trigger: GlobalTriggerPolicy) {
         ("sum", GlobalTriggerRoute::Sum),
         ("ordered", GlobalTriggerRoute::Ordered),
         ("latest", GlobalTriggerRoute::Latest),
+        ("latest-encounter", GlobalTriggerRoute::LatestEncounter),
     ] {
         let path = directory.path().join(name);
         let pipeline = Pipeline::default();
