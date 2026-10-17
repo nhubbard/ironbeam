@@ -2093,6 +2093,7 @@ fn run_grouped_stream(
             .fetch_max(input_count, Ordering::Relaxed);
         handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
         let mut late_windows = BTreeSet::new();
+        let mut early_panes = Vec::new();
         for input in batch.elements {
             for event in apply_grouped_stages(registry, &route.before_group, input, config, handle)?
             {
@@ -2163,10 +2164,31 @@ fn run_grouped_stream(
                 })?;
                 *count += 1;
                 buffered += 1;
+                // Fire at the element boundary. Draining only after a source
+                // batch lets a batch overshoot a count trigger.
+                if let Some(threshold) = route.trigger.early_count()
+                    && !prior_watermark.is_some_and(|watermark| resolved.end_ns <= watermark)
+                {
+                    let (mut fired, released) =
+                        catch_unwind(AssertUnwindSafe(|| fold.drain_ready_count(threshold)))
+                            .unwrap_or_else(|_| {
+                                Err(Error::execution(
+                                    &route.group_key,
+                                    "direct",
+                                    "group count trigger panicked",
+                                ))
+                            })?;
+                    *count = count.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "count trigger released too many rows")
+                    })?;
+                    buffered = buffered.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    early_panes.append(&mut fired);
+                }
             }
         }
         let next_progress = merge_progress(progress.as_ref(), batch.progress);
-        let mut early_panes = Vec::new();
         if let Some(count) = route.trigger.early_count() {
             for ((_, end), (fold, rows)) in &mut folds {
                 if progress

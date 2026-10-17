@@ -130,9 +130,8 @@ For keyed input, `distinct_per_key_named` keeps one copy of each value for a
 key and emitted pane. It groups values through a shuffle, so their output
 order is unspecified. A value may appear again in a later
 discarding pane. A global-window early-trigger fixture produces the same
-value rows on Direct and local Prism; their pane labels differ after the
-additional grouping. A bounded two-key fixture also produces the same values
-on both runners.
+values and pane labels on Direct and local Prism. A bounded two-key fixture
+also produces the same values on both runners.
 
 `distinct_count_per_key_named` counts different values for each key and
 window. On unbounded input, it groups the values before counting. Direct and

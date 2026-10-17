@@ -1,13 +1,12 @@
 use super::*;
 use ironbeam_prism_proof::streaming_global_distinct_per_key_fixture;
 
-const EXPECTED: [&str; 3] = ["k:a", "k:a", "k:b"];
+const EXPECTED: [&str; 3] = ["k:a:Early:0", "k:a:Early:1", "k:b:Early:1"];
 
 fn read_rows(path: &Path) -> Vec<String> {
     let mut rows = std::fs::read_dir(path)
         .unwrap()
         .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
-        .map(|row| row.split(':').take(2).collect::<Vec<_>>().join(":"))
         .collect::<Vec<_>>();
     rows.sort();
     rows
