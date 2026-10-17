@@ -10,6 +10,8 @@ mod distinct;
 mod global_combines;
 #[path = "prism_v5_run/global_count_per_element.rs"]
 mod global_count_per_element;
+#[path = "prism_v5_run/global_ordered_keyed.rs"]
+mod global_ordered_keyed;
 #[path = "prism_v5_run/global_trigger_combines.rs"]
 mod global_trigger_combines;
 #[path = "prism_v5_run/keyed_batches.rs"]

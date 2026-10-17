@@ -134,7 +134,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     }
     /// Fold each key/window in an explicit order on Direct and portable runners.
     /// The order key must be unique within its key/window. The result timestamp
-    /// is the timestamp of the first value in that order.
+    /// is the timestamp of the first value in that order. An unbounded global
+    /// input requires an early count or processing-time trigger.
     pub fn fold_values_ordered_by_named<Q, C, A, O>(
         &self,
         key: &str,
@@ -148,10 +149,14 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         O: Element,
     {
         let parent = self.parent()?;
-        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+        if parent.boundedness == Boundedness::Unbounded
+            && parent.time.window == Window::Global
+            && parent.time.trigger.early_count().is_none()
+            && parent.time.trigger.early_processing_time().is_none()
+        {
             return Err(Error::graph(
                 key,
-                "unbounded global aggregation requires a finite window",
+                "unbounded global aggregation requires a finite window or early trigger",
             ));
         }
         let reify_key = format!("{key}/order");

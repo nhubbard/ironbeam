@@ -183,6 +183,48 @@ pub fn streaming_ordered_keyed_fixture(
         )
 }
 
+/// Fold each key in explicit order across early and final global panes.
+pub fn streaming_global_ordered_keyed_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    pipeline
+        .test_stream_source(
+            "ordered-global-stream-source",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, (2_i32, 3_i32)), 1_000_000),
+                    ((1, (1, 2)), 2_000_000),
+                    ((2, (1, 9)), 3_000_000),
+                ]),
+                TestStreamEvent::Elements(vec![((1, (3, 4)), 4_000_000)]),
+            ],
+        )?
+        .early_count_trigger_named("ordered-global-trigger", 2)?
+        .fold_values_ordered_by_named("ordered-global-fold", |value| value.0, OrderedDigits)?
+        .reify_timestamps_named("ordered-global-time")?
+        .reify_panes_named("ordered-global-pane")?
+        .map_named("ordered-global-row", |(pane, (time, (key, digits)))| {
+            format!("{key}:{:?}:{}:{time}:{digits}", pane.timing, pane.index)
+        })?
+        .sink_named_with_config(
+            "ordered-global-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("ordered-global:{}", path.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_path.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 pub fn ordered_global_fixture(
     pipeline: &Pipeline,
     nonempty: PathBuf,

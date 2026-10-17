@@ -233,6 +233,9 @@ input, the helpers use a constant key and `GroupByKey` so Direct can retain
 open windows in its checkpoint. Direct runs each helper branch separately;
 Prism also runs the four branches merged into one sink. The tested rows and
 event timestamps agree. Direct does not yet support that merged streaming route.
+The explicit-order keyed fold also runs in an unbounded global window with an
+early count trigger. A two-key TestStream produces matching early and final
+pane values, indices, and event timestamps on Direct and local Prism.
 
 Vector and accumulator based global combines also use a constant key and
 `GroupByKey` on unbounded input. A two-window TestStream gives the same vector,
