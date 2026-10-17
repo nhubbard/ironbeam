@@ -1,0 +1,13 @@
+[package]
+name = "ironbeam-runner-contract-tests"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+publish = false
+description = "Test-only runner contract fixtures for the Ironbeam v5 migration"
+license = "MIT"
+
+[dev-dependencies]
+ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false }
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }

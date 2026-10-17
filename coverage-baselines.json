@@ -1,0 +1,288 @@
+{
+  "ironbeam-runner-contract-tests": {
+    "source": "crates/ironbeam-runner-contract-tests/src",
+    "lines": {
+      "covered": 47,
+      "count": 54
+    },
+    "branches": {
+      "covered": 4,
+      "count": 4
+    }
+  },
+  "ironbeam-core": {
+    "source": "crates/ironbeam-core/src",
+    "lines": {
+      "covered": 7627,
+      "count": 8119
+    },
+    "branches": {
+      "covered": 1781,
+      "count": 2086
+    }
+  },
+  "ironbeam-direct": {
+    "source": "crates/ironbeam-direct/src",
+    "lines": {
+      "covered": 6946,
+      "count": 7658
+    },
+    "branches": {
+      "covered": 1975,
+      "count": 2200
+    }
+  },
+  "ironbeam-metrics": {
+    "source": "crates/ironbeam-metrics/src",
+    "lines": {
+      "covered": 215,
+      "count": 216
+    },
+    "branches": {
+      "covered": 15,
+      "count": 16
+    }
+  },
+  "ironbeam-testing": {
+    "source": "crates/ironbeam-testing/src",
+    "lines": {
+      "covered": 493,
+      "count": 495
+    },
+    "branches": {
+      "covered": 30,
+      "count": 30
+    }
+  },
+  "ironbeam-io": {
+    "source": "crates/ironbeam-io/src",
+    "lines": {
+      "covered": 1036,
+      "count": 1158
+    },
+    "branches": {
+      "covered": 196,
+      "count": 266
+    }
+  },
+  "ironbeam-io-jsonl": {
+    "source": "crates/ironbeam-io-jsonl/src",
+    "lines": {
+      "covered": 477,
+      "count": 562
+    },
+    "branches": {
+      "covered": 60,
+      "count": 78
+    }
+  },
+  "ironbeam-io-protobuf": {
+    "source": "crates/ironbeam-io-protobuf/src",
+    "lines": {
+      "covered": 93,
+      "count": 100
+    },
+    "branches": {
+      "covered": 16,
+      "count": 18
+    }
+  },
+  "ironbeam-io-tfrecord": {
+    "source": "crates/ironbeam-io-tfrecord/src",
+    "lines": {
+      "covered": 164,
+      "count": 179
+    },
+    "branches": {
+      "covered": 16,
+      "count": 18
+    }
+  },
+  "ironbeam-io-csv": {
+    "source": "crates/ironbeam-io-csv/src",
+    "lines": {
+      "covered": 329,
+      "count": 355
+    },
+    "branches": {
+      "covered": 34,
+      "count": 38
+    }
+  },
+  "ironbeam-io-xml": {
+    "source": "crates/ironbeam-io-xml/src",
+    "lines": {
+      "covered": 98,
+      "count": 105
+    },
+    "branches": {
+      "covered": 2,
+      "count": 2
+    }
+  },
+  "ironbeam-io-msgpack": {
+    "source": "crates/ironbeam-io-msgpack/src",
+    "lines": {
+      "covered": 63,
+      "count": 66
+    },
+    "branches": {
+      "covered": 5,
+      "count": 6
+    }
+  },
+  "ironbeam-io-cbor": {
+    "source": "crates/ironbeam-io-cbor/src",
+    "lines": {
+      "covered": 60,
+      "count": 63
+    },
+    "branches": {
+      "covered": 5,
+      "count": 6
+    }
+  },
+  "ironbeam-io-avro": {
+    "source": "crates/ironbeam-io-avro/src",
+    "lines": {
+      "covered": 462,
+      "count": 491
+    },
+    "branches": {
+      "covered": 51,
+      "count": 56
+    }
+  },
+  "ironbeam-io-parquet": {
+    "source": "crates/ironbeam-io-parquet/src",
+    "lines": {
+      "covered": 213,
+      "count": 241
+    },
+    "branches": {
+      "covered": 7,
+      "count": 8
+    }
+  },
+  "ironbeam-io-arrow": {
+    "source": "crates/ironbeam-io-arrow/src",
+    "lines": {
+      "covered": 389,
+      "count": 448
+    },
+    "branches": {
+      "covered": 10,
+      "count": 14
+    }
+  },
+  "ironbeam-compat": {
+    "source": "crates/ironbeam-compat/src",
+    "lines": {
+      "covered": 23,
+      "count": 23
+    },
+    "branches": {
+      "covered": 0,
+      "count": 0
+    }
+  },
+  "ironbeam-transforms": {
+    "source": "crates/ironbeam-transforms/src",
+    "lines": {
+      "covered": 1092,
+      "count": 1120
+    },
+    "branches": {
+      "covered": 82,
+      "count": 90
+    }
+  },
+  "ironbeam-transform-regex": {
+    "source": "crates/ironbeam-transform-regex/src",
+    "lines": {
+      "covered": 45,
+      "count": 45
+    },
+    "branches": {
+      "covered": 0,
+      "count": 0
+    }
+  },
+  "ironbeam-transform-approx": {
+    "source": "crates/ironbeam-transform-approx/src",
+    "lines": {
+      "covered": 108,
+      "count": 108
+    },
+    "branches": {
+      "covered": 12,
+      "count": 12
+    }
+  },
+  "ironbeam-cloud-objects": {
+    "source": "crates/ironbeam-cloud-objects/src",
+    "lines": {
+      "covered": 370,
+      "count": 420
+    },
+    "branches": {
+      "covered": 46,
+      "count": 54
+    }
+  },
+  "ironbeam-cloud-service-api": {
+    "source": "crates/ironbeam-cloud-service-api/src",
+    "lines": {
+      "covered": 61,
+      "count": 61
+    },
+    "branches": {
+      "covered": 2,
+      "count": 2
+    }
+  },
+  "ironbeam-cloud-ops": {
+    "source": "crates/ironbeam-cloud-ops/src",
+    "lines": {
+      "covered": 165,
+      "count": 240
+    },
+    "branches": {
+      "covered": 34,
+      "count": 50
+    }
+  },
+  "ironbeam-coder-postcard": {
+    "source": "crates/ironbeam-coder-postcard/src",
+    "lines": {
+      "covered": 13,
+      "count": 13
+    },
+    "branches": {
+      "covered": 0,
+      "count": 0
+    }
+  },
+  "ironbeam-coder-row": {
+    "source": "crates/ironbeam-coder-row/src",
+    "lines": {
+      "covered": 458,
+      "count": 508
+    },
+    "branches": {
+      "covered": 101,
+      "count": 118
+    }
+  },
+  "ironbeam-compression": {
+    "source": "crates/ironbeam-compression/src",
+    "lines": {
+      "covered": 140,
+      "count": 157
+    },
+    "branches": {
+      "covered": 29,
+      "count": 34
+    }
+  }
+}

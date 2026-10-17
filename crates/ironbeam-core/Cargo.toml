@@ -1,0 +1,13 @@
+[package]
+name = "ironbeam-core"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Runner-neutral logical graph for Ironbeam 5"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"

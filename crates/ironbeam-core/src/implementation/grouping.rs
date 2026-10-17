@@ -1,0 +1,2011 @@
+type GroupBuffer<K, V> = Vec<(K, Vec<V>, i64, Window, Option<WindowInterval>)>;
+type ReifiedKeyedValue<K, V> = (K, (i64, V));
+type LatestGroupBuffer<K, V> = Vec<(K, (i64, V), i64, Window, Option<WindowInterval>)>;
+const GLOBAL_TRIGGER_SCOPE: WindowInterval = WindowInterval {
+    start_ns: i64::MIN,
+    end_ns: i64::MAX,
+};
+enum JoinPositions {
+    One(usize),
+    Many(Vec<usize>),
+}
+impl JoinPositions {
+    fn record<K: Eq + Hash>(
+        index: &mut HashMap<(K, Option<WindowInterval>), Self>,
+        key: K,
+        window: Option<WindowInterval>,
+        position: usize,
+    ) {
+        match index.entry((key, window)) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                entry.get_mut().push(position);
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(Self::One(position));
+            }
+        }
+    }
+
+    fn push(&mut self, position: usize) {
+        match self {
+            Self::One(first) => {
+                let first = *first;
+                *self = Self::Many(vec![first, position]);
+            }
+            Self::Many(positions) => positions.push(position),
+        }
+    }
+
+    const fn as_slice(&self) -> &[usize] {
+        match self {
+            Self::One(position) => std::slice::from_ref(position),
+            Self::Many(positions) => positions.as_slice(),
+        }
+    }
+}
+
+// Keep the specialized inner paths out of the outer-join dispatcher.
+#[inline(never)]
+fn inner_join_reusing_right<K, V, W, O>(
+    left: Vec<Envelope>,
+    right: Vec<Envelope>,
+    key: &str,
+    emit: &impl Fn(Option<V>, Option<W>) -> Option<O>,
+) -> Result<Vec<Envelope>, Error>
+where
+    K: Element + Eq + Hash + Clone,
+    V: Element + Clone,
+    W: Element + Clone,
+    O: Element,
+{
+    let mut index: HashMap<(K, Option<WindowInterval>), JoinPositions> = HashMap::new();
+    let mut left_values = Vec::with_capacity(left.len());
+    for event in left {
+        let (row_key, value) = *event
+            .value
+            .downcast::<(K, V)>()
+            .map_err(|_| Error::execution(key, "direct", "left join type mismatch"))?;
+        let position = left_values.len();
+        JoinPositions::record(&mut index, row_key, event.assigned_window, position);
+        left_values.push((value, event.timestamp_ns));
+    }
+    // Consume each right input slot before appending its matches. This reuses
+    // the input allocation while output grows.
+    let mut output = VecDeque::from(right);
+    let input_count = output.len();
+    for _ in 0..input_count {
+        let event = output.pop_front().expect("right input count is fixed");
+        let Envelope {
+            pane: _,
+            value,
+            timestamp_ns,
+            window,
+            assigned_window,
+        } = event;
+        let (row_key, value) = *value
+            .downcast::<(K, W)>()
+            .map_err(|_| Error::execution(key, "direct", "right join type mismatch"))?;
+        if let Some(matches) = index.get(&(row_key.clone(), assigned_window)) {
+            for &position in matches.as_slice() {
+                if let Some(pair) = emit(Some(left_values[position].0.clone()), Some(value.clone()))
+                {
+                    output.push_back(Envelope {
+                        pane: PaneInfo::FIRST_LAST_ON_TIME,
+                        value: Box::new((row_key.clone(), pair)),
+                        timestamp_ns: timestamp_ns.min(left_values[position].1),
+                        window: window.clone(),
+                        assigned_window,
+                    });
+                }
+            }
+        }
+    }
+    Ok(output.into())
+}
+
+#[inline(never)]
+fn inner_join_indexed_right<K, V, W, O>(
+    left: Vec<Envelope>,
+    right: Vec<Envelope>,
+    key: &str,
+    emit: &impl Fn(Option<V>, Option<W>) -> Option<O>,
+) -> Result<Vec<Envelope>, Error>
+where
+    K: Element + Eq + Hash + Clone,
+    V: Element + Clone,
+    W: Element + Clone,
+    O: Element,
+{
+    let mut index: HashMap<(K, Option<WindowInterval>), JoinPositions> = HashMap::new();
+    let mut right_rows = Vec::with_capacity(right.len());
+    for event in right {
+        let (row_key, value) = *event
+            .value
+            .downcast::<(K, W)>()
+            .map_err(|_| Error::execution(key, "direct", "right join type mismatch"))?;
+        JoinPositions::record(&mut index, row_key, event.assigned_window, right_rows.len());
+        right_rows.push((
+            value,
+            event.timestamp_ns,
+            event.window,
+            event.assigned_window,
+        ));
+    }
+    let mut output = VecDeque::from(left);
+    let input_count = output.len();
+    for _ in 0..input_count {
+        let event = output.pop_front().expect("left input count is fixed");
+        let left_time = event.timestamp_ns;
+        let (row_key, value) = *event
+            .value
+            .downcast::<(K, V)>()
+            .map_err(|_| Error::execution(key, "direct", "left join type mismatch"))?;
+        if let Some(matches) = index.get(&(row_key.clone(), event.assigned_window)) {
+            for &position in matches.as_slice() {
+                let (right_value, timestamp_ns, window, assigned_window) = &right_rows[position];
+                if let Some(pair) = emit(Some(value.clone()), Some(right_value.clone())) {
+                    output.push_back(Envelope {
+                        pane: PaneInfo::FIRST_LAST_ON_TIME,
+                        value: Box::new((row_key.clone(), pair)),
+                        timestamp_ns: left_time.min(*timestamp_ns),
+                        window: window.clone(),
+                        assigned_window: *assigned_window,
+                    });
+                }
+            }
+        }
+    }
+    Ok(output.into())
+}
+
+fn typed_inner_join<K, V, W, O>(
+    left: Vec<(K, V)>,
+    right: Vec<(K, W)>,
+    memory_budget: usize,
+    check_cancelled: &dyn Fn() -> Result<(), Error>,
+    emit: &impl Fn(Option<V>, Option<W>) -> Option<O>,
+) -> Result<Vec<(K, O)>, Error>
+where
+    K: Element + Eq + Hash + Clone,
+    V: Element + Clone,
+    W: Element + Clone,
+    O: Element,
+{
+    let mut index: HashMap<(K, Option<WindowInterval>), JoinPositions> = HashMap::new();
+    let mut output = Vec::new();
+    let max_rows = memory_budget / std::mem::size_of::<(K, O)>().max(1);
+    if left.len() <= right.len() {
+        let mut left_values = Vec::with_capacity(left.len());
+        for (key, value) in left {
+            JoinPositions::record(&mut index, key, None, left_values.len());
+            left_values.push(value);
+        }
+        for (position, (key, value)) in right.into_iter().enumerate() {
+            if position % 4096 == 0 {
+                check_cancelled()?;
+            }
+            if let Some(matches) = index.get(&(key.clone(), None)) {
+                for &slot in matches.as_slice() {
+                    if let Some(pair) = emit(Some(left_values[slot].clone()), Some(value.clone())) {
+                        if output.len() % 4096 == 0 {
+                            check_cancelled()?;
+                        }
+                        if output.len() >= max_rows {
+                            return Err(Error::resource(
+                                "join",
+                                "output exceeds job memory budget",
+                            ));
+                        }
+                        output.push((key.clone(), pair));
+                    }
+                }
+            }
+        }
+    } else {
+        let mut right_values = Vec::with_capacity(right.len());
+        for (key, value) in right {
+            JoinPositions::record(&mut index, key, None, right_values.len());
+            right_values.push(value);
+        }
+        for (position, (key, value)) in left.into_iter().enumerate() {
+            if position % 4096 == 0 {
+                check_cancelled()?;
+            }
+            if let Some(matches) = index.get(&(key.clone(), None)) {
+                for &slot in matches.as_slice() {
+                    if let Some(pair) = emit(Some(value.clone()), Some(right_values[slot].clone()))
+                    {
+                        if output.len() % 4096 == 0 {
+                            check_cancelled()?;
+                        }
+                        if output.len() >= max_rows {
+                            return Err(Error::resource(
+                                "join",
+                                "output exceeds job memory budget",
+                            ));
+                        }
+                        output.push((key.clone(), pair));
+                    }
+                }
+            }
+        }
+    }
+    check_cancelled()?;
+    Ok(output)
+}
+struct GroupByKeyFoldState<K, V> {
+    key: String,
+    trigger: WindowTrigger,
+    output_time: WindowOutputTime,
+    on_time_behavior: WindowOnTimeBehavior,
+    closing_behavior: WindowClosingBehavior,
+    allowed_lateness_ns: i64,
+    last_watermark_ns: Option<i64>,
+    global_indices: HashMap<K, usize>,
+    window_indices: HashMap<(K, WindowInterval), usize>,
+    session_indices: HashMap<K, Vec<usize>>,
+    session_lineage: HashMap<K, Vec<WindowInterval>>,
+    fired_panes: HashMap<(K, WindowInterval), i64>,
+    nonspeculative_base: HashMap<(K, WindowInterval), i64>,
+    fired_value_counts: HashMap<(K, WindowInterval), usize>,
+    early_seen: HashMap<(K, WindowInterval), usize>,
+    early_finished: HashSet<(K, WindowInterval)>,
+    processing_deadlines: HashMap<(K, WindowInterval), i64>,
+    processing_ready: HashSet<(K, WindowInterval)>,
+    latest_timestamps: HashMap<(K, WindowInterval), i64>,
+    groups: GroupBuffer<K, V>,
+}
+
+// Beam's GLOBAL_WINDOW_MAX_TIMESTAMP_MILLIS exceeds signed nanoseconds.
+// The portable worker maps that wire timestamp to this reserved sentinel.
+const BEAM_GLOBAL_WINDOW_MAX_TIMESTAMP_NS: i64 = i64::MAX;
+
+const fn grouped_output_timestamp(
+    policy: WindowOutputTime,
+    earliest_ns: i64,
+    latest_ns: Option<i64>,
+    interval: Option<WindowInterval>,
+) -> i64 {
+    match (policy, interval) {
+        (WindowOutputTime::EndOfWindow, Some(interval)) => interval.end_ns.saturating_sub(1_000_000),
+        (WindowOutputTime::EndOfWindow, None) => BEAM_GLOBAL_WINDOW_MAX_TIMESTAMP_NS,
+        (WindowOutputTime::LatestInPane, _) => match latest_ns {
+            Some(latest_ns) => latest_ns,
+            None => earliest_ns,
+        },
+        _ => earliest_ns,
+    }
+}
+
+const fn empty_pane_output_timestamp(interval: Option<WindowInterval>) -> i64 {
+    match interval {
+        Some(interval) => interval.end_ns.saturating_sub(1_000_000),
+        None => BEAM_GLOBAL_WINDOW_MAX_TIMESTAMP_NS,
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct GroupFoldCheckpoint {
+    version: Version,
+    key_coder: String,
+    value_coder: String,
+    groups: Vec<GroupFoldCheckpointRow>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    fired_panes: Vec<GroupFoldCheckpointPane>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    early_cursors: Vec<GroupFoldCheckpointEarlyCursor>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    session_lineage: Vec<GroupFoldCheckpointSession>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_watermark_ns: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct GroupFoldCheckpointEarlyCursor {
+    key: Vec<u8>,
+    interval: WindowInterval,
+    seen: usize,
+    finished: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct GroupFoldCheckpointSession {
+    key: Vec<u8>,
+    interval: WindowInterval,
+}
+
+#[derive(Serialize, Deserialize)]
+struct GroupFoldCheckpointPane {
+    key: Vec<u8>,
+    interval: WindowInterval,
+    next_index: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    nonspeculative_base: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fired_value_count: Option<usize>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct GroupFoldCheckpointRow {
+    key: Vec<u8>,
+    values: Vec<u8>,
+    timestamp_ns: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    latest_timestamp_ns: Option<i64>,
+    window: Window,
+    assigned_window: Option<WindowInterval>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    processing_deadline_ns: Option<i64>,
+    #[serde(default)]
+    processing_ready: bool,
+}
+
+const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 3 };
+const PRE_FINAL_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 2 };
+const LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 1 };
+const PRE_LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 0 };
+
+impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
+    fn record_session_interval(&mut self, key: &K, mut interval: WindowInterval) -> WindowInterval {
+        if self.allowed_lateness_ns == 0 {
+            return interval;
+        }
+        let active = self.session_lineage.entry(key.clone()).or_default();
+        let mut absorbed = Vec::new();
+        active.retain(|prior| {
+            if interval.start_ns < prior.end_ns && prior.start_ns < interval.end_ns {
+                interval.start_ns = interval.start_ns.min(prior.start_ns);
+                interval.end_ns = interval.end_ns.max(prior.end_ns);
+                absorbed.push(*prior);
+                false
+            } else {
+                true
+            }
+        });
+        active.push(interval);
+        for prior in absorbed {
+            if prior == interval {
+                continue;
+            }
+            let old = (key.clone(), prior);
+            // A new merge result has its own pane history. Only an existing
+            // result window keeps the pane state already stored under it.
+            self.fired_panes.remove(&old);
+            self.nonspeculative_base.remove(&old);
+            self.fired_value_counts.remove(&old);
+            self.early_seen.remove(&old);
+            self.early_finished.remove(&old);
+            self.processing_deadlines.remove(&old);
+            self.processing_ready.remove(&old);
+        }
+        interval
+    }
+
+    fn rebuild_indices(&mut self) {
+        self.global_indices.clear();
+        self.window_indices.clear();
+        self.session_indices.clear();
+        for (index, (key, _, _, window, interval)) in self.groups.iter().enumerate() {
+            if let Some(interval) = interval {
+                self.window_indices.insert((key.clone(), *interval), index);
+                if matches!(window, Window::Session { .. }) {
+                    self.session_indices.entry(key.clone()).or_default().push(index);
+                }
+            } else {
+                self.global_indices.insert(key.clone(), index);
+            }
+        }
+    }
+
+    fn record_early_element(
+        &mut self,
+        key: &K,
+        interval: Option<WindowInterval>,
+    ) -> Result<(), Error> {
+        if self.trigger.final_count().is_some() {
+            let scope = (key.clone(), interval.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+            if !self.early_finished.contains(&scope) {
+                let seen = self.early_seen.entry(scope).or_insert(0);
+                *seen = seen.checked_add(1).ok_or_else(|| {
+                    Error::resource(&self.key, "count-or-finally source count overflows")
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    fn add_row(
+        &mut self,
+        group_key: K,
+        value: V,
+        timestamp_ns: i64,
+        window: Window,
+        assigned_window: Option<WindowInterval>,
+    ) {
+        if matches!(window, Window::Session { .. }) {
+            let Some(mut merged) = assigned_window else {
+                return;
+            };
+            merged = self.record_session_interval(&group_key, merged);
+            let matches = self
+                .session_indices
+                .get(&group_key)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|&index| {
+                    let interval = self.groups[index]
+                        .4
+                        .expect("session group has an interval");
+                    // Session windows are half-open: meeting at an endpoint
+                    // does not merge them without an overlapping bridge.
+                    merged.start_ns < interval.end_ns && interval.start_ns < merged.end_ns
+                })
+                .collect::<Vec<_>>();
+            if let [index] = matches.as_slice() {
+                let row = &mut self.groups[*index];
+                let prior = row.4.expect("session group has an interval");
+                merged.start_ns = merged.start_ns.min(prior.start_ns);
+                merged.end_ns = merged.end_ns.max(prior.end_ns);
+                if self.output_time == WindowOutputTime::LatestInPane {
+                    let latest = self
+                        .latest_timestamps
+                        .remove(&(group_key.clone(), prior))
+                        .unwrap_or(row.2)
+                        .max(timestamp_ns);
+                    self.latest_timestamps
+                        .insert((group_key.clone(), merged), latest);
+                }
+                row.1.push(value);
+                row.2 = row.2.min(timestamp_ns);
+                row.4 = Some(merged);
+                self.window_indices.remove(&(group_key.clone(), prior));
+                self.window_indices.insert((group_key, merged), *index);
+                return;
+            }
+            if let Some(&primary) = matches.first() {
+                let mut timestamp = timestamp_ns;
+                let mut latest = timestamp_ns;
+                let mut values = Vec::new();
+                for &index in matches.iter().rev() {
+                    let (_, prior_values, prior_timestamp, _, prior_interval) =
+                        self.groups.remove(index);
+                    let interval = prior_interval.expect("session group has an interval");
+                    if self.output_time == WindowOutputTime::LatestInPane {
+                        latest = latest.max(
+                            self.latest_timestamps
+                                .remove(&(group_key.clone(), interval))
+                                .unwrap_or(prior_timestamp),
+                        );
+                    }
+                    merged.start_ns = merged.start_ns.min(interval.start_ns);
+                    merged.end_ns = merged.end_ns.max(interval.end_ns);
+                    timestamp = timestamp.min(prior_timestamp);
+                    values.extend(prior_values);
+                }
+                values.push(value);
+                if self.output_time == WindowOutputTime::LatestInPane {
+                    self.latest_timestamps
+                        .insert((group_key.clone(), merged), latest);
+                }
+                self.groups.insert(
+                    primary,
+                    (group_key, values, timestamp, window, Some(merged)),
+                );
+                self.rebuild_indices();
+            } else {
+                if self.output_time == WindowOutputTime::LatestInPane {
+                    self.latest_timestamps
+                        .insert((group_key.clone(), merged), timestamp_ns);
+                }
+                let index = self.groups.len();
+                self.window_indices.insert((group_key.clone(), merged), index);
+                self.session_indices
+                    .entry(group_key.clone())
+                    .or_default()
+                    .push(index);
+                self.groups.push((
+                    group_key,
+                    vec![value],
+                    timestamp_ns,
+                    window,
+                    Some(merged),
+                ));
+            }
+            return;
+        }
+        if let Some(interval) = assigned_window {
+            let scope = (group_key.clone(), interval);
+            if let Some(&index) = self.window_indices.get(&scope) {
+                let row = &mut self.groups[index];
+                row.2 = if row.1.is_empty() {
+                    timestamp_ns
+                } else {
+                    row.2.min(timestamp_ns)
+                };
+                row.1.push(value);
+                return;
+            }
+            self.window_indices.insert(scope, self.groups.len());
+        } else {
+            if let Some(&index) = self.global_indices.get(&group_key) {
+                let row = &mut self.groups[index];
+                row.2 = if row.1.is_empty() {
+                    timestamp_ns
+                } else {
+                    row.2.min(timestamp_ns)
+                };
+                row.1.push(value);
+                return;
+            }
+            self.global_indices
+                .insert(group_key.clone(), self.groups.len());
+        }
+        self.groups.push((
+            group_key,
+            vec![value],
+            timestamp_ns,
+            window,
+            assigned_window,
+        ));
+    }
+}
+
+impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldState<K, V> {
+    fn resolved_interval(&self, event: &Envelope) -> Result<Option<WindowInterval>, Error> {
+        let Some(mut merged) = event.assigned_window else {
+            return Ok(None);
+        };
+        if !matches!(event.window, Window::Session { .. }) {
+            return Ok(Some(merged));
+        }
+        let (group_key, _) = event
+            .value
+            .downcast_ref::<(K, V)>()
+            .ok_or_else(|| Error::execution(&self.key, "direct", "group input type mismatch"))?;
+        if self.allowed_lateness_ns > 0 {
+            for interval in self.session_lineage.get(group_key).into_iter().flatten() {
+                if merged.start_ns < interval.end_ns && interval.start_ns < merged.end_ns {
+                    merged.start_ns = merged.start_ns.min(interval.start_ns);
+                    merged.end_ns = merged.end_ns.max(interval.end_ns);
+                }
+            }
+            return Ok(Some(merged));
+        }
+        for &index in self.session_indices.get(group_key).into_iter().flatten() {
+            let interval = self.groups[index]
+                .4
+                .expect("session group has an interval");
+            if merged.start_ns < interval.end_ns && interval.start_ns < merged.end_ns {
+                merged.start_ns = merged.start_ns.min(interval.start_ns);
+                merged.end_ns = merged.end_ns.max(interval.end_ns);
+            }
+        }
+        Ok(Some(merged))
+    }
+
+    fn add(&mut self, event: Envelope) -> Result<(), Error> {
+        let Envelope {
+            pane: _,
+            value,
+            timestamp_ns,
+            window,
+            assigned_window,
+        } = event;
+        let (group_key, value) = *value
+            .downcast::<(K, V)>()
+            .map_err(|_| Error::execution(&self.key, "direct", "group input type mismatch"))?;
+        self.record_early_element(&group_key, assigned_window)?;
+        let scope = (group_key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+        let is_session = matches!(window, Window::Session { .. });
+        if self.output_time == WindowOutputTime::LatestInPane
+            && !is_session
+            && !self.trigger.is_accumulating()
+            && !self.nonspeculative_base.contains_key(&scope)
+        {
+            let existing = match assigned_window {
+                Some(_) => self.window_indices.get(&scope).copied(),
+                None => self.global_indices.get(&group_key).copied(),
+            };
+            if existing.is_some_and(|index| self.groups[index].1.is_empty()) {
+                self.latest_timestamps.remove(&scope);
+            }
+        }
+        self.add_row(group_key, value, timestamp_ns, window, assigned_window);
+        if self.output_time == WindowOutputTime::LatestInPane && !is_session {
+            self.latest_timestamps
+                .entry(scope)
+                .and_modify(|latest| *latest = (*latest).max(timestamp_ns))
+                .or_insert(timestamp_ns);
+        }
+        Ok(())
+    }
+
+    fn drain_ready_count(&mut self, count: u64) -> Result<(Vec<Envelope>, usize), Error> {
+        if count == 0 {
+            return Err(Error::incompatible("early count trigger requires a positive count"));
+        }
+        let threshold = usize::try_from(count).unwrap_or(usize::MAX);
+        let final_count = self.trigger.final_count().and_then(|count| usize::try_from(count).ok());
+        if self.trigger.is_accumulating() {
+            let mut fired = Vec::new();
+            for (key, values, timestamp_ns, window, assigned_window) in &self.groups {
+                let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
+                let scope = (key.clone(), interval);
+                let final_ready = final_count.is_some_and(|limit| {
+                    self.early_seen.get(&scope).is_some_and(|seen| *seen >= limit)
+                });
+                if self.nonspeculative_base.contains_key(&scope) {
+                    continue;
+                }
+                let prior = self.fired_value_counts.get(&scope).copied().unwrap_or(0);
+                if (self.trigger.is_count_then_processing_time()
+                    && self.fired_panes.get(&scope).is_some_and(|index| index % 2 == 1))
+                    || (final_count.is_some() && self.early_finished.contains(&scope))
+                    || (!final_ready && values.len().saturating_sub(prior) < threshold)
+                    || (self.trigger.is_count_and_processing_time()
+                        && !self.processing_ready.contains(&scope))
+                {
+                    continue;
+                }
+                let copied = Vec::<V>::decode(&values.encode()?)?;
+                let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
+                let index = *next_index;
+                *next_index = next_index
+                    .checked_add(1)
+                    .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
+                self.fired_value_counts.insert(scope.clone(), values.len());
+                if final_ready {
+                    self.early_finished.insert(scope.clone());
+                }
+                self.processing_deadlines.remove(&scope);
+                self.processing_ready.remove(&scope);
+                fired.push(Envelope {
+                    pane: PaneInfo {
+                        is_first: index == 0,
+                        is_last: false,
+                        timing: PaneTiming::Early,
+                        index,
+                        nonspeculative_index: -1,
+                        contains_element_metadata: false,
+                    },
+                    value: Box::new((key.clone(), copied)),
+                    timestamp_ns: grouped_output_timestamp(
+                        self.output_time,
+                        *timestamp_ns,
+                        self.latest_timestamps.get(&scope).copied(),
+                        *assigned_window,
+                    ),
+                    window: window.clone(),
+                    assigned_window: *assigned_window,
+                });
+            }
+            return Ok((fired, 0));
+        }
+        let mut remaining = Vec::new();
+        let mut fired = Vec::new();
+        let mut released = 0_usize;
+        for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
+            let scope = (key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+            let final_ready = final_count.is_some_and(|limit| {
+                self.early_seen.get(&scope).is_some_and(|seen| *seen >= limit)
+            });
+            if self.nonspeculative_base.contains_key(&scope)
+                || (self.trigger.is_count_then_processing_time()
+                && self.fired_panes.get(&scope).is_some_and(|index| index % 2 == 1))
+                || (final_count.is_some() && self.early_finished.contains(&scope))
+                || (!final_ready && values.len() < threshold)
+                || (self.trigger.is_count_and_processing_time()
+                    && !self.processing_ready.contains(&scope))
+            {
+                remaining.push((key, values, timestamp_ns, window, assigned_window));
+                continue;
+            }
+            let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
+            let latest = if self.on_time_behavior == WindowOnTimeBehavior::FireAlways
+                || self.closing_behavior == WindowClosingBehavior::EmitAlways
+                || self.trigger.late_count().is_some()
+            {
+                self.latest_timestamps.get(&(key.clone(), interval)).copied()
+            } else {
+                self.latest_timestamps.remove(&(key.clone(), interval))
+            };
+            self.processing_deadlines.remove(&(key.clone(), interval));
+            self.processing_ready.remove(&(key.clone(), interval));
+            let next_index = self.fired_panes.entry((key.clone(), interval)).or_insert(0);
+            let index = *next_index;
+            *next_index = next_index
+                .checked_add(1)
+                .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
+            released = released.saturating_add(values.len());
+            if final_ready {
+                self.early_finished.insert(scope);
+            }
+            if self.on_time_behavior == WindowOnTimeBehavior::FireAlways
+                || self.closing_behavior == WindowClosingBehavior::EmitAlways
+                || self.trigger.late_count().is_some()
+            {
+                remaining.push((key.clone(), Vec::new(), timestamp_ns, window.clone(), assigned_window));
+            }
+            fired.push(Envelope {
+                pane: PaneInfo {
+                    is_first: index == 0,
+                    is_last: false,
+                    timing: PaneTiming::Early,
+                    index,
+                    nonspeculative_index: -1,
+                    contains_element_metadata: false,
+                },
+                value: Box::new((key, values)),
+                timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, assigned_window),
+                window,
+                assigned_window,
+            });
+        }
+        self.groups = remaining;
+        self.rebuild_indices();
+        Ok((fired, released))
+    }
+
+    fn arm_processing_time(&mut self, now_ns: i64, delay_ns: i64) -> Result<(), Error> {
+        if now_ns < 0 || delay_ns <= 0 || self.trigger.early_processing_time() != Some(delay_ns) {
+            return Err(Error::incompatible("invalid processing-time trigger clock or delay"));
+        }
+        for (key, values, _, _, assigned_window) in &self.groups {
+            let scope = (key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+            let fired_count = self.fired_value_counts.get(&scope).copied().unwrap_or(0);
+            if !self.nonspeculative_base.contains_key(&scope)
+                && (!self.trigger.is_count_then_processing_time()
+                || self.fired_panes.get(&scope).is_some_and(|index| index % 2 == 1))
+                && values.len() > fired_count
+                && !self.processing_deadlines.contains_key(&scope)
+                && !self.processing_ready.contains(&scope)
+            {
+                let deadline = now_ns.checked_add(delay_ns).ok_or_else(|| {
+                    Error::resource(&self.key, "processing-time trigger deadline overflows")
+                })?;
+                self.processing_deadlines.insert(scope, deadline);
+            }
+        }
+        Ok(())
+    }
+
+    fn next_processing_time_deadline(&self) -> Option<i64> {
+        self.processing_deadlines.values().copied().min()
+    }
+
+    fn drain_ready_processing_time(&mut self, now_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {
+        if self.trigger.early_processing_time().is_none() {
+            return Err(Error::incompatible("fold has no processing-time trigger"));
+        }
+        if self.trigger.is_count_and_processing_time() {
+            let expired = self
+                .processing_deadlines
+                .iter()
+                .filter_map(|(scope, deadline)| (*deadline <= now_ns).then_some(scope.clone()))
+                .collect::<Vec<_>>();
+            for scope in expired {
+                self.processing_deadlines.remove(&scope);
+                self.processing_ready.insert(scope);
+            }
+            return self.drain_ready_count(self.trigger.early_count().expect("conjunctive count"));
+        }
+        let mut fired = Vec::new();
+        if self.trigger.is_accumulating() {
+            for (key, values, timestamp_ns, window, assigned_window) in &self.groups {
+                let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
+                let scope = (key.clone(), interval);
+                if self.processing_deadlines.get(&scope).is_none_or(|deadline| *deadline > now_ns) {
+                    continue;
+                }
+                let prior = self.fired_value_counts.get(&scope).copied().unwrap_or(0);
+                if values.len() <= prior {
+                    return Err(Error::recovery(&self.key, "processing timer has no new input"));
+                }
+                let copied = Vec::<V>::decode(&values.encode()?)?;
+                let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
+                let index = *next_index;
+                *next_index = next_index
+                    .checked_add(1)
+                    .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
+                self.fired_value_counts.insert(scope.clone(), values.len());
+                self.processing_deadlines.remove(&scope);
+                fired.push(Envelope {
+                    pane: PaneInfo {
+                        is_first: index == 0,
+                        is_last: false,
+                        timing: PaneTiming::Early,
+                        index,
+                        nonspeculative_index: -1,
+                        contains_element_metadata: false,
+                    },
+                    value: Box::new((key.clone(), copied)),
+                    timestamp_ns: grouped_output_timestamp(
+                        self.output_time,
+                        *timestamp_ns,
+                        self.latest_timestamps.get(&scope).copied(),
+                        *assigned_window,
+                    ),
+                    window: window.clone(),
+                    assigned_window: *assigned_window,
+                });
+            }
+            return Ok((fired, 0));
+        }
+        let mut remaining = Vec::new();
+        let mut released = 0_usize;
+        for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
+            let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
+            let scope = (key.clone(), interval);
+            if self.processing_deadlines.get(&scope).is_none_or(|deadline| *deadline > now_ns) {
+                remaining.push((key, values, timestamp_ns, window, assigned_window));
+                continue;
+            }
+            self.processing_deadlines.remove(&scope);
+            let latest = if self.on_time_behavior == WindowOnTimeBehavior::FireAlways
+                || self.closing_behavior == WindowClosingBehavior::EmitAlways
+                || self.trigger.late_count().is_some()
+            {
+                self.latest_timestamps.get(&scope).copied()
+            } else {
+                self.latest_timestamps.remove(&scope)
+            };
+            let next_index = self.fired_panes.entry(scope).or_insert(0);
+            let index = *next_index;
+            *next_index = next_index
+                .checked_add(1)
+                .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
+            released = released.saturating_add(values.len());
+            if self.on_time_behavior == WindowOnTimeBehavior::FireAlways
+                || self.closing_behavior == WindowClosingBehavior::EmitAlways
+                || self.trigger.late_count().is_some()
+            {
+                remaining.push((key.clone(), Vec::new(), timestamp_ns, window.clone(), assigned_window));
+            }
+            fired.push(Envelope {
+                pane: PaneInfo {
+                    is_first: index == 0,
+                    is_last: false,
+                    timing: PaneTiming::Early,
+                    index,
+                    nonspeculative_index: -1,
+                    contains_element_metadata: false,
+                },
+                value: Box::new((key, values)),
+                timestamp_ns: grouped_output_timestamp(
+                    self.output_time,
+                    timestamp_ns,
+                    latest,
+                    assigned_window,
+                ),
+                window,
+                assigned_window,
+            });
+        }
+        self.groups = remaining;
+        self.rebuild_indices();
+        Ok((fired, released))
+    }
+
+    fn drain_closed(&mut self, watermark_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {
+        let mut remaining = Vec::new();
+        let mut closed = Vec::new();
+        let mut released = 0_usize;
+        let accumulating_late = self.trigger.late_count().is_some() && self.trigger.is_accumulating();
+        for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
+            if assigned_window.is_some_and(|interval| interval.end_ns <= watermark_ns) {
+                let interval = assigned_window.unwrap();
+                let expired = interval.end_ns.saturating_add(self.allowed_lateness_ns)
+                    <= watermark_ns;
+                if self.allowed_lateness_ns > 0
+                    && self.nonspeculative_base.contains_key(&(key.clone(), interval))
+                {
+                    if expired && self.closing_behavior == WindowClosingBehavior::EmitIfNonempty {
+                        released = released.saturating_add(values.len());
+                    } else {
+                        remaining.push((key, values, timestamp_ns, window, assigned_window));
+                    }
+                    continue;
+                }
+                let scope = (key.clone(), interval);
+                let prior_count = if self.trigger.is_accumulating() {
+                    self.fired_value_counts.get(&scope).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                let new_count = values.len().checked_sub(prior_count).ok_or_else(|| {
+                    Error::recovery(&self.key, "on-time pane count exceeds group length")
+                })?;
+                let empty_firing = new_count == 0 && self.fired_panes.contains_key(&scope);
+                if empty_firing && self.on_time_behavior == WindowOnTimeBehavior::FireIfNonempty {
+                    if self.closing_behavior == WindowClosingBehavior::EmitAlways
+                        || (self.trigger.late_count().is_some() && !expired)
+                    {
+                        let next_index = self.fired_panes.get(&scope).copied().unwrap_or(0);
+                        self.nonspeculative_base.insert(scope, next_index);
+                        remaining.push((key, values, timestamp_ns, window, assigned_window));
+                    } else {
+                        released = released.saturating_add(values.len());
+                    }
+                    continue;
+                }
+                let value_count = values.len();
+                let retain_for_late = accumulating_late
+                    && (!expired || self.closing_behavior == WindowClosingBehavior::EmitAlways);
+                let retain_empty_for_closing = self.closing_behavior == WindowClosingBehavior::EmitAlways
+                    && !retain_for_late;
+                let output_values = if retain_for_late {
+                    let copied = Vec::<V>::decode(&values.encode()?)?;
+                    remaining.push((key.clone(), values, timestamp_ns, window.clone(), assigned_window));
+                    copied
+                } else {
+                    released = released.saturating_add(value_count);
+                    if retain_empty_for_closing {
+                        remaining.push((key.clone(), Vec::new(), timestamp_ns, window.clone(), assigned_window));
+                    }
+                    values
+                };
+                let index = if self.allowed_lateness_ns > 0 {
+                    let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
+                    let index = *next_index;
+                    *next_index = next_index
+                        .checked_add(1)
+                        .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
+                    index
+                } else {
+                    self.fired_panes.remove(&scope).unwrap_or(0)
+                };
+                if self.allowed_lateness_ns > 0 {
+                    self.nonspeculative_base.insert(scope.clone(), index);
+                }
+                if retain_for_late {
+                    self.fired_value_counts.insert(scope.clone(), value_count);
+                } else {
+                    self.fired_value_counts.remove(&scope);
+                }
+                let latest = if retain_for_late || retain_empty_for_closing {
+                    self.latest_timestamps.get(&scope).copied()
+                } else {
+                    self.latest_timestamps.remove(&scope)
+                };
+                let output_timestamp_ns = if empty_firing {
+                    empty_pane_output_timestamp(assigned_window)
+                } else {
+                    grouped_output_timestamp(self.output_time, timestamp_ns, latest, assigned_window)
+                };
+                closed.push(Envelope {
+                    pane: PaneInfo {
+                        is_first: index == 0,
+                        is_last: self.allowed_lateness_ns == 0,
+                        timing: PaneTiming::OnTime,
+                        index,
+                        nonspeculative_index: 0,
+                        contains_element_metadata: false,
+                    },
+                    value: Box::new((key, output_values)),
+                    timestamp_ns: output_timestamp_ns,
+                    window,
+                    assigned_window,
+                });
+            } else {
+                remaining.push((key, values, timestamp_ns, window, assigned_window));
+            }
+        }
+        self.groups = remaining;
+        if self.closing_behavior == WindowClosingBehavior::EmitAlways {
+            let (mut final_panes, final_released) = self.drain_late_at(Some(watermark_ns), true)?;
+            closed.append(&mut final_panes);
+            released = released.saturating_add(final_released);
+        }
+        let expired_sessions = self
+            .session_lineage
+            .iter()
+            .flat_map(|(key, intervals)| {
+                intervals
+                    .iter()
+                    .filter(|interval| {
+                        interval.end_ns.saturating_add(self.allowed_lateness_ns) <= watermark_ns
+                    })
+                    .map(|interval| (key.clone(), *interval))
+            })
+            .collect::<HashSet<_>>();
+        self.session_lineage.retain(|_, intervals| {
+            intervals.retain(|interval| {
+                interval.end_ns.saturating_add(self.allowed_lateness_ns) > watermark_ns
+            });
+            !intervals.is_empty()
+        });
+        if !expired_sessions.is_empty() {
+            self.fired_panes.retain(|scope, _| !expired_sessions.contains(scope));
+            self.nonspeculative_base.retain(|scope, _| !expired_sessions.contains(scope));
+            self.fired_value_counts.retain(|scope, _| !expired_sessions.contains(scope));
+            self.processing_deadlines.retain(|scope, _| !expired_sessions.contains(scope));
+            self.processing_ready.retain(|scope| !expired_sessions.contains(scope));
+            self.latest_timestamps.retain(|scope, _| !expired_sessions.contains(scope));
+        }
+        if self.allowed_lateness_ns == 0 {
+            self.fired_panes.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        }
+        self.processing_deadlines.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        self.processing_ready.retain(|(_, interval)| interval.end_ns > watermark_ns);
+        if !accumulating_late {
+            self.fired_value_counts.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        }
+        self.early_seen.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        self.early_finished.retain(|(_, interval)| interval.end_ns > watermark_ns);
+        if self.trigger.late_count().is_none() {
+            self.latest_timestamps.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        }
+        self.last_watermark_ns = Some(
+            self.last_watermark_ns
+                .map_or(watermark_ns, |prior| prior.max(watermark_ns)),
+        );
+        self.rebuild_indices();
+        Ok((closed, released))
+    }
+
+    fn drain_late(&mut self, final_firing: bool) -> Result<(Vec<Envelope>, usize), Error> {
+        self.drain_late_at(None, final_firing)
+    }
+
+    fn drain_late_at(
+        &mut self,
+        watermark_ns: Option<i64>,
+        final_firing: bool,
+    ) -> Result<(Vec<Envelope>, usize), Error> {
+        if self.allowed_lateness_ns == 0 {
+            return Err(Error::unsupported(&self.key, "direct", "late-window-firing"));
+        }
+        if self.trigger != WindowTrigger::Default && self.trigger.late_count().is_none() {
+            if self.closing_behavior != WindowClosingBehavior::EmitAlways {
+                return Err(Error::unsupported(&self.key, "direct", "late-window-firing"));
+            }
+            if !final_firing {
+                return Ok((Vec::new(), 0));
+            }
+        }
+        let mut panes = Vec::new();
+        let mut remaining = Vec::new();
+        let mut released = 0_usize;
+        let accumulating = self.trigger.is_accumulating();
+        for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
+            let interval = assigned_window.ok_or_else(|| Error::incompatible("late pane lacks a window"))?;
+            let scope = (key.clone(), interval);
+            if watermark_ns.is_some_and(|watermark| {
+                !self.nonspeculative_base.contains_key(&scope)
+                    || if final_firing {
+                        interval.end_ns.saturating_add(self.allowed_lateness_ns) > watermark
+                    } else {
+                        interval.end_ns > watermark
+                            || interval.end_ns.saturating_add(self.allowed_lateness_ns) <= watermark
+                    }
+            }) {
+                remaining.push((key, values, timestamp_ns, window, assigned_window));
+                continue;
+            }
+            let prior = if accumulating {
+                self.fired_value_counts.get(&scope).copied().unwrap_or(0)
+            } else {
+                0
+            };
+            let new_count = values.len().checked_sub(prior).ok_or_else(|| {
+                Error::recovery(&self.key, "late pane count exceeds group length")
+            })?;
+            let threshold = self.trigger.late_count()
+                .and_then(|count| usize::try_from(count).ok())
+                .unwrap_or(1);
+            if (new_count == 0
+                && (!final_firing || self.closing_behavior == WindowClosingBehavior::EmitIfNonempty))
+                || (!final_firing && new_count < threshold)
+            {
+                if final_firing {
+                    released = released.saturating_add(values.len());
+                    self.fired_value_counts.remove(&scope);
+                    self.latest_timestamps.remove(&scope);
+                } else {
+                    remaining.push((key, values, timestamp_ns, window, assigned_window));
+                }
+                continue;
+            }
+            let value_count = values.len();
+            let retain_for_late = accumulating && !final_firing;
+            let retain_empty_for_closing = self.closing_behavior == WindowClosingBehavior::EmitAlways
+                && !final_firing && !retain_for_late;
+            let output_values = if retain_for_late {
+                let copied = Vec::<V>::decode(&values.encode()?)?;
+                remaining.push((key.clone(), values, timestamp_ns, window.clone(), assigned_window));
+                self.fired_value_counts.insert(scope.clone(), value_count);
+                copied
+            } else {
+                released = released.saturating_add(value_count);
+                self.fired_value_counts.remove(&scope);
+                if retain_empty_for_closing {
+                    remaining.push((key.clone(), Vec::new(), timestamp_ns, window.clone(), assigned_window));
+                }
+                values
+            };
+            let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
+            let index = *next_index;
+            *next_index = next_index
+                .checked_add(1)
+                .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
+            let base = *self.nonspeculative_base.entry(scope.clone()).or_insert_with(|| {
+                if self.trigger.early_count().is_some()
+                    || self.trigger.early_processing_time().is_some()
+                {
+                    index
+                } else {
+                    0
+                }
+            });
+            let latest = if retain_for_late || retain_empty_for_closing {
+                self.latest_timestamps.get(&scope).copied()
+            } else {
+                self.latest_timestamps.remove(&scope)
+            };
+            let output_timestamp_ns = if new_count == 0 {
+                empty_pane_output_timestamp(Some(interval))
+            } else {
+                grouped_output_timestamp(self.output_time, timestamp_ns, latest, Some(interval))
+            };
+            panes.push(Envelope {
+                pane: PaneInfo {
+                    is_first: index == 0,
+                    is_last: final_firing,
+                    timing: PaneTiming::Late,
+                    index,
+                    nonspeculative_index: index - base,
+                    contains_element_metadata: false,
+                },
+                value: Box::new((key, output_values)),
+                timestamp_ns: output_timestamp_ns,
+                window,
+                assigned_window,
+            });
+        }
+        self.groups = remaining;
+        self.rebuild_indices();
+        Ok((panes, released))
+    }
+
+    fn accepts_vec_batch(&self, batch_type: TypeId) -> bool {
+        batch_type == TypeId::of::<Vec<(K, V)>>()
+    }
+
+    fn checkpoint_state(&self) -> Result<Option<Vec<u8>>, Error> {
+        if !<(K, Vec<V>) as Element>::supports_coder() {
+            return Ok(None);
+        }
+        let groups = self
+            .groups
+            .iter()
+            .map(|(key, values, timestamp_ns, window, assigned_window)| {
+                Ok(GroupFoldCheckpointRow {
+                    key: key.encode()?,
+                    values: values.encode()?,
+                    timestamp_ns: *timestamp_ns,
+                    latest_timestamp_ns: self.latest_timestamps
+                        .get(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE)))
+                        .copied(),
+                    window: window.clone(),
+                    assigned_window: *assigned_window,
+                    processing_deadline_ns: self
+                        .processing_deadlines
+                        .get(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE)))
+                        .copied(),
+                    processing_ready: self
+                        .processing_ready
+                        .contains(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE))),
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        let mut fired_panes = self
+            .fired_panes
+            .iter()
+            .map(|((key, interval), &next_index)| {
+                Ok(GroupFoldCheckpointPane {
+                    key: key.encode()?,
+                    interval: *interval,
+                    next_index,
+                    nonspeculative_base: self.nonspeculative_base.get(&(key.clone(), *interval)).copied(),
+                    fired_value_count: self.fired_value_counts.get(&(key.clone(), *interval)).copied(),
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        fired_panes.sort_by(|left, right| {
+            (&left.key, left.interval.start_ns, left.interval.end_ns)
+                .cmp(&(&right.key, right.interval.start_ns, right.interval.end_ns))
+        });
+        let mut early_cursors = self
+            .early_seen
+            .iter()
+            .map(|((key, interval), &seen)| {
+                Ok(GroupFoldCheckpointEarlyCursor {
+                    key: key.encode()?,
+                    interval: *interval,
+                    seen,
+                    finished: self.early_finished.contains(&(key.clone(), *interval)),
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        early_cursors.sort_by(|left, right| {
+            (&left.key, left.interval.start_ns, left.interval.end_ns)
+                .cmp(&(&right.key, right.interval.start_ns, right.interval.end_ns))
+        });
+        let mut session_lineage = self
+            .session_lineage
+            .iter()
+            .flat_map(|(key, intervals)| {
+                intervals.iter().map(|interval| {
+                    Ok(GroupFoldCheckpointSession {
+                        key: key.encode()?,
+                        interval: *interval,
+                    })
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        session_lineage.sort_by(|left, right| {
+            (&left.key, left.interval.start_ns, left.interval.end_ns)
+                .cmp(&(&right.key, right.interval.start_ns, right.interval.end_ns))
+        });
+        serde_json::to_vec(&GroupFoldCheckpoint {
+            version: GROUP_FOLD_CHECKPOINT_VERSION,
+            key_coder: K::coder_identity(),
+            value_coder: V::coder_identity(),
+            groups,
+            fired_panes,
+            early_cursors,
+            session_lineage,
+            last_watermark_ns: self.last_watermark_ns,
+        })
+        .map(Some)
+        .map_err(|error| Error::recovery(&self.key, error.to_string()))
+    }
+
+    fn restore_checkpoint_state(&mut self, state: &[u8]) -> Result<(), Error> {
+        if !self.groups.is_empty() {
+            return Err(Error::recovery(&self.key, "fold already contains input"));
+        }
+        let checkpoint: GroupFoldCheckpoint = serde_json::from_slice(state)
+            .map_err(|error| Error::recovery(&self.key, error.to_string()))?;
+        if checkpoint.version != GROUP_FOLD_CHECKPOINT_VERSION
+            && checkpoint.version != PRE_FINAL_GROUP_FOLD_CHECKPOINT_VERSION
+            && checkpoint.version != LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION
+            && checkpoint.version != PRE_LINEAGE_GROUP_FOLD_CHECKPOINT_VERSION
+        {
+            return Err(Error::incompatible(
+                "group fold checkpoint version mismatch",
+            ));
+        }
+        if self.trigger.final_count().is_some()
+            && checkpoint.version != GROUP_FOLD_CHECKPOINT_VERSION
+        {
+            return Err(Error::incompatible("count-or-finally checkpoint lacks its cursor"));
+        }
+        if checkpoint.key_coder != K::coder_identity()
+            || checkpoint.value_coder != V::coder_identity()
+        {
+            return Err(Error::incompatible("group fold checkpoint coder mismatch"));
+        }
+        let mut restored = Self {
+            key: self.key.clone(),
+            trigger: self.trigger,
+            output_time: self.output_time,
+            on_time_behavior: self.on_time_behavior,
+            closing_behavior: self.closing_behavior,
+            allowed_lateness_ns: self.allowed_lateness_ns,
+            last_watermark_ns: checkpoint.last_watermark_ns,
+            global_indices: HashMap::new(),
+            window_indices: HashMap::new(),
+            session_indices: HashMap::new(),
+            session_lineage: HashMap::new(),
+            fired_panes: HashMap::new(),
+            nonspeculative_base: HashMap::new(),
+            fired_value_counts: HashMap::new(),
+            early_seen: HashMap::new(),
+            early_finished: HashSet::new(),
+            processing_deadlines: HashMap::new(),
+            processing_ready: HashSet::new(),
+            latest_timestamps: HashMap::new(),
+            groups: Vec::with_capacity(checkpoint.groups.len()),
+        };
+        for session in checkpoint.session_lineage {
+            if self.allowed_lateness_ns == 0
+                || session.interval.end_ns <= session.interval.start_ns
+            {
+                return Err(Error::recovery(&self.key, "invalid session lineage in fold checkpoint"));
+            }
+            let key = K::decode(&session.key)?;
+            let intervals = restored.session_lineage.entry(key).or_default();
+            if intervals.iter().any(|prior| {
+                session.interval.start_ns < prior.end_ns
+                    && prior.start_ns < session.interval.end_ns
+            }) {
+                return Err(Error::recovery(&self.key, "overlapping session lineage in fold checkpoint"));
+            }
+            intervals.push(session.interval);
+        }
+        for cursor in checkpoint.early_cursors {
+            let final_count = self.trigger.final_count().ok_or_else(|| {
+                Error::recovery(&self.key, "unexpected count-or-finally cursor")
+            })?;
+            if cursor.interval.end_ns <= cursor.interval.start_ns
+                || cursor.seen == 0
+                || (cursor.finished && cursor.seen < usize::try_from(final_count).unwrap_or(usize::MAX))
+            {
+                return Err(Error::recovery(&self.key, "invalid count-or-finally cursor"));
+            }
+            let scope = (K::decode(&cursor.key)?, cursor.interval);
+            if restored.early_seen.insert(scope.clone(), cursor.seen).is_some() {
+                return Err(Error::recovery(&self.key, "duplicate count-or-finally cursor"));
+            }
+            if cursor.finished {
+                restored.early_finished.insert(scope);
+            }
+        }
+        for pane in checkpoint.fired_panes {
+            if pane.interval.end_ns <= pane.interval.start_ns || pane.next_index <= 0 {
+                return Err(Error::recovery(&self.key, "invalid pane index in fold checkpoint"));
+            }
+            if restored
+                .fired_panes
+                .insert((K::decode(&pane.key)?, pane.interval), pane.next_index)
+                .is_some()
+            {
+                return Err(Error::recovery(&self.key, "duplicate pane in fold checkpoint"));
+            }
+            let base = pane.nonspeculative_base.or_else(|| {
+                if self.trigger.early_count().is_none()
+                    && self.trigger.early_processing_time().is_none()
+                {
+                    Some(0)
+                } else {
+                    None
+                }
+            });
+            if let Some(base) = base {
+                if base < 0 || base > pane.next_index {
+                    return Err(Error::recovery(&self.key, "invalid non-speculative pane base"));
+                }
+                restored.nonspeculative_base.insert((K::decode(&pane.key)?, pane.interval), base);
+            }
+            match (self.trigger.is_accumulating(), pane.fired_value_count) {
+                (true, Some(fired_value_count)) if fired_value_count > 0 => {
+                    restored.fired_value_counts.insert(
+                        (K::decode(&pane.key)?, pane.interval),
+                        fired_value_count,
+                    );
+                }
+                (true, _) => {
+                    return Err(Error::recovery(
+                        &self.key,
+                        "accumulating pane lacks a positive fired value count",
+                    ));
+                }
+                (false, Some(_)) => {
+                    return Err(Error::recovery(
+                        &self.key,
+                        "accumulating pane in discarding fold checkpoint",
+                    ));
+                }
+                (false, None) => {}
+            }
+        }
+        for row in checkpoint.groups {
+            let key = K::decode(&row.key)?;
+            let values = Vec::<V>::decode(&row.values)?;
+            if values.is_empty()
+                && (self.on_time_behavior != WindowOnTimeBehavior::FireAlways
+                    && self.closing_behavior != WindowClosingBehavior::EmitAlways
+                    && self.trigger.late_count().is_none()
+                    || !restored.fired_panes.contains_key(&(key.clone(), row.assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE))))
+            {
+                return Err(Error::recovery(&self.key, "empty group in fold checkpoint"));
+            }
+            if let Some(deadline) = row.processing_deadline_ns {
+                if deadline < 0 || self.trigger.early_processing_time().is_none() {
+                    return Err(Error::recovery(&self.key, "invalid processing deadline in fold checkpoint"));
+                }
+                let scope = (key.clone(), row.assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+                if restored.processing_deadlines.insert(scope, deadline).is_some() {
+                    return Err(Error::recovery(&self.key, "duplicate processing deadline in fold checkpoint"));
+                }
+            }
+            if row.processing_ready {
+                if !self.trigger.is_count_and_processing_time()
+                    || row.processing_deadline_ns.is_some()
+                {
+                    return Err(Error::recovery(&self.key, "invalid reached processing timer in fold checkpoint"));
+                }
+                let scope = (key.clone(), row.assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+                if !restored.processing_ready.insert(scope) {
+                    return Err(Error::recovery(&self.key, "duplicate reached processing timer in fold checkpoint"));
+                }
+            }
+            if self.output_time == WindowOutputTime::LatestInPane {
+                if row.assigned_window.is_none() && row.window != Window::Global {
+                    return Err(Error::recovery(&self.key, "latest-in-pane group lacks a window"));
+                }
+                let interval = row.assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
+                let Some(latest) = row.latest_timestamp_ns else {
+                    return Err(Error::recovery(&self.key, "latest-in-pane group lacks its latest timestamp"));
+                };
+                if latest < row.timestamp_ns {
+                    return Err(Error::recovery(&self.key, "latest-in-pane timestamp precedes earliest input"));
+                }
+                restored.latest_timestamps.insert((key.clone(), interval), latest);
+            } else if row.latest_timestamp_ns.is_some() {
+                return Err(Error::recovery(&self.key, "unexpected latest timestamp in group checkpoint"));
+            }
+            let position = restored.groups.len();
+            if let Some(interval) = row.assigned_window {
+                if restored
+                    .window_indices
+                    .insert((key.clone(), interval), position)
+                    .is_some()
+                {
+                    return Err(Error::recovery(
+                        &self.key,
+                        "duplicate group in fold checkpoint",
+                    ));
+                }
+                if matches!(row.window, Window::Session { .. }) {
+                    restored
+                        .session_indices
+                        .entry(key.clone())
+                        .or_default()
+                        .push(position);
+                }
+            } else if restored
+                .global_indices
+                .insert(key.clone(), position)
+                .is_some()
+            {
+                return Err(Error::recovery(
+                    &self.key,
+                    "duplicate group in fold checkpoint",
+                ));
+            }
+            restored.groups.push((
+                key,
+                values,
+                row.timestamp_ns,
+                row.window,
+                row.assigned_window,
+            ));
+        }
+        for (scope, &count) in &restored.fired_value_counts {
+            let position = if scope.1 == GLOBAL_TRIGGER_SCOPE {
+                restored.global_indices.get(&scope.0)
+            } else {
+                restored.window_indices.get(scope)
+            };
+            let Some(&position) = position else {
+                return Err(Error::recovery(&self.key, "accumulating pane has no group"));
+            };
+            if count > restored.groups[position].1.len() {
+                return Err(Error::recovery(&self.key, "accumulating pane exceeds group length"));
+            }
+        }
+        *self = restored;
+        Ok(())
+    }
+
+    fn add_vec_batch(&mut self, values: Payload) -> Result<(), Error> {
+        let values = values.downcast::<Vec<(K, V)>>().map_err(|_| {
+            Error::execution(&self.key, "direct", "group vector batch type mismatch")
+        })?;
+        for (key, value) in *values {
+            self.record_early_element(&key, None)?;
+            self.add_row(key, value, 0, Window::Global, None);
+        }
+        Ok(())
+    }
+
+    fn finish(mut self: Box<Self>) -> Result<Vec<Envelope>, Error> {
+        let mut early = if let Some(count) = self.trigger.early_count() {
+            self.drain_ready_count(count)?.0
+        } else {
+            Vec::new()
+        };
+        if self.closing_behavior == WindowClosingBehavior::EmitAlways {
+            early.extend(self.drain_closed(i64::MAX)?.0);
+            return Ok(early);
+        }
+        let fired_panes = self.fired_panes;
+        let output_time = self.output_time;
+        let on_time_behavior = self.on_time_behavior;
+        let accumulating = self.trigger.is_accumulating();
+        let fired_value_counts = self.fired_value_counts;
+        let latest_timestamps = self.latest_timestamps;
+        early.extend(self
+            .groups
+            .into_iter()
+            .filter_map(
+                |(key, values, timestamp_ns, window, assigned_window)| {
+                    let scope = (key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+                    let index = fired_panes
+                        .get(&scope)
+                        .copied()
+                        .unwrap_or(0);
+                    let empty_firing = index > 0
+                        && (values.is_empty()
+                            || (accumulating
+                                && fired_value_counts.get(&scope).copied() == Some(values.len())));
+                    if empty_firing && on_time_behavior == WindowOnTimeBehavior::FireIfNonempty {
+                        return None;
+                    }
+                    let latest_ns = latest_timestamps
+                        .get(&scope)
+                        .copied();
+                    let output_timestamp_ns = if empty_firing {
+                        empty_pane_output_timestamp(assigned_window)
+                    } else {
+                        grouped_output_timestamp(output_time, timestamp_ns, latest_ns, assigned_window)
+                    };
+                    Some(Envelope {
+                    pane: PaneInfo {
+                        is_first: index == 0,
+                        is_last: true,
+                        timing: PaneTiming::OnTime,
+                        index,
+                        nonspeculative_index: 0,
+                        contains_element_metadata: false,
+                    },
+                    value: Box::new((key, values)),
+                    timestamp_ns: output_timestamp_ns,
+                    window,
+                    assigned_window,
+                })
+                },
+            )
+            .collect::<Vec<_>>());
+        Ok(early)
+    }
+
+    fn finish_into(
+        self: Box<Self>,
+        emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if self.trigger != WindowTrigger::Default
+            || self.closing_behavior == WindowClosingBehavior::EmitAlways
+        {
+            for pane in self.finish()? {
+                emit(pane)?;
+            }
+            return Ok(());
+        }
+        let fired_panes = self.fired_panes;
+        let output_time = self.output_time;
+        let latest_timestamps = self.latest_timestamps;
+        for (key, values, timestamp_ns, window, assigned_window) in self.groups {
+            let index = fired_panes
+                .get(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE)))
+                .copied()
+                .unwrap_or(0);
+            let latest_ns = latest_timestamps
+                .get(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE)))
+                .copied();
+            let output_timestamp_ns = if values.is_empty() {
+                empty_pane_output_timestamp(assigned_window)
+            } else {
+                grouped_output_timestamp(output_time, timestamp_ns, latest_ns, assigned_window)
+            };
+            emit(Envelope {
+                pane: PaneInfo {
+                    is_first: index == 0,
+                    is_last: true,
+                    timing: PaneTiming::OnTime,
+                    index,
+                    nonspeculative_index: 0,
+                    contains_element_metadata: false,
+                },
+                value: Box::new((key, values)),
+                timestamp_ns: output_timestamp_ns,
+                window,
+                assigned_window,
+            })?;
+        }
+        Ok(())
+    }
+}
+
+// This fold is used only by latest_per_key's private GroupByKey node. Beam
+// performs the ordinary shuffle; Direct can discard older values as they
+// arrive instead of retaining every member of each group.
+struct LatestPerKeyFoldState<K, V> {
+    key: String,
+    indices: HashMap<(K, Option<WindowInterval>), usize>,
+    groups: LatestGroupBuffer<K, V>,
+}
+
+const LATEST_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 2, minor: 0 };
+
+impl<K: Element + Eq + Hash + Clone, V: Element> LatestPerKeyFoldState<K, V> {
+    fn add_row(
+        &mut self,
+        group_key: K,
+        candidate: (i64, V),
+        timestamp_ns: i64,
+        window: Window,
+        assigned_window: Option<WindowInterval>,
+    ) {
+        let scope = (group_key.clone(), assigned_window);
+        if let Some(&index) = self.indices.get(&scope) {
+            if candidate.0 > self.groups[index].1.0 {
+                self.groups[index].1 = candidate;
+            }
+        } else {
+            self.indices.insert(scope, self.groups.len());
+            self.groups
+                .push((group_key, candidate, timestamp_ns, window, assigned_window));
+        }
+    }
+}
+
+impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFoldState<K, V> {
+    fn add(&mut self, event: Envelope) -> Result<(), Error> {
+        let Envelope {
+            pane: _,
+            value,
+            timestamp_ns,
+            window,
+            assigned_window,
+        } = event;
+        let (group_key, candidate) = *value.downcast::<(K, (i64, V))>().map_err(|_| {
+            Error::execution(&self.key, "direct", "latest group input type mismatch")
+        })?;
+        self.add_row(group_key, candidate, timestamp_ns, window, assigned_window);
+        Ok(())
+    }
+
+    fn accepts_timed_vec_batch(&self, batch_type: TypeId) -> bool {
+        batch_type == TypeId::of::<Vec<(K, V)>>()
+    }
+
+    fn add_timed_vec_batch(
+        &mut self,
+        values: Payload,
+        timestamp_fn: &(dyn Any + Send + Sync),
+        timestamp_key: &str,
+    ) -> Result<(), Error> {
+        let values = values.downcast::<Vec<(K, V)>>().map_err(|_| {
+            Error::execution(&self.key, "direct", "latest vector batch type mismatch")
+        })?;
+        let timestamp = timestamp_fn
+            .downcast_ref::<TypedTimestamp<(K, V)>>()
+            .ok_or_else(|| Error::execution(timestamp_key, "direct", "timestamp type mismatch"))?;
+        for row in *values {
+            let timestamp_ns =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| timestamp(&row)))
+                    .map_err(|_| {
+                        Error::execution(timestamp_key, "direct", "user transform panicked")
+                    })?;
+            let (key, value) = row;
+            self.add_row(
+                key,
+                (timestamp_ns, value),
+                timestamp_ns,
+                Window::Global,
+                None,
+            );
+        }
+        Ok(())
+    }
+
+    fn checkpoint_state(&self) -> Result<Option<Vec<u8>>, Error> {
+        if !<(K, Vec<(i64, V)>) as Element>::supports_coder() {
+            return Ok(None);
+        }
+        let groups = self
+            .groups
+            .iter()
+            .map(|(key, value, timestamp_ns, window, assigned_window)| {
+                Ok(GroupFoldCheckpointRow {
+                    key: key.encode()?,
+                    values: value.encode()?,
+                    timestamp_ns: *timestamp_ns,
+                    latest_timestamp_ns: None,
+                    window: window.clone(),
+                    assigned_window: *assigned_window,
+                    processing_deadline_ns: None,
+                    processing_ready: false,
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        serde_json::to_vec(&GroupFoldCheckpoint {
+            version: LATEST_GROUP_FOLD_CHECKPOINT_VERSION,
+            key_coder: K::coder_identity(),
+            value_coder: <(i64, V) as Element>::coder_identity(),
+            groups,
+            fired_panes: Vec::new(),
+            early_cursors: Vec::new(),
+            session_lineage: Vec::new(),
+            last_watermark_ns: None,
+        })
+        .map(Some)
+        .map_err(|error| Error::recovery(&self.key, error.to_string()))
+    }
+
+    fn restore_checkpoint_state(&mut self, state: &[u8]) -> Result<(), Error> {
+        if !self.groups.is_empty() {
+            return Err(Error::recovery(&self.key, "fold already contains input"));
+        }
+        let checkpoint: GroupFoldCheckpoint = serde_json::from_slice(state)
+            .map_err(|error| Error::recovery(&self.key, error.to_string()))?;
+        if checkpoint.version != LATEST_GROUP_FOLD_CHECKPOINT_VERSION {
+            return Err(Error::incompatible(
+                "latest group checkpoint version mismatch",
+            ));
+        }
+        if checkpoint.key_coder != K::coder_identity()
+            || checkpoint.value_coder != <(i64, V) as Element>::coder_identity()
+        {
+            return Err(Error::incompatible(
+                "latest group checkpoint coder mismatch",
+            ));
+        }
+        if !checkpoint.fired_panes.is_empty() {
+            return Err(Error::recovery(&self.key, "latest group has unexpected panes"));
+        }
+        for row in checkpoint.groups {
+            let key = K::decode(&row.key)?;
+            let value = <(i64, V)>::decode(&row.values)?;
+            let scope = (key.clone(), row.assigned_window);
+            if self.indices.insert(scope, self.groups.len()).is_some() {
+                return Err(Error::recovery(
+                    &self.key,
+                    "duplicate latest group in checkpoint",
+                ));
+            }
+            self.groups.push((
+                key,
+                value,
+                row.timestamp_ns,
+                row.window,
+                row.assigned_window,
+            ));
+        }
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error> {
+        Ok(self
+            .groups
+            .into_iter()
+            .map(
+                |(key, value, timestamp_ns, window, assigned_window)| Envelope {
+                    pane: PaneInfo::FIRST_LAST_ON_TIME,
+                    value: Box::new((key, vec![value])),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                },
+            )
+            .collect())
+    }
+
+    fn finish_into(
+        self: Box<Self>,
+        emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        for (key, value, timestamp_ns, window, assigned_window) in self.groups {
+            emit(Envelope {
+                pane: PaneInfo::FIRST_LAST_ON_TIME,
+                value: Box::new((key, vec![value])),
+                timestamp_ns,
+                window,
+                assigned_window,
+            })?;
+        }
+        Ok(())
+    }
+}
+/// Keyed pair emitted by an inner join.
+pub type Joined<K, V, W> = (K, (V, W));
+/// Keyed pair emitted by a left join; the right value may be absent.
+pub type LeftJoined<K, V, W> = (K, (V, Option<W>));
+/// Keyed pair emitted by a right join; the left value may be absent.
+pub type RightJoined<K, V, W> = (K, (Option<V>, W));
+/// Keyed pair emitted by a full join; either side may be absent.
+pub type FullJoined<K, V, W> = (K, (Option<V>, Option<W>));
+/// A value paired with its key and assigned window interval.
+pub type KeyedWindowed<K, V> = ((K, WindowInterval), V);
+
+macro_rules! collect_cogroup_input {
+    ($inputs:ident, $rows:ident, $indices:ident, $ty:ident, $position:tt, $empty:expr, $node_key:ident) => {
+        for event in $inputs
+            .next()
+            .ok_or_else(|| Error::execution(&$node_key, "direct", "co-group input missing"))?
+        {
+            let Envelope {
+                pane: _,
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = event;
+            let (row_key, value) = *value.downcast::<(K, $ty)>().map_err(|_| {
+                Error::execution(&$node_key, "direct", "co-group input type mismatch")
+            })?;
+            let scope = (row_key.clone(), assigned_window);
+            let group_index = if let Some(&existing) = $indices.get(&scope) {
+                existing
+            } else {
+                let next = $rows.len();
+                $indices.insert(scope, next);
+                $rows.push((row_key, $empty, timestamp_ns, timestamp_ns, window, assigned_window));
+                next
+            };
+            $rows[group_index].2 = $rows[group_index].2.min(timestamp_ns);
+            $rows[group_index].3 = $rows[group_index].3.max(timestamp_ns);
+            $rows[group_index].1.$position.push(value);
+        }
+    };
+}
+
+macro_rules! define_cogroup {
+    ($name:ident; $first:ident:$first_ty:ident:0, $($other:ident:$other_ty:ident:$position:tt),+) => {
+        /// Group each input by key and window, preserving input position.
+        ///
+        /// A key absent from one input has an empty vector in that position.
+        /// Values within a vector have no portable order. Inputs must share a
+        /// pipeline and compatible time and window policies.
+        #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+        pub fn $name<K, $first_ty, $($other_ty),+>(
+            key: &str,
+            $first: &PCollection<(K, $first_ty)>,
+            $($other: &PCollection<(K, $other_ty)>),+
+        ) -> Result<PCollection<(K, (Vec<$first_ty>, $(Vec<$other_ty>),+))>, Error>
+        where
+            K: Element + Eq + Hash + Clone,
+            $first_ty: Element,
+            $($other_ty: Element),+
+        {
+            let first_node = $first.parent()?;
+            let output_time = first_node.time.output_time;
+            let session_cogroup = matches!(first_node.time.window, Window::Session { .. });
+            let mut unbounded = first_node.boundedness == Boundedness::Unbounded;
+            $(
+                if !Arc::ptr_eq(&$first.pipeline.inner, &$other.pipeline.inner) {
+                    return Err(Error::graph(key, "co-group inputs belong to different pipelines"));
+                }
+                let other_node = $other.parent()?;
+                if other_node.time != first_node.time {
+                    return Err(Error::graph(key, "co-group inputs must have equal time/window declarations"));
+                }
+                unbounded |= other_node.boundedness == Boundedness::Unbounded;
+            )+
+            if unbounded && first_node.time.window == Window::Global {
+                return Err(Error::graph(key, "unbounded global co-group requires a finite window"));
+            }
+            let node_key = key.to_owned();
+            let aggregate: Aggregate = Arc::new(move |mut inputs| {
+                let expected = 1 $(+ { let _ = stringify!($other); 1 })+;
+                if inputs.len() != expected {
+                    return Err(Error::execution(&node_key, "direct", "co-group input count mismatch"));
+                }
+                if session_cogroup {
+                    let extractors: &[SessionKeyExtractor<K>] = &[
+                        |value| value.downcast_ref::<(K, $first_ty)>()
+                            .map(|(key, _)| key.clone())
+                            .ok_or_else(|| Error::incompatible("co-group input type mismatch")),
+                        $(|value| value.downcast_ref::<(K, $other_ty)>()
+                            .map(|(key, _)| key.clone())
+                            .ok_or_else(|| Error::incompatible("co-group input type mismatch"))),+
+                    ];
+                    merge_bounded_cogroup_sessions(&mut inputs, extractors, &node_key)?;
+                }
+                let mut inputs = inputs.into_iter();
+                let mut indices: HashMap<(K, Option<WindowInterval>), usize> = HashMap::new();
+                let mut rows: Vec<(K, (Vec<$first_ty>, $(Vec<$other_ty>),+), i64, i64, Window, Option<WindowInterval>)> = Vec::new();
+                macro_rules! empty_values {
+                    () => { (Vec::<$first_ty>::new(), $(Vec::<$other_ty>::new()),+) };
+                }
+                collect_cogroup_input!(inputs, rows, indices, $first_ty, 0,
+                    empty_values!(), node_key);
+                $(collect_cogroup_input!(inputs, rows, indices, $other_ty, $position,
+                    empty_values!(), node_key);)+
+                Ok(rows.into_iter().map(|(key, values, earliest_ns, latest_ns, window, assigned_window)| Envelope {
+                    pane: PaneInfo::FIRST_LAST_ON_TIME,
+                    value: Box::new((key, values)),
+                    timestamp_ns: grouped_output_timestamp(output_time, earliest_ns, Some(latest_ns), assigned_window),
+                    window, assigned_window
+                }).collect())
+            });
+            let collection = $first.next_aggregate(
+                key,
+                Operation::CoGroupByKey,
+                vec![$(InputEdge {
+                    key: $other.key.clone(),
+                    element: ElementDescriptor {
+                        type_id: <(K, $other_ty)>::type_identity(),
+                        coder_id: <(K, $other_ty)>::coder_identity(),
+                        coder_payload: <(K, $other_ty)>::coder_payload(),
+                        coder_version: <(K, $other_ty)>::CODER_VERSION,
+                    },
+                }),+],
+                if unbounded { Boundedness::Unbounded } else { Boundedness::Bounded },
+                aggregate,
+                None,
+            )?;
+            let split_inputs: Vec<GroupInputSplitter> = vec![
+                |bytes| {
+                    let (row_key, value) = <(K, $first_ty)>::decode(bytes)?;
+                    let mut tagged = vec![0];
+                    tagged.extend(value.encode()?);
+                    Ok((row_key.encode()?, tagged))
+                },
+                $(|bytes| {
+                    let (row_key, value) = <(K, $other_ty)>::decode(bytes)?;
+                    let mut tagged = vec![$position];
+                    tagged.extend(value.encode()?);
+                    Ok((row_key.encode()?, tagged))
+                }),+
+            ];
+            let registration = CoGroupCoderRegistration {
+                split_inputs,
+                assemble_output: |encoded_key, encoded_values| {
+                    let mut grouped = (Vec::<$first_ty>::new(), $(Vec::<$other_ty>::new()),+);
+                    for tagged in encoded_values {
+                        let (&tag, payload) = tagged.split_first().ok_or_else(||
+                            Error::incompatible("co-group tagged value is empty"))?;
+                        match tag {
+                            0 => grouped.0.push(<$first_ty>::decode(payload)?),
+                            $($position => grouped.$position.push(<$other_ty>::decode(payload)?),)+
+                            _ => return Err(Error::incompatible("co-group input tag is out of range")),
+                        }
+                    }
+                    (K::decode(encoded_key)?, grouped).encode()
+                },
+            };
+            {
+                let mut inner = collection.pipeline.inner.lock()
+                    .map_err(|_| Error::graph(key, "builder lock poisoned"))?;
+                inner.registry.cogroup_coders.insert(key.to_owned(), registration);
+            }
+            Ok(collection)
+        }
+    };
+}
+
+define_cogroup!(cogroup_by_key_2_named; c1:V1:0, c2:V2:1);
+define_cogroup!(cogroup_by_key_3_named; c1:V1:0, c2:V2:1, c3:V3:2);
+define_cogroup!(cogroup_by_key_4_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3);
+define_cogroup!(cogroup_by_key_5_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4);
+define_cogroup!(cogroup_by_key_6_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4, c6:V6:5);
+define_cogroup!(cogroup_by_key_7_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4, c6:V6:5, c7:V7:6);
+define_cogroup!(cogroup_by_key_8_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4, c6:V6:5, c7:V7:6, c8:V8:7);
+define_cogroup!(cogroup_by_key_9_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4, c6:V6:5, c7:V7:6, c8:V8:7, c9:V9:8);
+define_cogroup!(cogroup_by_key_10_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4, c6:V6:5, c7:V7:6, c8:V8:7, c9:V9:8, c10:V10:9);
+
+#[macro_export]
+macro_rules! cogroup_by_key_named {
+    ($key:expr, $a:expr, $b:expr) => {
+        $crate::cogroup_by_key_2_named($key, &$a, &$b)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr) => {
+        $crate::cogroup_by_key_3_named($key, &$a, &$b, &$c)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr) => {
+        $crate::cogroup_by_key_4_named($key, &$a, &$b, &$c, &$d)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr) => {
+        $crate::cogroup_by_key_5_named($key, &$a, &$b, &$c, &$d, &$e)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr) => {
+        $crate::cogroup_by_key_6_named($key, &$a, &$b, &$c, &$d, &$e, &$f)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr, $g:expr) => {
+        $crate::cogroup_by_key_7_named($key, &$a, &$b, &$c, &$d, &$e, &$f, &$g)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr, $g:expr, $h:expr) => {
+        $crate::cogroup_by_key_8_named($key, &$a, &$b, &$c, &$d, &$e, &$f, &$g, &$h)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr, $g:expr, $h:expr, $i:expr) => {
+        $crate::cogroup_by_key_9_named($key, &$a, &$b, &$c, &$d, &$e, &$f, &$g, &$h, &$i)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr, $g:expr, $h:expr, $i:expr, $j:expr) => {
+        $crate::cogroup_by_key_10_named($key, &$a, &$b, &$c, &$d, &$e, &$f, &$g, &$h, &$i, &$j)
+    };
+}

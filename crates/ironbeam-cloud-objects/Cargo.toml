@@ -1,0 +1,11 @@
+[package]
+name = "ironbeam-cloud-objects"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Provider-neutral URI object storage contract for Ironbeam"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[dependencies]
+tempfile = "3"

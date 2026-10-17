@@ -1,0 +1,37 @@
+[package]
+name = "ironbeam-harness"
+version = "5.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "In-process Beam Fn API harness embedded in an ironbeam user binary"
+
+[dependencies]
+beam-proto = { workspace = true }
+ironbeam-coder-row = { workspace = true }
+ironbeam-graphx = { workspace = true }
+ironbeam-core = { workspace = true }
+ironbeam-cloud-objects = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+async-stream = { workspace = true }
+async-trait = "0.1"
+futures-util = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+ironbeam-io-csv = { version = "5.0.0", path = "../ironbeam-io-csv", default-features = false }
+ironbeam-io-xml = { version = "5.0.0", path = "../ironbeam-io-xml", default-features = false }
+ironbeam-io-protobuf = { version = "5.0.0", path = "../ironbeam-io-protobuf", default-features = false }
+prost_v5 = { package = "prost", version = "0.14" }

@@ -1,0 +1,21 @@
+[package]
+name = "ironbeam-io-mongodb"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "MongoDB sources and append sinks for Ironbeam 5"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[dependencies]
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.11"
+mongodb = { version = "3", features = ["bson-3"] }
+bson = "3"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }
+testcontainers = { version = "0.27", features = ["blocking"] }
+testcontainers-modules = { version = "0.15", features = ["mongo"] }

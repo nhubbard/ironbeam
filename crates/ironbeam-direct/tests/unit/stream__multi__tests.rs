@@ -1,0 +1,1719 @@
+// Unit tests for src/stream/multi.rs.
+use super::grouped_state::MultiWindowState;
+use super::*;
+use crate::CheckpointConfig;
+use ironbeam_core::{Boundedness, Pipeline, SinkSpec, SourceProgress, TestStreamEvent, TypedSink};
+
+#[test]
+fn multi_source_session_closure_keeps_touching_windows_separate() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let windows_for = |rows: &[(i64, i32)]| {
+        let mut windows = WindowRows::new();
+        for &(time, value) in rows {
+            windows.entry((time, time + 5)).or_default().push(Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
+                value: Box::new((1_i32, value)),
+                timestamp_ns: time,
+                window: ironbeam_core::Window::Session { gap_ns: 5 },
+                assigned_window: Some(ironbeam_core::WindowInterval {
+                    start_ns: time,
+                    end_ns: time + 5,
+                }),
+            });
+        }
+        windows
+    };
+    let mut touching = windows_for(&[(0, 1), (5, 2)]);
+    let first = session::close_ready_group_sessions(&registry, "source", "group", &mut touching, 5)
+        .unwrap();
+    assert_eq!(first.len(), 1);
+    assert!(touching.contains_key(&(5, 10)));
+    let second =
+        session::close_ready_group_sessions(&registry, "source", "group", &mut touching, 10)
+            .unwrap();
+    assert_eq!(second.len(), 1);
+    assert!(touching.is_empty());
+
+    let mut bridged = windows_for(&[(0, 1), (5, 2), (4, 3)]);
+    let merged =
+        session::close_ready_group_sessions(&registry, "source", "group", &mut bridged, 10)
+            .unwrap();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].len(), 3);
+    assert!(bridged.is_empty());
+}
+
+#[test]
+fn joined_session_closure_keeps_touching_inputs_separate() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![(1_i32, 1_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 2_i32)]).unwrap();
+    left.join_full_named("join", &right).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let route = BoundedSideStreamRoute {
+        wait_on_signal: false,
+        window: ironbeam_core::Window::Session { gap_ns: 5 },
+        source_key: "left".into(),
+        main_stages: Vec::new(),
+        main_input_key: "left".into(),
+        side_source_key: "right".into(),
+        side_stages: Vec::new(),
+        side_input_key: "right".into(),
+        aggregate_key: "join".into(),
+        after_aggregate: Vec::new(),
+        other_aggregates: Vec::new(),
+        after_fanout: Vec::new(),
+    };
+    let event = |time, value| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, value)),
+        timestamp_ns: time,
+        window: ironbeam_core::Window::Session { gap_ns: 5 },
+        assigned_window: Some(ironbeam_core::WindowInterval {
+            start_ns: time,
+            end_ns: time + 5,
+        }),
+    };
+    let mut main = WindowRows::from([((0, 5), vec![event(0, 1)])]);
+    let mut side = WindowRows::from([((5, 10), vec![event(5, 2)])]);
+    let first = session::close_ready_sessions(&registry, &route, &mut main, &mut side, 5).unwrap();
+    assert_eq!(first.len(), 1);
+    assert!(main.is_empty());
+    assert!(side.contains_key(&(5, 10)));
+    let second =
+        session::close_ready_sessions(&registry, &route, &mut main, &mut side, 10).unwrap();
+    assert_eq!(second.len(), 1);
+    assert!(main.is_empty() && side.is_empty());
+
+    let mut main = WindowRows::from([((0, 5), vec![event(0, 1)])]);
+    let mut side = WindowRows::from([((4, 9), vec![event(4, 3)]), ((5, 10), vec![event(5, 2)])]);
+    let merged =
+        session::close_ready_sessions(&registry, &route, &mut main, &mut side, 10).unwrap();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].0.len(), 1);
+    assert_eq!(merged[0].1.len(), 2);
+
+    let main = WindowRows::from([((4, 9), vec![event(4, 2)])]);
+    let side = WindowRows::from([((8, 13), vec![event(8, 3)]), ((20, 25), vec![event(20, 4)])]);
+    assert_eq!(
+        session::resolved_dual_session_end(&registry, &route, &main, &side, 0, &event(0, 1),)
+            .unwrap(),
+        13
+    );
+    let mut other_key = event(0, 99);
+    other_key.value = Box::new((2_i32, 99_i32));
+    assert_eq!(
+        session::resolved_dual_session_end(&registry, &route, &main, &side, 0, &other_key).unwrap(),
+        5
+    );
+}
+
+#[test]
+fn grouped_multi_source_accepts_expired_candidate_only_for_a_live_keyed_merge() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .session_windows_named("window", 5)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let route = MultiGroupedStreamRoute {
+        sources: Vec::new(),
+        group_input_key: "window".into(),
+        group_key: "group".into(),
+        window: ironbeam_core::Window::Session { gap_ns: 5 },
+        after_group: Vec::new(),
+    };
+    let event = |key, value, time| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((key, value)),
+        timestamp_ns: time,
+        window: ironbeam_core::Window::Session { gap_ns: 5 },
+        assigned_window: Some(ironbeam_core::WindowInterval {
+            start_ns: time,
+            end_ns: time + 5,
+        }),
+    };
+    let mut state = MultiWindowState::empty(0);
+    state
+        .add(&registry, &route, event(1_i32, 2_i32, 4), None, 10)
+        .unwrap();
+    state
+        .add(&registry, &route, event(1_i32, 3_i32, 8), None, 10)
+        .unwrap();
+    state
+        .add(&registry, &route, event(1_i32, 4_i32, 20), None, 10)
+        .unwrap();
+    let saved = state.encode(&registry, &route, 10_000).unwrap();
+    state = MultiWindowState::restore(&registry, &route, &saved, state.version(), 0, 10).unwrap();
+    state
+        .add(&registry, &route, event(1_i32, 1_i32, 0), Some(10), 10)
+        .unwrap();
+    state
+        .add(&registry, &route, event(2_i32, 99_i32, 0), Some(10), 10)
+        .unwrap();
+    if let MultiWindowState::Rows { windows, buffered } = &state {
+        assert_eq!(*buffered, 4);
+        assert_eq!(windows.get(&(0, 5)).unwrap().len(), 1);
+        assert_eq!(windows.get(&(4, 9)).unwrap().len(), 1);
+        assert_eq!(windows.get(&(8, 13)).unwrap().len(), 1);
+        assert_eq!(windows.get(&(20, 25)).unwrap().len(), 1);
+    } else {
+        panic!("zero-lateness grouping keeps source rows");
+    }
+    let panes = state
+        .drain(
+            &registry,
+            &route,
+            Some(10),
+            &ProgressSignal {
+                source_key: "source".into(),
+                split_id: "split".into(),
+                checkpoint_position: Some(vec![1]),
+                event_time_ns: Some(14),
+                completed: false,
+            },
+        )
+        .unwrap();
+    assert_eq!(panes.len(), 1);
+    assert_eq!(panes[0].assigned_window.unwrap().end_ns, 13);
+    let (key, mut values) = *panes
+        .into_iter()
+        .next()
+        .unwrap()
+        .value
+        .downcast::<(i32, Vec<i32>)>()
+        .unwrap();
+    values.sort_unstable();
+    assert_eq!((key, values), (1, vec![1, 2, 3]));
+    assert!(!state.is_empty(), "the distant same-key session stays open");
+}
+
+struct NullSink;
+impl TypedSink<i32> for NullSink {
+    fn write(&mut self, _: i32) -> Result<(), Error> {
+        Ok(())
+    }
+    fn commit(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+    fn abort(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+fn checkpoint_config(path: &std::path::Path) -> JobConfig {
+    JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: path.into(),
+            interval_batches: 1,
+            max_checkpoints: 1,
+            recover: true,
+            binary_build_id: "multi-recovery-test".into(),
+        }),
+        ..JobConfig::default()
+    }
+}
+
+fn stateless_fixture() -> (Graph, Registry, PhysicalPlan, String) {
+    let pipeline = Pipeline::default();
+    let first = pipeline
+        .test_stream_source("first", vec![TestStreamEvent::Elements(vec![(1_i32, 0)])])
+        .unwrap();
+    let second = pipeline
+        .test_stream_source("second", vec![TestStreamEvent::Elements(vec![(2_i32, 0)])])
+        .unwrap();
+    let merged = first.flatten_named("merge", &[second]).unwrap();
+    let sink = merged
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "sink-v1".into(),
+            || Ok(Box::new(NullSink)),
+        )
+        .unwrap();
+    let (graph, registry) = sink.snapshot().unwrap();
+    let plan = planner::lower(&graph, &registry, sink.key(), 100).unwrap();
+    (graph, registry, plan, sink.key().into())
+}
+
+fn save_stateless_state(
+    registry: &Registry,
+    plan: &PhysicalPlan,
+    sink_key: &str,
+    config: &JobConfig,
+    state: &MultiSourceState,
+    combined: &ProgressSignal,
+) {
+    let mut digest = String::new();
+    for route in &plan.routes {
+        let part = registry.source_config_digest(&route.source_key).unwrap();
+        write!(
+            digest,
+            "{}:{}{}:{}",
+            route.source_key.len(),
+            route.source_key,
+            part.len(),
+            part
+        )
+        .unwrap();
+    }
+    let checkpoint = StreamCheckpoint::new::<i32>(
+        config.checkpoint.as_ref().unwrap(),
+        &plan.summary.graph_fingerprint,
+        &digest,
+        registry.sink_config_digest(sink_key).unwrap(),
+        MULTI_SOURCE_KEY,
+        sink_key,
+    )
+    .unwrap();
+    let bytes = serde_json::to_vec(state).unwrap();
+    checkpoint
+        .save_state(combined, &bytes, config.memory_budget_bytes)
+        .unwrap();
+}
+
+fn dual_fixture() -> (
+    Graph,
+    Registry,
+    PhysicalPlan,
+    BoundedSideStreamRoute,
+    String,
+) {
+    let pipeline = Pipeline::default();
+    let make = |key: &str, value| {
+        pipeline
+            .test_stream_source(key, vec![TestStreamEvent::Elements(vec![(value, 1_i64)])])
+            .unwrap()
+            .fixed_windows(&format!("{key}-window"), 10)
+            .unwrap()
+            .map_named(&format!("{key}-key"), |value| (1_i32, value))
+            .unwrap()
+    };
+    let main = make("main", 1_i32);
+    let side = make("side", 2_i32);
+    let sink = main
+        .join_full_named("join", &side)
+        .unwrap()
+        .map_named("sum", |(_, (main, side))| {
+            main.unwrap_or(0) + side.unwrap_or(0)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "sink-v1".into(),
+            || Ok(Box::new(NullSink)),
+        )
+        .unwrap();
+    let (graph, registry) = sink.snapshot().unwrap();
+    let plan = planner::lower(&graph, &registry, sink.key(), 100).unwrap();
+    let route = side_stream_route(&graph, sink.key(), Boundedness::Unbounded).unwrap();
+    (graph, registry, plan, route, sink.key().into())
+}
+
+fn save_dual_state(
+    registry: &Registry,
+    plan: &PhysicalPlan,
+    route: &BoundedSideStreamRoute,
+    sink_key: &str,
+    config: &JobConfig,
+    state: &DualWindowState,
+    combined: &ProgressSignal,
+) {
+    let mut digest = String::new();
+    for key in [&route.source_key, &route.side_source_key] {
+        let part = registry.source_config_digest(key).unwrap();
+        write!(digest, "{}:{}{}:{}", key.len(), key, part.len(), part).unwrap();
+    }
+    let checkpoint = StreamCheckpoint::new::<i32>(
+        config.checkpoint.as_ref().unwrap(),
+        &plan.summary.graph_fingerprint,
+        &digest,
+        registry.sink_config_digest(sink_key).unwrap(),
+        MULTI_SOURCE_KEY,
+        sink_key,
+    )
+    .unwrap();
+    checkpoint
+        .save_state(
+            combined,
+            &serde_json::to_vec(state).unwrap(),
+            config.memory_budget_bytes,
+        )
+        .unwrap();
+}
+
+#[test]
+fn dual_source_validation_rejects_each_missing_contract() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source("events", vec![TestStreamEvent::Elements(vec![(1_i32, 0)])])
+        .unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    assert!(validate_dual_source(&graph, &registry, "events").is_ok());
+    assert_eq!(
+        validate_dual_source(&graph, &registry, "missing")
+            .unwrap_err()
+            .kind,
+        ErrorKind::Graph
+    );
+    let mut invalid = graph.clone();
+    invalid
+        .nodes
+        .iter_mut()
+        .find(|node| node.key == "events")
+        .unwrap()
+        .operation = Operation::Map;
+    assert_eq!(
+        validate_dual_source(&invalid, &registry, "events")
+            .unwrap_err()
+            .kind,
+        ErrorKind::Graph
+    );
+    let mut invalid = graph.clone();
+    invalid
+        .nodes
+        .iter_mut()
+        .find(|node| node.key == "events")
+        .unwrap()
+        .boundedness = Boundedness::Bounded;
+    assert!(validate_dual_source(&invalid, &registry, "events").is_err());
+    for progress in [
+        SourceProgress {
+            stable_split_id: false,
+            replay: Replay::Idempotent,
+            reports_event_time: true,
+        },
+        SourceProgress {
+            stable_split_id: true,
+            replay: Replay::Idempotent,
+            reports_event_time: false,
+        },
+        SourceProgress {
+            stable_split_id: true,
+            replay: Replay::None,
+            reports_event_time: true,
+        },
+    ] {
+        let mut invalid = graph.clone();
+        invalid
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "events")
+            .unwrap()
+            .operation = Operation::Source { progress };
+        assert!(validate_dual_source(&invalid, &registry, "events").is_err());
+    }
+    assert!(validate_dual_source(&graph, &Registry::default(), "events").is_err());
+}
+
+#[test]
+fn combined_progress_waits_for_every_active_source_watermark() {
+    let ready = |key: &str, watermark, completed| ProgressSignal {
+        source_key: key.into(),
+        split_id: "split-0".into(),
+        checkpoint_position: Some(vec![1]),
+        event_time_ns: watermark,
+        completed,
+    };
+    let mut sources = [None, None];
+    assert_eq!(multi_progress(0, &sources).event_time_ns, None);
+    assert_eq!(dual_watermark(&sources), None);
+    sources[0] = Some(ready("main", Some(20), false));
+    assert_eq!(dual_watermark(&sources), None);
+    sources[1] = Some(ready("side", Some(10), false));
+    assert_eq!(dual_watermark(&sources), Some(10));
+    assert_eq!(multi_progress(3, &sources).event_time_ns, Some(10));
+    sources[1] = Some(ready("side", None, false));
+    assert_eq!(dual_watermark(&sources), None);
+    sources[1] = Some(ready("side", None, true));
+    assert_eq!(dual_watermark(&sources), Some(20));
+    assert_eq!(multi_progress(4, &sources).event_time_ns, Some(20));
+    sources[0] = Some(ready("main", None, true));
+    assert_eq!(dual_watermark(&sources), Some(i64::MAX));
+    assert!(multi_progress(5, &sources).completed);
+}
+
+#[test]
+fn stateless_checkpoint_rejects_mismatched_route_state() {
+    for fault in [
+        "version", "length", "identity", "split", "progress", "sequence",
+    ] {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = checkpoint_config(temporary.path());
+        let (graph, registry, plan, sink_key) = stateless_fixture();
+        let source = |key: &str| ProgressSignal {
+            source_key: key.into(),
+            split_id: "split-0".into(),
+            checkpoint_position: Some(vec![1]),
+            event_time_ns: None,
+            completed: false,
+        };
+        let mut state = MultiSourceState {
+            version: 1,
+            sources: plan
+                .routes
+                .iter()
+                .map(|route| Some(source(&route.source_key)))
+                .collect(),
+        };
+        let mut combined = multi_progress(2, &state.sources);
+        match fault {
+            "version" => state.version = 2,
+            "length" => {
+                state.sources.pop();
+            }
+            "identity" => state.sources[0].as_mut().unwrap().source_key = "other".into(),
+            "split" => state.sources[0].as_mut().unwrap().split_id.clear(),
+            "progress" => combined.event_time_ns = Some(99),
+            "sequence" => combined.checkpoint_position = Some(vec![1]),
+            _ => unreachable!(),
+        }
+        save_stateless_state(&registry, &plan, &sink_key, &config, &state, &combined);
+        let error = start_multi_stream_sink::<i32>(&graph, registry, plan, sink_key, &config)
+            .err()
+            .unwrap();
+        assert!(
+            matches!(error.kind, ErrorKind::Recovery | ErrorKind::Incompatible),
+            "{fault}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn dual_checkpoint_rejects_mismatched_cursors_and_open_windows() {
+    for fault in [
+        "version",
+        "main-key",
+        "side-key",
+        "split",
+        "progress",
+        "sequence",
+        "budget",
+        "completed-open",
+    ] {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut config = checkpoint_config(temporary.path());
+        let (graph, registry, plan, route, sink_key) = dual_fixture();
+        let source = |key: &str| ProgressSignal {
+            source_key: key.into(),
+            split_id: "split-0".into(),
+            checkpoint_position: Some(vec![1]),
+            event_time_ns: Some(0),
+            completed: false,
+        };
+        let mut state = DualWindowState {
+            version: 1,
+            sources: [
+                Some(source(&route.source_key)),
+                Some(source(&route.side_source_key)),
+            ],
+            main: encode_window_rows(
+                &registry,
+                &route.main_input_key,
+                &BTreeMap::new(),
+                config.memory_budget_bytes,
+            )
+            .unwrap(),
+            side: encode_window_rows(
+                &registry,
+                &route.side_input_key,
+                &BTreeMap::new(),
+                config.memory_budget_bytes,
+            )
+            .unwrap(),
+            closed: Vec::new(),
+        };
+        let mut combined = multi_progress(2, &state.sources);
+        if fault == "budget" || fault == "completed-open" {
+            let event = Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
+                value: Box::new((1_i32, 1_i32)),
+                timestamp_ns: 1,
+                window: Window::Fixed { size_ns: 10 },
+                assigned_window: Some(WindowInterval {
+                    start_ns: 0,
+                    end_ns: 10,
+                }),
+            };
+            let rows = BTreeMap::from([((0, 10), vec![event])]);
+            state.main = encode_window_rows(
+                &registry,
+                &route.main_input_key,
+                &rows,
+                config.memory_budget_bytes,
+            )
+            .unwrap();
+            if fault == "budget" {
+                state.side = encode_window_rows(
+                    &registry,
+                    &route.side_input_key,
+                    &rows,
+                    config.memory_budget_bytes,
+                )
+                .unwrap();
+                config.buffer_budget_elements = 1;
+            } else {
+                state.sources[0].as_mut().unwrap().completed = true;
+                state.sources[1].as_mut().unwrap().completed = true;
+                combined = multi_progress(2, &state.sources);
+            }
+        }
+        match fault {
+            "version" => state.version = 2,
+            "main-key" => state.sources[0].as_mut().unwrap().source_key = "other".into(),
+            "side-key" => state.sources[1].as_mut().unwrap().source_key = "other".into(),
+            "split" => state.sources[1].as_mut().unwrap().split_id.clear(),
+            "progress" => combined.event_time_ns = Some(99),
+            "sequence" => combined.checkpoint_position = Some(vec![1]),
+            _ => {}
+        }
+        save_dual_state(
+            &registry, &plan, &route, &sink_key, &config, &state, &combined,
+        );
+        let error = start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route)
+            .err()
+            .unwrap();
+        assert!(
+            matches!(
+                error.kind,
+                ErrorKind::Recovery | ErrorKind::Incompatible | ErrorKind::Resource
+            ),
+            "{fault}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn dual_stream_completes_without_checkpoint() {
+    let (graph, registry, plan, route, sink_key) = dual_fixture();
+    let job = start_dual_side_stream::<i32>(
+        &graph,
+        registry,
+        plan,
+        sink_key,
+        &JobConfig::default(),
+        route,
+    )
+    .unwrap();
+    assert_eq!(job.wait().unwrap().status(), JobStatus::Succeeded);
+}
+
+#[test]
+fn stateless_start_validates_each_route_before_opening_sources() {
+    for fault in ["operation", "bounded", "split", "replay", "factory"] {
+        let (mut graph, mut registry, plan, sink_key) = stateless_fixture();
+        let node = graph
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "first")
+            .unwrap();
+        match fault {
+            "operation" => node.operation = Operation::Map,
+            "bounded" => node.boundedness = Boundedness::Bounded,
+            "split" => {
+                if let Operation::Source { progress } = &mut node.operation {
+                    progress.stable_split_id = false;
+                }
+            }
+            "replay" => {
+                if let Operation::Source { progress } = &mut node.operation {
+                    progress.replay = Replay::None;
+                }
+            }
+            "factory" => registry = Registry::default(),
+            _ => unreachable!(),
+        }
+        let error =
+            start_multi_stream_sink::<i32>(&graph, registry, plan, sink_key, &JobConfig::default())
+                .err()
+                .unwrap_or_else(|| panic!("{fault}: invalid route was accepted"));
+        assert!(
+            matches!(
+                error.kind,
+                ErrorKind::Graph | ErrorKind::UnsupportedCapability { .. }
+            ),
+            "{fault}: {error:?}"
+        );
+    }
+    let (graph, registry, plan, sink_key) = stateless_fixture();
+    let config = JobConfig::default();
+    config.cancellation.store(true, Ordering::SeqCst);
+    assert_eq!(
+        start_multi_stream_sink::<i32>(&graph, registry, plan, sink_key, &config)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Cancelled
+    );
+}
+
+#[test]
+fn bounded_stream_resume_rejects_a_shortened_source_and_invalid_position() {
+    let pipeline = Pipeline::default();
+    pipeline.from_vec("bounded", vec![1_i32]).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut progress = ProgressSignal {
+        source_key: "bounded".into(),
+        split_id: "bounded".into(),
+        checkpoint_position: Some(2_u64.to_le_bytes().to_vec()),
+        event_time_ns: None,
+        completed: false,
+    };
+    assert_eq!(
+        BoundedStreamReader::open(&registry, "bounded", Some(&progress), 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Incompatible
+    );
+    progress.checkpoint_position = Some(vec![1]);
+    assert_eq!(
+        BoundedStreamReader::open(&registry, "bounded", Some(&progress), 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+    progress.checkpoint_position = None;
+    assert_eq!(
+        BoundedStreamReader::open(&registry, "bounded", Some(&progress), 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+    progress.source_key = "other".into();
+    assert_eq!(
+        BoundedStreamReader::open(&registry, "bounded", Some(&progress), 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Incompatible
+    );
+}
+
+#[test]
+fn completed_multi_source_checkpoints_open_no_readers() {
+    let temporary = tempfile::tempdir().unwrap();
+    let config = checkpoint_config(temporary.path());
+    let (graph, registry, plan, sink_key) = stateless_fixture();
+    let state = MultiSourceState {
+        version: 1,
+        sources: plan
+            .routes
+            .iter()
+            .map(|route| {
+                Some(ProgressSignal {
+                    source_key: route.source_key.clone(),
+                    split_id: "split-0".into(),
+                    checkpoint_position: Some(vec![1]),
+                    event_time_ns: None,
+                    completed: true,
+                })
+            })
+            .collect(),
+    };
+    let combined = multi_progress(2, &state.sources);
+    save_stateless_state(&registry, &plan, &sink_key, &config, &state, &combined);
+    let job = start_multi_stream_sink::<i32>(&graph, registry, plan, sink_key, &config).unwrap();
+    assert!(job.progress().unwrap().completed);
+    assert_eq!(job.wait().unwrap().status(), JobStatus::Succeeded);
+}
+
+#[test]
+fn dual_start_rejects_missing_coder_and_cancellation() {
+    let temporary = tempfile::tempdir().unwrap();
+    let config = checkpoint_config(temporary.path());
+    let (graph, registry, plan, mut route, sink_key) = dual_fixture();
+    route.side_source_key.clone_from(&route.source_key);
+    route.main_stages.insert(0, "uncoded-common-stage".into());
+    route.side_stages.insert(0, "uncoded-common-stage".into());
+    assert!(matches!(
+        start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    let (graph, registry, plan, mut route, sink_key) = dual_fixture();
+    route.side_input_key = "missing-coder".into();
+    assert!(matches!(
+        start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    let (graph, registry, plan, mut route, sink_key) = dual_fixture();
+    route.window = Window::Session { gap_ns: 10 };
+    route.aggregate_key = "missing-session-coder".into();
+    assert!(matches!(
+        start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    let (graph, registry, plan, route, sink_key) = dual_fixture();
+    let config = JobConfig::default();
+    config.cancellation.store(true, Ordering::SeqCst);
+    assert_eq!(
+        start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Cancelled
+    );
+}
+
+#[test]
+fn retained_dual_pane_checkpoint_rejects_invalid_keys_indices_and_expiry() {
+    let valid = CodedClosedPane {
+        start_ns: 0,
+        end_ns: 10,
+        key: vec![1, 2],
+        next_index: 2,
+        fired_value_count: 0,
+    };
+    let restored = dual_late::restore_closed(
+        vec![CodedClosedPane {
+            start_ns: valid.start_ns,
+            end_ns: valid.end_ns,
+            key: valid.key.clone(),
+            next_index: valid.next_index,
+            fired_value_count: valid.fired_value_count,
+        }],
+        Some(10),
+        5,
+        1,
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        restored
+            .get(&(0, 10, vec![1, 2]))
+            .map(|state| state.next_index),
+        Some(2)
+    );
+    assert_eq!(dual_late::encode_closed(&restored).len(), 1);
+    assert!(matches!(
+        dual_late::restore_closed(
+            vec![CodedClosedPane {
+                start_ns: 0,
+                end_ns: 10,
+                key: vec![1],
+                next_index: 1,
+                fired_value_count: 0,
+            }],
+            Some(10),
+            5,
+            0,
+            false,
+        ),
+        Err(Error {
+            kind: ErrorKind::Resource,
+            ..
+        })
+    ));
+    for rows in [
+        vec![
+            valid,
+            CodedClosedPane {
+                start_ns: 0,
+                end_ns: 10,
+                key: vec![1, 2],
+                next_index: 1,
+                fired_value_count: 0,
+            },
+        ],
+        vec![CodedClosedPane {
+            start_ns: 10,
+            end_ns: 10,
+            key: vec![1],
+            next_index: 1,
+            fired_value_count: 0,
+        }],
+        vec![CodedClosedPane {
+            start_ns: 0,
+            end_ns: 10,
+            key: vec![1],
+            next_index: 0,
+            fired_value_count: 0,
+        }],
+    ] {
+        assert!(matches!(
+            dual_late::restore_closed(rows, Some(10), 5, 2, false),
+            Err(Error {
+                kind: ErrorKind::Recovery,
+                ..
+            })
+        ));
+    }
+    assert!(
+        dual_late::restore_closed(
+            vec![CodedClosedPane {
+                start_ns: 0,
+                end_ns: 10,
+                key: vec![1],
+                next_index: 1,
+                fired_value_count: 0,
+            }],
+            Some(15),
+            5,
+            1,
+            false,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn accumulating_dual_pane_checkpoint_requires_a_retained_row_count() {
+    let row = |fired_value_count| CodedClosedPane {
+        start_ns: 0,
+        end_ns: 10,
+        key: vec![1, 2],
+        next_index: 2,
+        fired_value_count,
+    };
+    assert!(dual_late::restore_closed(vec![row(2)], Some(10), 5, 1, true).is_ok());
+    assert!(dual_late::restore_closed(vec![row(2)], Some(10), 5, 1, false).is_err());
+    assert!(dual_late::restore_closed(vec![row(0)], Some(10), 5, 1, true).is_err());
+}
+
+#[test]
+fn accumulating_dual_pane_checkpoint_checks_retained_rows_against_coded_key() {
+    let (_, registry, _, route, _) = dual_fixture();
+    let event = Envelope {
+        value: Box::new((1_i32, 1_i32)),
+        timestamp_ns: 1,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: Some(ironbeam_core::WindowInterval {
+            start_ns: 0,
+            end_ns: 10,
+        }),
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+    };
+    let encoded = registry
+        .encode_element(&route.main_input_key, event.value.as_ref())
+        .unwrap();
+    let (key, _) = registry
+        .split_join_input(&route.aggregate_key, 0, &encoded, event.timestamp_ns)
+        .unwrap();
+    let main = BTreeMap::from([((0, 10), vec![event])]);
+    let side = BTreeMap::new();
+    let closed = |count| {
+        dual_late::restore_closed(
+            vec![CodedClosedPane {
+                start_ns: 0,
+                end_ns: 10,
+                key: key.clone(),
+                next_index: 1,
+                fired_value_count: count,
+            }],
+            Some(10),
+            5,
+            1,
+            true,
+        )
+        .unwrap()
+    };
+    assert!(
+        dual_late::validate_retained_counts(&registry, &route, &main, &side, &closed(1)).is_ok()
+    );
+    assert!(
+        dual_late::validate_retained_counts(&registry, &route, &main, &side, &closed(2)).is_err()
+    );
+}
+
+#[test]
+fn completed_dual_checkpoint_returns_without_reopening() {
+    let temporary = tempfile::tempdir().unwrap();
+    let config = checkpoint_config(temporary.path());
+    let (graph, registry, plan, route, sink_key) = dual_fixture();
+    let sources = [&route.source_key, &route.side_source_key].map(|key| {
+        Some(ProgressSignal {
+            source_key: key.clone(),
+            split_id: "split-0".into(),
+            checkpoint_position: Some(vec![1]),
+            event_time_ns: Some(10),
+            completed: true,
+        })
+    });
+    let empty = BTreeMap::new();
+    let state = DualWindowState {
+        version: 1,
+        sources,
+        main: encode_window_rows(
+            &registry,
+            &route.main_input_key,
+            &empty,
+            config.memory_budget_bytes,
+        )
+        .unwrap(),
+        side: encode_window_rows(
+            &registry,
+            &route.side_input_key,
+            &empty,
+            config.memory_budget_bytes,
+        )
+        .unwrap(),
+        closed: Vec::new(),
+    };
+    let combined = multi_progress(2, &state.sources);
+    save_dual_state(
+        &registry, &plan, &route, &sink_key, &config, &state, &combined,
+    );
+    let job =
+        start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route).unwrap();
+    assert!(job.progress().unwrap().completed);
+    assert_eq!(job.wait().unwrap().status(), JobStatus::Succeeded);
+}
+
+#[test]
+fn stateless_stream_commits_data_and_empty_progress_from_both_sources() {
+    let (graph, registry, plan, sink_key) = stateless_fixture();
+    let job =
+        start_multi_stream_sink::<i32>(&graph, registry, plan, sink_key, &JobConfig::default())
+            .unwrap();
+    assert_eq!(job.wait().unwrap().status(), JobStatus::Succeeded);
+}
+
+#[test]
+fn dual_stream_enforces_one_budget_across_both_open_sides() {
+    let (graph, registry, plan, route, sink_key) = dual_fixture();
+    let config = JobConfig {
+        buffer_budget_elements: 1,
+        ..JobConfig::default()
+    };
+    let error = start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route)
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Resource);
+}
+
+#[derive(Clone, Copy)]
+enum FoldFault {
+    AddPanic,
+    CountPanic,
+    CountOverrelease,
+    CountReleaseOne,
+    ClosedPanic,
+    ClosedOverrelease,
+    ClosedReleaseOne,
+    LatePanic,
+    LateOverrelease,
+    LateReleaseOne,
+    FinalPanic,
+    FinalOverrelease,
+    FinalReleaseOne,
+    TimerPanic,
+    TimerOverrelease,
+    TimerReleaseOne,
+    TimerEmpty,
+}
+
+struct FaultFold(FoldFault);
+
+impl FoldSession for FaultFold {
+    fn add(&mut self, _: Envelope) -> Result<(), Error> {
+        assert!(!matches!(self.0, FoldFault::AddPanic), "fold add failed");
+        Ok(())
+    }
+
+    fn drain_closed(&mut self, _: i64) -> Result<(Vec<Envelope>, usize), Error> {
+        match self.0 {
+            FoldFault::ClosedPanic => panic!("closed fold failed"),
+            FoldFault::ClosedOverrelease => Ok((Vec::new(), 2)),
+            FoldFault::ClosedReleaseOne => Ok((Vec::new(), 1)),
+            _ => Ok((Vec::new(), 0)),
+        }
+    }
+
+    fn drain_ready_count(&mut self, _: u64) -> Result<(Vec<Envelope>, usize), Error> {
+        match self.0 {
+            FoldFault::CountPanic => panic!("count fold failed"),
+            FoldFault::CountOverrelease => Ok((Vec::new(), 2)),
+            FoldFault::CountReleaseOne => Ok((Vec::new(), 1)),
+            _ => Ok((Vec::new(), 0)),
+        }
+    }
+
+    fn arm_processing_time(&mut self, _: i64, _: i64) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn next_processing_time_deadline(&self) -> Option<i64> {
+        if matches!(
+            self.0,
+            FoldFault::TimerPanic
+                | FoldFault::TimerOverrelease
+                | FoldFault::TimerReleaseOne
+                | FoldFault::TimerEmpty
+        ) {
+            Some(5)
+        } else {
+            None
+        }
+    }
+
+    fn drain_ready_processing_time(&mut self, _: i64) -> Result<(Vec<Envelope>, usize), Error> {
+        match self.0 {
+            FoldFault::TimerPanic => panic!("timer fold failed"),
+            FoldFault::TimerOverrelease => Ok((Vec::new(), 2)),
+            FoldFault::TimerReleaseOne => Ok((Vec::new(), 1)),
+            _ => Ok((Vec::new(), 0)),
+        }
+    }
+
+    fn drain_late(&mut self, final_firing: bool) -> Result<(Vec<Envelope>, usize), Error> {
+        match (self.0, final_firing) {
+            (FoldFault::LatePanic, false) => panic!("late fold failed"),
+            (FoldFault::LateOverrelease, false) | (FoldFault::FinalOverrelease, true) => {
+                Ok((Vec::new(), 2))
+            }
+            (FoldFault::LateReleaseOne, false) | (FoldFault::FinalReleaseOne, true) => {
+                Ok((Vec::new(), 1))
+            }
+            (FoldFault::FinalPanic, true) => panic!("final fold failed"),
+            _ => Ok((Vec::new(), 0)),
+        }
+    }
+
+    fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error> {
+        Ok(Vec::new())
+    }
+}
+
+fn fault_group_route() -> MultiGroupedStreamRoute {
+    MultiGroupedStreamRoute {
+        sources: Vec::new(),
+        group_input_key: "input".into(),
+        group_key: "group".into(),
+        window: Window::Fixed { size_ns: 10 },
+        after_group: Vec::new(),
+    }
+}
+
+fn fault_progress(watermark: i64) -> ProgressSignal {
+    ProgressSignal {
+        source_key: "source".into(),
+        split_id: "split-0".into(),
+        checkpoint_position: Some(vec![1]),
+        event_time_ns: Some(watermark),
+        completed: false,
+    }
+}
+
+#[test]
+fn multi_grouped_fold_panics_and_invalid_release_counts_are_typed_errors() {
+    use grouped_state::MultiWindowState;
+
+    let route = fault_group_route();
+    let registry = Registry::default();
+    let window = (0, 10);
+    for (fault, watermark, prior, late_window, expected) in [
+        (
+            FoldFault::ClosedPanic,
+            10,
+            None,
+            false,
+            ErrorKind::Execution,
+        ),
+        (
+            FoldFault::ClosedOverrelease,
+            10,
+            None,
+            false,
+            ErrorKind::Recovery,
+        ),
+        (
+            FoldFault::LatePanic,
+            11,
+            Some(10),
+            true,
+            ErrorKind::Execution,
+        ),
+        (
+            FoldFault::LateOverrelease,
+            11,
+            Some(10),
+            true,
+            ErrorKind::Recovery,
+        ),
+        (
+            FoldFault::FinalPanic,
+            15,
+            Some(10),
+            false,
+            ErrorKind::Execution,
+        ),
+        (
+            FoldFault::FinalOverrelease,
+            15,
+            Some(10),
+            false,
+            ErrorKind::Recovery,
+        ),
+    ] {
+        let mut state = MultiWindowState::Late {
+            folds: BTreeMap::from([(
+                window,
+                (Box::new(FaultFold(fault)) as Box<dyn FoldSession>, 1),
+            )]),
+            buffered: 1,
+            late_windows: if late_window {
+                BTreeSet::from([window])
+            } else {
+                BTreeSet::new()
+            },
+            allowed_lateness_ns: 5,
+        };
+        let error = state
+            .drain(&registry, &route, prior, &fault_progress(watermark))
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, expected);
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // One fixture checks every empty-state checkpoint version.
+fn multi_grouped_state_versions_and_empty_snapshots_are_distinct() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    for lateness in [0, 5] {
+        let mut state = MultiWindowState::empty(lateness);
+        assert!(state.is_empty());
+        assert!(!state.is_processing_time());
+        state.arm_processing_time(0).unwrap();
+        assert_eq!(state.next_processing_time_deadline(), None);
+        assert!(
+            state
+                .drain_ready_processing_time(&route, 0)
+                .unwrap()
+                .is_empty()
+        );
+        let version = state.version();
+        assert_eq!(version, if lateness == 0 { 1 } else { 2 });
+        let bytes = state.encode(&registry, &route, 1024).unwrap();
+        let restored =
+            MultiWindowState::restore(&registry, &route, &bytes, version, lateness, 10).unwrap();
+        assert!(restored.is_empty());
+        assert_eq!(restored.version(), version);
+        assert_eq!(
+            MultiWindowState::restore(&registry, &route, &bytes, 3 - version, lateness, 10)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Incompatible
+        );
+        if lateness > 0 {
+            assert!(
+                MultiWindowState::restore(
+                    &registry,
+                    &route,
+                    b"bad-fold-state",
+                    version,
+                    lateness,
+                    10
+                )
+                .is_err()
+            );
+        }
+    }
+    let early = MultiWindowState::early(grouped_state::EarlyPolicy::Count(2));
+    assert!(early.is_empty());
+    assert_eq!(early.version(), 3);
+    let bytes = early.encode(&registry, &route, 1024).unwrap();
+    let restored = MultiWindowState::restore_early(
+        &registry,
+        &route,
+        &bytes,
+        3,
+        grouped_state::EarlyPolicy::Count(2),
+        10,
+    )
+    .unwrap();
+    assert!(restored.is_empty());
+    assert_eq!(restored.version(), 3);
+    assert_eq!(
+        MultiWindowState::restore_early(
+            &registry,
+            &route,
+            &bytes,
+            2,
+            grouped_state::EarlyPolicy::Count(2),
+            10,
+        )
+        .err()
+        .unwrap()
+        .kind,
+        ErrorKind::Incompatible
+    );
+    assert!(
+        MultiWindowState::restore_early(
+            &registry,
+            &route,
+            b"bad",
+            3,
+            grouped_state::EarlyPolicy::Count(2),
+            10
+        )
+        .is_err()
+    );
+    let early_late = MultiWindowState::early_late(grouped_state::EarlyPolicy::Count(2), 5);
+    assert!(early_late.is_empty());
+    assert_eq!(early_late.version(), 4);
+    let bytes = early_late.encode(&registry, &route, 1024).unwrap();
+    let restored = MultiWindowState::restore_early_late(
+        &registry,
+        &route,
+        &bytes,
+        4,
+        grouped_state::EarlyPolicy::Count(2),
+        5,
+        10,
+    )
+    .unwrap();
+    assert!(restored.is_empty());
+    assert_eq!(restored.version(), 4);
+    for (version, lateness, payload) in [
+        (3, 5, bytes.as_slice()),
+        (4, 0, bytes.as_slice()),
+        (4, 5, b"bad".as_slice()),
+    ] {
+        assert!(
+            MultiWindowState::restore_early_late(
+                &registry,
+                &route,
+                payload,
+                version,
+                grouped_state::EarlyPolicy::Count(2),
+                lateness,
+                10,
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn multi_grouped_early_count_rejects_invalid_fold_accounting() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let window = (0, 10);
+    for (fault, buffered, expected) in [
+        (FoldFault::CountPanic, 1, ErrorKind::Execution),
+        (FoldFault::CountOverrelease, 1, ErrorKind::Recovery),
+        (FoldFault::CountReleaseOne, 0, ErrorKind::Recovery),
+    ] {
+        let mut state = MultiWindowState::Early {
+            folds: BTreeMap::from([(
+                window,
+                (Box::new(FaultFold(fault)) as Box<dyn FoldSession>, 1),
+            )]),
+            buffered,
+            policy: grouped_state::EarlyPolicy::Count(1),
+        };
+        assert_eq!(
+            state
+                .drain(&registry, &route, None, &fault_progress(0))
+                .err()
+                .unwrap()
+                .kind,
+            expected
+        );
+    }
+}
+
+#[test]
+fn multi_grouped_processing_timer_rejects_fold_faults() {
+    use grouped_state::{EarlyPolicy, MultiWindowState};
+
+    let route = fault_group_route();
+    for (fault, buffered, expected) in [
+        (FoldFault::TimerPanic, 1, ErrorKind::Execution),
+        (FoldFault::TimerOverrelease, 1, ErrorKind::Recovery),
+        (FoldFault::TimerReleaseOne, 0, ErrorKind::Recovery),
+        (FoldFault::TimerEmpty, 0, ErrorKind::Recovery),
+    ] {
+        let mut state = MultiWindowState::Early {
+            folds: BTreeMap::from([(
+                (0, 10),
+                (Box::new(FaultFold(fault)) as Box<dyn FoldSession>, 1),
+            )]),
+            buffered,
+            policy: EarlyPolicy::ProcessingTime(5),
+        };
+        assert!(state.is_processing_time());
+        state.arm_processing_time(0).unwrap();
+        assert_eq!(state.next_processing_time_deadline(), Some(5));
+        assert_eq!(
+            state
+                .drain_ready_processing_time(&route, 5)
+                .err()
+                .unwrap()
+                .kind,
+            expected
+        );
+    }
+}
+
+#[test]
+fn completed_multi_group_discards_pending_late_trigger_before_expiry() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let window = (0, 10);
+    let mut state = MultiWindowState::Late {
+        folds: BTreeMap::from([(
+            window,
+            (
+                Box::new(FaultFold(FoldFault::FinalReleaseOne)) as Box<dyn FoldSession>,
+                1,
+            ),
+        )]),
+        buffered: 1,
+        late_windows: BTreeSet::from([window]),
+        allowed_lateness_ns: 5,
+    };
+    let mut complete = fault_progress(10);
+    complete.event_time_ns = None;
+    complete.completed = true;
+    assert!(
+        state
+            .drain(&registry, &route, Some(10), &complete)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(state.is_empty());
+}
+
+#[test]
+fn multi_grouped_early_count_drops_closed_rows_and_enforces_budget() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let event = || Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, 2_i32)),
+        timestamp_ns: 2,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10,
+        }),
+    };
+    let mut early = MultiWindowState::early(grouped_state::EarlyPolicy::Count(1));
+    early.add(&registry, &route, event(), Some(10), 0).unwrap();
+    assert!(early.is_empty());
+    assert_eq!(
+        early
+            .add(&registry, &route, event(), None, 0)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+    assert_eq!(
+        early
+            .add(&registry, &route, event(), None, 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+    let mut panicking = MultiWindowState::Early {
+        folds: BTreeMap::from([(
+            (0, 10),
+            (
+                Box::new(FaultFold(FoldFault::AddPanic)) as Box<dyn FoldSession>,
+                0,
+            ),
+        )]),
+        buffered: 0,
+        policy: grouped_state::EarlyPolicy::Count(1),
+    };
+    assert_eq!(
+        panicking
+            .add(&registry, &route, event(), None, 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+}
+
+#[test]
+fn multi_grouped_early_count_releases_closed_windows_once() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let window = (0, 10);
+    let make = |buffered| MultiWindowState::Early {
+        folds: BTreeMap::from([(
+            window,
+            (
+                Box::new(FaultFold(FoldFault::ClosedPanic)) as Box<dyn FoldSession>,
+                1,
+            ),
+        )]),
+        buffered,
+        policy: grouped_state::EarlyPolicy::Count(1),
+    };
+    let mut waiting = make(1);
+    let mut no_watermark = fault_progress(0);
+    no_watermark.event_time_ns = None;
+    assert!(
+        waiting
+            .drain(&registry, &route, None, &no_watermark)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        waiting
+            .drain(&registry, &route, Some(10), &fault_progress(10))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(waiting.is_empty());
+    let mut undercounted = make(0);
+    assert_eq!(
+        undercounted
+            .drain(&registry, &route, None, &fault_progress(10))
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+}
+
+#[test]
+fn multi_grouped_state_drops_expired_rows_before_charging_the_budget() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let event = || Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, 2_i32)),
+        timestamp_ns: 2,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10,
+        }),
+    };
+    let mut rows = MultiWindowState::empty(0);
+    rows.add(&registry, &route, event(), Some(10), 0).unwrap();
+    assert!(rows.is_empty());
+    assert_eq!(
+        rows.add(&registry, &route, event(), None, 0)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+    let mut late = MultiWindowState::empty(5);
+    late.add(&registry, &route, event(), Some(15), 0).unwrap();
+    assert!(late.is_empty());
+    assert_eq!(
+        late.add(&registry, &route, event(), Some(10), 0)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+    assert!(late.add(&registry, &route, event(), Some(10), 1).is_err());
+    assert!(late.is_empty());
+    let mut panicking = MultiWindowState::Late {
+        folds: BTreeMap::from([(
+            (0, 10),
+            (
+                Box::new(FaultFold(FoldFault::AddPanic)) as Box<dyn FoldSession>,
+                0,
+            ),
+        )]),
+        buffered: 0,
+        late_windows: BTreeSet::new(),
+        allowed_lateness_ns: 5,
+    };
+    assert_eq!(
+        panicking
+            .add(&registry, &route, event(), Some(10), 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+}
+
+#[test]
+fn multi_grouped_state_rejects_buffer_accounting_underflow() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let window = (0, 10);
+    let event = Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, 2_i32)),
+        timestamp_ns: 2,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10,
+        }),
+    };
+    let mut rows = MultiWindowState::Rows {
+        windows: BTreeMap::from([(window, vec![event])]),
+        buffered: 0,
+    };
+    assert_eq!(
+        rows.drain(&registry, &route, None, &fault_progress(10))
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+    for (fault, watermark, prior, late_window) in [
+        (FoldFault::ClosedReleaseOne, 10, None, false),
+        (FoldFault::LateReleaseOne, 11, Some(10), true),
+        (FoldFault::FinalReleaseOne, 15, Some(10), false),
+    ] {
+        let mut state = MultiWindowState::Late {
+            folds: BTreeMap::from([(
+                window,
+                (Box::new(FaultFold(fault)) as Box<dyn FoldSession>, 1),
+            )]),
+            buffered: 0,
+            late_windows: if late_window {
+                BTreeSet::from([window])
+            } else {
+                BTreeSet::new()
+            },
+            allowed_lateness_ns: 5,
+        };
+        assert_eq!(
+            state
+                .drain(&registry, &route, prior, &fault_progress(watermark))
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Recovery
+        );
+    }
+}
+
+#[test]
+fn multi_grouped_rows_report_missing_aggregate_without_losing_the_error() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let event = Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, 2_i32)),
+        timestamp_ns: 2,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10,
+        }),
+    };
+    let mut rows = MultiWindowState::Rows {
+        windows: BTreeMap::from([((0, 10), vec![event])]),
+        buffered: 1,
+    };
+    assert_eq!(
+        rows.drain(&registry, &route, None, &fault_progress(10))
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+}
+
+#[test]
+fn multi_grouped_state_waits_for_progress_and_skips_late_delivery_at_expiry() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let mut rows = MultiWindowState::empty(0);
+    let mut pending = fault_progress(0);
+    pending.event_time_ns = None;
+    assert!(
+        rows.drain(&registry, &route, None, &pending)
+            .unwrap()
+            .is_empty()
+    );
+    let window = (0, 10);
+    let mut late = MultiWindowState::Late {
+        folds: BTreeMap::from([(
+            window,
+            (
+                Box::new(FaultFold(FoldFault::ClosedPanic)) as Box<dyn FoldSession>,
+                0,
+            ),
+        )]),
+        buffered: 0,
+        late_windows: BTreeSet::from([window]),
+        allowed_lateness_ns: 5,
+    };
+    assert!(
+        late.drain(&registry, &route, Some(10), &fault_progress(15))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(late.is_empty());
+    let mut completed = MultiWindowState::Late {
+        folds: BTreeMap::from([(
+            window,
+            (
+                Box::new(FaultFold(FoldFault::ClosedPanic)) as Box<dyn FoldSession>,
+                0,
+            ),
+        )]),
+        buffered: 0,
+        late_windows: BTreeSet::from([window]),
+        allowed_lateness_ns: 5,
+    };
+    let mut completed_progress = fault_progress(10);
+    completed_progress.completed = true;
+    assert!(
+        completed
+            .drain(&registry, &route, Some(10), &completed_progress)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(completed.is_empty());
+}

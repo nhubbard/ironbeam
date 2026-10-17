@@ -1,0 +1,18 @@
+[package]
+name = "ironbeam-dataflow-wordcount"
+version = "5.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ironbeam-core = { workspace = true }
+ironbeam-dataflow = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+ironbeam-direct = { workspace = true }

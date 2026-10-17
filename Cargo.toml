@@ -1,84 +1,173 @@
+[workspace]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-metrics", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-transform-approx", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-compression", "crates/ironbeam-coder-postcard", "crates/ironbeam-coder-row", "crates/ironbeam-cloud-objects", "crates/ironbeam-cloud-service-api", "crates/ironbeam-cloud-fakes", "crates/ironbeam-cloud-ops", "crates/ironbeam-cloud-object-store", "crates/ironbeam-cloud-gcp", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests", "crates/beam-proto", "crates/ironbeam-graphx", "crates/ironbeam-harness", "crates/ironbeam-dataflow", "examples/prism-proof", "examples/dataflow-wordcount"]
+default-members = ["."]
+resolver = "3"
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/nhubbard/ironbeam"
+rust-version = "1.94"
+
+[workspace.dependencies]
+beam-proto = { version = "5.0.0", path = "crates/beam-proto" }
+ironbeam-graphx = { version = "5.0.0", path = "crates/ironbeam-graphx" }
+ironbeam-harness = { version = "5.0.0", path = "crates/ironbeam-harness" }
+ironbeam-dataflow = { version = "5.0.0", path = "crates/ironbeam-dataflow" }
+ironbeam-core = { version = "5.0.0", path = "crates/ironbeam-core" }
+ironbeam-coder-postcard = { version = "5.0.0", path = "crates/ironbeam-coder-postcard" }
+ironbeam-coder-row = { version = "5.0.0", path = "crates/ironbeam-coder-row" }
+ironbeam-direct = { version = "5.0.0", path = "crates/ironbeam-direct" }
+ironbeam-transforms = { version = "5.0.0", path = "crates/ironbeam-transforms" }
+ironbeam-cloud-objects = { version = "5.0.0", path = "crates/ironbeam-cloud-objects" }
+ironbeam-io = { version = "5.0.0", path = "crates/ironbeam-io", default-features = false }
+ironbeam-io-jsonl = { version = "5.0.0", path = "crates/ironbeam-io-jsonl", features = ["cloud"] }
+ironbeam-io-avro = { version = "5.0.0", path = "crates/ironbeam-io-avro" }
+ironbeam-io-msgpack = { version = "5.0.0", path = "crates/ironbeam-io-msgpack" }
+ironbeam-io-cbor = { version = "5.0.0", path = "crates/ironbeam-io-cbor" }
+ironbeam-io-csv = { version = "5.0.0", path = "crates/ironbeam-io-csv" }
+ironbeam-io-xml = { version = "5.0.0", path = "crates/ironbeam-io-xml" }
+ironbeam-io-parquet = { version = "5.0.0", path = "crates/ironbeam-io-parquet" }
+ironbeam-io-arrow = { version = "5.0.0", path = "crates/ironbeam-io-arrow" }
+ironbeam-io-protobuf = { version = "5.0.0", path = "crates/ironbeam-io-protobuf" }
+ironbeam-io-tfrecord = { version = "5.0.0", path = "crates/ironbeam-io-tfrecord" }
+ironbeam-io-sql = { version = "5.0.0", path = "crates/ironbeam-io-sql" }
+ironbeam-io-mongodb = { version = "5.0.0", path = "crates/ironbeam-io-mongodb" }
+prost = "0.13"
+prost-types = "0.13"
+prost-build = "0.13"
+tonic = { version = "0.12", features = ["tls", "tls-webpki-roots"] }
+tonic-build = "0.12"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+async-stream = "0.3"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+wiremock = "0.6"
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+url = "2"
+bytes = "1"
+sha2 = "0.10"
+hex = "0.4"
+gcp_auth = "0.12"
+
 [package]
 name = "ironbeam"
 rust-version = "1.94.0"
-version = "4.1.1"
+version = "5.0.0"
 edition = "2024"
 license = "MIT"
-description = "A batch processing clone of Apache Beam in Rust."
+description = "Rust data pipelines with local and Apache Beam portable runners"
 repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
-default = ["io-jsonl", "io-csv", "io-parquet", "io-avro", "io-xml", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling", "coders"]
+default = ["cloud", "validation-json"]
+cloud = ["ironbeam-io/cloud", "ironbeam-io-jsonl/cloud", "ironbeam-io-avro?/cloud", "ironbeam-io-csv?/cloud", "ironbeam-io-xml?/cloud", "ironbeam-io-parquet?/cloud", "ironbeam-io-tfrecord?/cloud", "ironbeam-io-protobuf?/cloud", "ironbeam-io-cbor?/cloud", "ironbeam-io-msgpack?/cloud", "ironbeam-io-arrow?/cloud"]
+validation-json = ["ironbeam-transforms/validation-json"]
+v5-regex = ["dep:ironbeam-transform-regex"]
+v5-approx = ["dep:ironbeam-transform-approx"]
+v5-testing = ["dep:ironbeam-testing"]
+v5-metrics = ["dep:ironbeam-metrics", "ironbeam-direct/metrics"]
+v5-compression = ["dep:ironbeam-compression"]
+cloud-gcp = ["cloud-gcp-storage", "cloud-gcp-pubsub", "cloud-gcp-bigquery", "cloud-gcp-secrets"]
+cloud-gcp-storage = ["dep:ironbeam-cloud-gcp", "ironbeam-cloud-gcp/storage"]
+cloud-gcp-pubsub = ["dep:ironbeam-cloud-gcp", "ironbeam-cloud-gcp/pubsub"]
+cloud-gcp-bigquery = ["dep:ironbeam-cloud-gcp", "ironbeam-cloud-gcp/bigquery"]
+cloud-gcp-secrets = ["dep:ironbeam-cloud-gcp", "ironbeam-cloud-gcp/secrets"]
+v5-io-sql = ["dep:ironbeam-io-sql"]
+v5-io-mongodb = ["dep:ironbeam-io-mongodb"]
+v5-dataflow = ["dep:ironbeam-dataflow"]
+v5-io-avro = ["dep:ironbeam-io-avro"]
+v5-io-csv = ["dep:ironbeam-io-csv"]
+v5-io-xml = ["dep:ironbeam-io-xml"]
+v5-io-msgpack = ["dep:ironbeam-io-msgpack"]
+v5-io-cbor = ["dep:ironbeam-io-cbor"]
+v5-io-protobuf = ["dep:ironbeam-io-protobuf"]
+v5-io-tfrecord = ["dep:ironbeam-io-tfrecord"]
+v5-io-parquet = ["dep:ironbeam-io-parquet"]
+v5-io-arrow = ["dep:ironbeam-io-arrow"]
 
 # IO backends
 io-jsonl = []
-io-csv = ["dep:csv"]
-io-parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow"]
-io-avro = ["dep:apache-avro"]
-io-xml = ["dep:quick-xml"]
+io-csv = ["v5-io-csv"]
+io-parquet = ["v5-io-parquet"]
+io-avro = ["v5-io-avro"]
+io-xml = ["v5-io-xml"]
 
 # Additional I/O formats (Tier 5).
 #
-# Deliberate exception to the usual "everything on by default" tenant: these
+# Deliberate exception to the usual "everything on by default" tenet: these
 # less-common connectors are intentionally absent from `default`. Each pulls in
 # extra dependencies that would bloat the common build, so users opt in.
-io-msgpack = ["dep:rmp-serde"]
-io-cbor = ["dep:ciborium"]
-io-protobuf = ["dep:prost"]
-io-tfrecord = ["dep:crc32c"]
-io-arrow = ["dep:arrow", "dep:serde_arrow"]
-io-sql = ["dep:sqlx", "dep:tokio"]
-io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
+io-msgpack = ["v5-io-msgpack"]
+io-cbor = ["v5-io-cbor"]
+io-protobuf = ["v5-io-protobuf"]
+io-tfrecord = ["v5-io-tfrecord"]
+io-arrow = ["v5-io-arrow"]
+io-sql = ["v5-io-sql", "dep:sqlx", "dep:tokio"]
+io-mongodb = ["v5-io-mongodb", "dep:mongodb", "dep:bson", "dep:tokio"]
 
 # Compression codecs (pluggable)
-compression-gzip = ["dep:flate2"]
-compression-zstd = ["dep:zstd"]
-compression-bzip2 = ["dep:bzip2"]
-compression-xz = ["dep:xz2"]
+compression-gzip = ["v5-compression", "ironbeam-compression/compression-gzip", "ironbeam-io/compression-gzip", "ironbeam-io-jsonl/compression-gzip"]
+compression-zstd = ["v5-compression", "ironbeam-compression/compression-zstd", "ironbeam-io/compression-zstd", "ironbeam-io-jsonl/compression-zstd"]
+compression-bzip2 = ["v5-compression", "ironbeam-compression/compression-bzip2", "ironbeam-io/compression-bzip2", "ironbeam-io-jsonl/compression-bzip2"]
+compression-xz = ["v5-compression", "ironbeam-compression/compression-xz", "ironbeam-io/compression-xz", "ironbeam-io-jsonl/compression-xz"]
 
 # Behaviors
-parallel-io = []
-metrics = []
-checkpointing = ["dep:postcard", "dep:sha2"]
-spilling = ["dep:postcard"]
-
-# Attach a per-PCollection Postcard-backed coder to every node at build time, so
-# backends that ship elements across a wire (e.g., the Dataflow harness) can
-# encode/decode each PCollection without the user registering types by hand.
-# Tightens `Element` to require `serde::{Serialize, DeserializeOwned}`.
-coders = ["dep:postcard"]
+parallel-io = [
+    "ironbeam-io/parallel-io",
+    "ironbeam-io-jsonl/parallel-io",
+    "ironbeam-io-avro?/parallel-io",
+    "ironbeam-io-csv?/parallel-io",
+    "ironbeam-io-xml?/parallel-io",
+    "ironbeam-io-msgpack?/parallel-io",
+    "ironbeam-io-cbor?/parallel-io",
+    "ironbeam-io-protobuf?/parallel-io",
+    "ironbeam-io-tfrecord?/parallel-io",
+    "ironbeam-io-parquet?/parallel-io",
+    "ironbeam-io-arrow?/parallel-io",
+]
+metrics = ["v5-metrics"]
+checkpointing = []
+spilling = []
+# Keep the old feature name for the opt-in Postcard Element implementation macro.
+coders = ["dep:ironbeam-coder-postcard"]
 
 [dependencies]
-# Core dependencies
-anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-rayon = "1"
-num_cpus = "1"
-ordered-float = "5"
-glob = "0.3"
-postcard = { version = "1", features = ["alloc"], optional = true }
-sha2 = { version = "0.11", optional = true }
-regex = "1.12.4"
-paste = "1"
-hyperloglogplus = "0.4"
-
-# Optional encoding formats
-apache-avro = { version = "0.22", optional = true }
-quick-xml = { version = "0.41", features = ["serialize"], optional = true }
-csv = { version = "1", optional = true }
-rmp-serde = { version = "1", optional = true }
-ciborium = { version = "0.2", optional = true }
-prost = { version = "0.14", optional = true }
-crc32c = { version = "0.6", optional = true }
-arrow = { version = "59", optional = true }
-parquet = { version = "59", optional = true }
-serde_arrow = { version = "0.15", optional = true, features = ["arrow-59"] }
-
-# SQL I/O (Tier 5, opt-in)
+ironbeam-dataflow = { version = "5.0.0", path = "crates/ironbeam-dataflow", optional = true }
+ironbeam-cloud-gcp = { version = "5.0.0", path = "crates/ironbeam-cloud-gcp", default-features = false, optional = true }
+ironbeam-compression = { version = "5.0.0", path = "crates/ironbeam-compression", optional = true }
+ironbeam-coder-postcard = { version = "5.0.0", path = "crates/ironbeam-coder-postcard", optional = true }
+ironbeam-core = { version = "5.0.0", path = "crates/ironbeam-core" }
+ironbeam-direct = { version = "5.0.0", path = "crates/ironbeam-direct" }
+ironbeam-transforms = { version = "5.0.0", path = "crates/ironbeam-transforms" }
+ironbeam-transform-regex = { version = "5.0.0", path = "crates/ironbeam-transform-regex", optional = true }
+ironbeam-transform-approx = { version = "5.0.0", path = "crates/ironbeam-transform-approx", optional = true }
+ironbeam-testing = { version = "5.0.0", path = "crates/ironbeam-testing", optional = true }
+ironbeam-metrics = { version = "5.0.0", path = "crates/ironbeam-metrics", optional = true }
+ironbeam-io = { version = "5.0.0", path = "crates/ironbeam-io", default-features = false }
+ironbeam-io-jsonl = { version = "5.0.0", path = "crates/ironbeam-io-jsonl" }
+ironbeam-io-protobuf = { version = "5.0.0", path = "crates/ironbeam-io-protobuf", optional = true }
+ironbeam-io-tfrecord = { version = "5.0.0", path = "crates/ironbeam-io-tfrecord", optional = true }
+ironbeam-io-avro = { version = "5.0.0", path = "crates/ironbeam-io-avro", optional = true }
+ironbeam-io-csv = { version = "5.0.0", path = "crates/ironbeam-io-csv", optional = true }
+ironbeam-io-xml = { version = "5.0.0", path = "crates/ironbeam-io-xml", optional = true }
+ironbeam-io-msgpack = { version = "5.0.0", path = "crates/ironbeam-io-msgpack", optional = true }
+ironbeam-io-cbor = { version = "5.0.0", path = "crates/ironbeam-io-cbor", optional = true }
+ironbeam-io-parquet = { version = "5.0.0", path = "crates/ironbeam-io-parquet", optional = true }
+ironbeam-io-arrow = { version = "5.0.0", path = "crates/ironbeam-io-arrow", optional = true }
+ironbeam-io-sql = { version = "5.0.0", path = "crates/ironbeam-io-sql", optional = true }
+ironbeam-io-mongodb = { version = "5.0.0", path = "crates/ironbeam-io-mongodb", optional = true }
+# SQL example dependency (opt-in with the connector)
 sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
 
-# MongoDB I/O (Tier 5, opt-in)
+# MongoDB example dependencies (opt-in with the connector)
 #
 # `mongodb` defaults to its `bson-2` compatibility feature; `bson-3` is enabled explicitly so
 # `mongodb::bson::Document` resolves to the same `bson` 3.1.0 crate instance as our own `bson`
@@ -89,20 +178,12 @@ bson = { version = "3", optional = true }
 # Async runtime bridge (shared by io-sql and io-mongodb)
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 
-# Compression codecs
-flate2 = { version = "1", optional = true }
-zstd = { version = "0.13", optional = true }
-bzip2 = { version = "0.6", optional = true }
-xz2 = { version = "0.1", optional = true }
-
-# Testing dependency, used in testing module and in tests
-tempfile = "3"
-
 [dev-dependencies]
-# MongoDB, Postgres, and MySQL (cross-database `sqlx::Any` dispatch) integration tests
-# require a live server via testcontainers/Docker.
-testcontainers = { version = "0.27", features = ["blocking"] }
-testcontainers-modules = { version = "0.15", features = ["mongo", "postgres", "mysql"] }
+anyhow = "1"
+prost = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -112,3 +193,35 @@ unused_imports = "allow"
 
 [lints.clippy]
 large_futures = "allow"
+
+[[example]]
+name = "cloud_io_demo"
+required-features = ["cloud"]
+
+[[example]]
+name = "compressed_io"
+required-features = ["compression-gzip"]
+
+[[example]]
+name = "data_quality_validation"
+required-features = ["validation-json"]
+
+[[example]]
+name = "etl_pipeline"
+required-features = ["io-csv"]
+
+[[example]]
+name = "metrics_example"
+required-features = ["v5-metrics"]
+
+[[example]]
+name = "mongodb_pipeline"
+required-features = ["io-mongodb"]
+
+[[example]]
+name = "sql_pipeline"
+required-features = ["io-sql"]
+
+[[example]]
+name = "testing_pipeline"
+required-features = ["v5-testing"]

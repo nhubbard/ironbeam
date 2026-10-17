@@ -8,9 +8,7 @@
 //! Run with: `cargo run --example compressed_io --features compression-gzip`
 
 use anyhow::Result as AnyhowResult;
-use ironbeam::io::compression::{
-    CompressionCodec, auto_detect_reader, auto_detect_writer, register_codec,
-};
+use ironbeam::v5::{CompressionCodec, auto_detect_reader, auto_detect_writer, register_codec};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_writer};
 use std::fs::{File, metadata, remove_file};
@@ -18,7 +16,7 @@ use std::io::Result as IOResult;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::Arc;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct LogEntry {
     timestamp: u64,
     level: String,
@@ -41,7 +39,7 @@ impl CompressionCodec for CustomCodec {
         None
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IOResult<Box<dyn Read>> {
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read + Send>) -> IOResult<Box<dyn Read + Send>> {
         println!("🔧 Custom codec: wrapping reader");
         Ok(reader)
     }
@@ -105,6 +103,7 @@ fn main() -> AnyhowResult<()> {
                 loaded_logs.push(entry);
             }
         }
+        assert_eq!(loaded_logs, logs);
 
         println!("✅ Read {} log entries", loaded_logs.len());
         for (i, entry) in loaded_logs.iter().enumerate() {
@@ -144,6 +143,7 @@ fn main() -> AnyhowResult<()> {
             custom_logs.push(entry);
         }
     }
+    assert_eq!(custom_logs, logs);
     println!(
         "✅ Read {} log entries with custom codec\n",
         custom_logs.len()

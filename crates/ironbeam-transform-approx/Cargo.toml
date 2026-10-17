@@ -1,0 +1,15 @@
+[package]
+name = "ironbeam-transform-approx"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Approximate distinct transforms for Ironbeam 5 logical collections"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[dependencies]
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+hyperloglogplus = "0.4"
+
+[dev-dependencies]
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }

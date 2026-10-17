@@ -1,0 +1,209 @@
+use ironbeam_core::{ErrorKind, Pipeline};
+use ironbeam_direct::{DirectRunner, JobConfig};
+use ironbeam_transforms::{
+    ErrorCollector, KeyedValidationExt, Validate, ValidationError, ValidationExt, ValidationMode,
+    ValidationResult, combine_validations, validators,
+};
+use std::sync::{Arc, Mutex};
+
+#[derive(Clone, Debug)]
+struct Row {
+    score: i32,
+}
+impl ironbeam_core::Element for Row {
+    const TYPE_ID: &'static str = "test/validation-row";
+    const CODER_ID: &'static str = "test/validation-row";
+}
+impl Validate for Row {
+    fn validate(&self) -> ValidationResult {
+        if self.score >= 0 {
+            Ok(())
+        } else {
+            Err(vec![
+                ValidationError::field("score", "must be positive").with_code("negative"),
+            ])
+        }
+    }
+}
+
+#[test]
+fn validation_errors_and_collector_keep_record_context() {
+    let plain = ValidationError::new("missing value");
+    assert_eq!(plain.to_string(), "missing value");
+    let coded = ValidationError::field("score", "invalid").with_code("bad_score");
+    assert_eq!(coded.to_string(), "[score] invalid (code: bad_score)");
+    let mut collector = ErrorCollector::new();
+    collector.add_error(Some("row-17".into()), vec![plain, coded.clone()]);
+    assert_eq!(collector.error_count(), 1);
+    assert_eq!(collector.to_string(), "ErrorCollector(1 errors)");
+    assert_eq!(collector.errors()[0].record_id.as_deref(), Some("row-17"));
+    assert_eq!(collector.errors()[0].errors[1], coded);
+    collector.print_errors();
+    collector.clear();
+    assert_eq!(collector.error_count(), 0);
+    assert_eq!(collector.errors(), []);
+}
+
+#[cfg(feature = "validation-json")]
+#[test]
+fn error_collector_json_and_file_match_v4_shape() {
+    let mut collector = ErrorCollector::new();
+    collector.add_error(
+        Some("row-17".into()),
+        vec![ValidationError::field("score", "invalid").with_code("bad_score")],
+    );
+    let json = collector.to_json().unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value[0]["record_id"], "row-17");
+    assert_eq!(value[0]["errors"][0]["field"], "score");
+    assert_eq!(value[0]["errors"][0]["message"], "invalid");
+    assert_eq!(value[0]["errors"][0]["code"], "bad_score");
+    let file =
+        std::env::temp_dir().join(format!("ironbeam-validation-{}.json", std::process::id()));
+    collector.write_to_file(&file).unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), json);
+    std::fs::remove_file(file).unwrap();
+}
+
+#[test]
+fn built_in_validators_match_v4_boundaries_and_error_order() {
+    assert!(validators::not_empty("name", "ok").is_ok());
+    assert!(validators::contains("name", "abc", "bc").is_ok());
+    assert!(validators::in_range("score", &0, &0, &10).is_ok());
+    assert!(validators::in_range("score", &10, &0, &10).is_ok());
+    assert!(validators::in_range("score", &-1, &0, &10).is_err());
+    assert!(validators::is_email("email", "a@b.c").is_ok());
+    for invalid in ["plain", "@b.c", "a@", "a@bc", "a@.", "a@b."] {
+        assert!(validators::is_email("email", invalid).is_err(), "{invalid}");
+    }
+    assert!(validators::min_length("name", "é", 2).is_ok());
+    assert!(validators::max_length("name", "é", 2).is_ok());
+    let errors = combine_validations(vec![
+        validators::not_empty("name", ""),
+        validators::contains("name", "abc", "z"),
+        validators::in_range("score", &11, &0, &10),
+        validators::is_email("email", "a@b."),
+        validators::min_length("name", "a", 2),
+        validators::max_length("name", "abc", 2),
+    ])
+    .unwrap_err();
+    assert_eq!(
+        errors.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        [
+            "[name] must not be empty",
+            "[name] must contain 'z'",
+            "[score] must be between 0 and 10",
+            "[email] invalid email format",
+            "[name] must have at least 2 characters",
+            "[name] must have at most 2 characters",
+        ]
+    );
+    assert!(combine_validations(vec![Ok(()), Ok(())]).is_ok());
+}
+
+#[test]
+fn skip_log_and_fail_modes_match_v4_values() {
+    let pipeline = Pipeline::default();
+    let rows = pipeline
+        .from_vec(
+            "rows",
+            vec![Row { score: 1 }, Row { score: -1 }, Row { score: 2 }],
+        )
+        .unwrap();
+    let collector = Arc::new(Mutex::new(ErrorCollector::new()));
+    let logged = rows
+        .validate_with_mode_named(
+            "logged",
+            ValidationMode::LogAndContinue,
+            Some(Arc::clone(&collector)),
+        )
+        .unwrap()
+        .output("logged-out")
+        .unwrap();
+    let skipped = rows
+        .validate_skip_invalid_named("skipped")
+        .unwrap()
+        .output("skipped-out")
+        .unwrap();
+    let failed = rows
+        .validate_fail_fast_named("failed")
+        .unwrap()
+        .output("failed-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&logged, &JobConfig::default())
+            .unwrap()
+            .0
+            .into_iter()
+            .map(|row| row.score)
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
+    let errors = collector.lock().unwrap();
+    assert_eq!(errors.error_count(), 1);
+    assert_eq!(
+        errors.errors()[0].errors[0].to_string(),
+        "[score] must be positive (code: negative)"
+    );
+    drop(errors);
+    assert_eq!(
+        DirectRunner
+            .run_collect(&skipped, &JobConfig::default())
+            .unwrap()
+            .0
+            .into_iter()
+            .map(|row| row.score)
+            .collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert_eq!(
+        DirectRunner
+            .run_collect(&failed, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+}
+
+#[test]
+fn validation_mode_changes_graph_identity() {
+    let build = |mode| {
+        let pipeline = Pipeline::default();
+        pipeline
+            .from_vec("rows", vec![Row { score: 1 }])
+            .unwrap()
+            .validate_with_mode_named("validate", mode, None)
+            .unwrap();
+        pipeline.snapshot().unwrap().0.fingerprint().unwrap()
+    };
+    let skip = build(ValidationMode::SkipInvalid);
+    assert_ne!(skip, build(ValidationMode::LogAndContinue));
+    assert_ne!(skip, build(ValidationMode::FailFast));
+}
+
+#[test]
+fn keyed_validation_preserves_keys() {
+    let pipeline = Pipeline::default();
+    let rows = pipeline
+        .from_vec(
+            "keyed",
+            vec![
+                ("good".to_string(), Row { score: 1 }),
+                ("bad".into(), Row { score: -1 }),
+            ],
+        )
+        .unwrap();
+    let output = rows
+        .validate_values_skip_invalid_named("validate")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let values = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap()
+        .0;
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].0, "good");
+}

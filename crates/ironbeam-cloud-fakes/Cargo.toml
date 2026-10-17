@@ -1,0 +1,11 @@
+[package]
+name = "ironbeam-cloud-fakes"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Provider-neutral in-memory service implementations for Ironbeam tests"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[dependencies]
+ironbeam-cloud-service-api = { version = "5.0.0", path = "../ironbeam-cloud-service-api" }

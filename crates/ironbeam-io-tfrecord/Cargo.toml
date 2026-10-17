@@ -1,0 +1,31 @@
+[package]
+name = "ironbeam-io-tfrecord"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "TFRecord file sources and native TensorFlow Example schema for Ironbeam 5"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[features]
+default = []
+parallel-io = ["ironbeam-io/parallel-io"]
+compression-gzip = ["ironbeam-io/compression-gzip"]
+compression-zstd = ["ironbeam-io/compression-zstd"]
+compression-bzip2 = ["ironbeam-io/compression-bzip2"]
+compression-xz = ["ironbeam-io/compression-xz"]
+cloud = ["dep:ironbeam-cloud-objects", "dep:sha2", "ironbeam-io/cloud"]
+
+[dependencies]
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-io = { version = "5.0.0", path = "../ironbeam-io", default-features = false, features = ["file"] }
+crc32c = "0.6"
+prost = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+ironbeam-cloud-objects = { version = "5.0.0", path = "../ironbeam-cloud-objects", optional = true }
+sha2 = { version = "0.10", optional = true }
+
+[dev-dependencies]
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }

@@ -1,0 +1,22 @@
+[package]
+name = "ironbeam-cloud-object-store"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Opt-in S3, GCS, and Azure object storage adapters for Ironbeam"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[features]
+default = []
+aws = ["object_store/aws"]
+gcp = ["object_store/gcp"]
+azure = ["object_store/azure"]
+
+[dependencies]
+ironbeam-cloud-objects = { version = "5.0.0", path = "../ironbeam-cloud-objects" }
+object_store = { version = "0.14.2", default-features = false, features = ["tokio"] }
+futures-util = "0.3"
+bytes = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "io-util"] }
+uuid = { version = "1", features = ["v4"] }

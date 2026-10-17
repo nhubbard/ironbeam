@@ -1,0 +1,399 @@
+//! Tests for the `Latest` combiner.
+//!
+//! This module tests the `Latest` combiner functionality including:
+//! - Selecting latest value per key
+//! - Selecting latest value globally
+//! - Handling ties (same timestamp)
+//! - Convenience methods (`latest_per_key`, `latest_globally`)
+//! - Integration with liftable combiner API
+
+use anyhow::Result;
+use ironbeam_v4::combiners::Latest;
+use ironbeam_v4::window::Timestamped;
+use ironbeam_v4::*;
+use serde::{Deserialize, Serialize};
+
+#[test]
+fn test_latest_per_key_basic() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), Timestamped::new(100, "old".to_string())),
+            ("a".to_string(), Timestamped::new(200, "new".to_string())),
+            ("b".to_string(), Timestamped::new(150, "single".to_string())),
+        ],
+    );
+
+    let latest = data.combine_values(Latest::new()).collect_seq_sorted()?;
+
+    assert_eq!(
+        latest,
+        vec![
+            ("a".to_string(), "new".to_string()),
+            ("b".to_string(), "single".to_string())
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_latest_per_key_multiple_updates() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            (
+                "user1".to_string(),
+                Timestamped::new(100, "login".to_string()),
+            ),
+            (
+                "user1".to_string(),
+                Timestamped::new(200, "click".to_string()),
+            ),
+            (
+                "user2".to_string(),
+                Timestamped::new(150, "purchase".to_string()),
+            ),
+            (
+                "user1".to_string(),
+                Timestamped::new(180, "view".to_string()),
+            ),
+            (
+                "user2".to_string(),
+                Timestamped::new(300, "logout".to_string()),
+            ),
+        ],
+    );
+
+    let latest = data.combine_values(Latest::new()).collect_seq_sorted()?;
+
+    assert_eq!(
+        latest,
+        vec![
+            ("user1".to_string(), "click".to_string()), // timestamp 200 is latest
+            ("user2".to_string(), "logout".to_string())  // timestamp 300 is latest
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_latest_per_key_out_of_order() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), Timestamped::new(300, "newest".to_string())),
+            ("a".to_string(), Timestamped::new(100, "oldest".to_string())),
+            ("a".to_string(), Timestamped::new(200, "middle".to_string())),
+        ],
+    );
+
+    let latest = data.combine_values(Latest::new()).collect_seq()?;
+
+    assert_eq!(latest, vec![("a".to_string(), "newest".to_string())]);
+    Ok(())
+}
+
+#[test]
+fn test_latest_per_key_single_value() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![("key".to_string(), Timestamped::new(100, "only".to_string()))],
+    );
+
+    let latest = data.combine_values(Latest::new()).collect_seq()?;
+
+    assert_eq!(latest, vec![("key".to_string(), "only".to_string())]);
+    Ok(())
+}
+
+#[test]
+fn test_latest_per_key_many_keys() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), Timestamped::new(100, "a1".to_string())),
+            ("b".to_string(), Timestamped::new(200, "b1".to_string())),
+            ("c".to_string(), Timestamped::new(150, "c1".to_string())),
+            ("a".to_string(), Timestamped::new(250, "a2".to_string())),
+            ("b".to_string(), Timestamped::new(180, "b2".to_string())),
+        ],
+    );
+
+    let mut latest = data.combine_values(Latest::new()).collect_seq()?;
+    latest.sort_unstable();
+
+    assert_eq!(
+        latest,
+        vec![
+            ("a".to_string(), "a2".to_string()),
+            ("b".to_string(), "b1".to_string()),
+            ("c".to_string(), "c1".to_string())
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_latest_globally_basic() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            Timestamped::new(100, "event1".to_string()),
+            Timestamped::new(300, "event2".to_string()),
+            Timestamped::new(200, "event3".to_string()),
+        ],
+    );
+
+    let latest = data.combine_globally(Latest::new(), None).collect_seq()?;
+
+    assert_eq!(latest, vec!["event2"]);
+    Ok(())
+}
+
+#[test]
+fn test_latest_globally_single_value() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![Timestamped::new(100, "only".to_string())]);
+
+    let latest = data.combine_globally(Latest::new(), None).collect_seq()?;
+
+    assert_eq!(latest, vec!["only"]);
+    Ok(())
+}
+
+#[test]
+fn test_latest_globally_many_values() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        (0_u64..1000)
+            .map(|i| Timestamped::new(i, format!("event{i}")))
+            .collect::<Vec<_>>(),
+    );
+
+    let latest = data.combine_globally(Latest::new(), None).collect_seq()?;
+
+    assert_eq!(latest, vec!["event999"]);
+    Ok(())
+}
+
+#[test]
+fn test_latest_per_key_convenience_method() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), Timestamped::new(100, 1)),
+            ("a".to_string(), Timestamped::new(200, 2)),
+            ("b".to_string(), Timestamped::new(150, 3)),
+        ],
+    );
+
+    let latest = data.latest_per_key().collect_seq_sorted()?;
+
+    assert_eq!(latest, vec![("a".to_string(), 2), ("b".to_string(), 3)]);
+    Ok(())
+}
+
+#[test]
+fn test_latest_globally_convenience_method() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            Timestamped::new(100, "a".to_string()),
+            Timestamped::new(300, "b".to_string()),
+            Timestamped::new(200, "c".to_string()),
+        ],
+    );
+
+    let latest = data.latest_globally().collect_seq()?;
+
+    assert_eq!(latest, vec!["b"]);
+    Ok(())
+}
+
+#[test]
+fn test_latest_with_numeric_values() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            ("sensor".to_string(), Timestamped::new(1000, 23.5)),
+            ("sensor".to_string(), Timestamped::new(2000, 24.1)),
+            ("sensor".to_string(), Timestamped::new(3000, 22.8)),
+        ],
+    );
+
+    let latest = data.combine_values(Latest::new()).collect_seq()?;
+
+    assert_eq!(latest, vec![("sensor".to_string(), 22.8)]);
+    Ok(())
+}
+
+#[test]
+fn test_latest_with_struct_values() -> Result<()> {
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct Event {
+        id: u32,
+        status: String,
+    }
+
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            (
+                "order".to_string(),
+                Timestamped::new(
+                    100,
+                    Event {
+                        id: 1,
+                        status: "pending".to_string(),
+                    },
+                ),
+            ),
+            (
+                "order".to_string(),
+                Timestamped::new(
+                    200,
+                    Event {
+                        id: 1,
+                        status: "shipped".to_string(),
+                    },
+                ),
+            ),
+            (
+                "order".to_string(),
+                Timestamped::new(
+                    300,
+                    Event {
+                        id: 1,
+                        status: "delivered".to_string(),
+                    },
+                ),
+            ),
+        ],
+    );
+
+    let latest = data.combine_values(Latest::new()).collect_seq()?;
+
+    assert_eq!(
+        latest,
+        vec![(
+            "order".to_string(),
+            Event {
+                id: 1,
+                status: "delivered".to_string()
+            }
+        )]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_latest_with_large_timestamps() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            (
+                "key".to_string(),
+                Timestamped::new(1_700_000_000_000, "old".to_string()),
+            ),
+            (
+                "key".to_string(),
+                Timestamped::new(1_700_000_001_000, "new".to_string()),
+            ),
+        ],
+    );
+
+    let latest = data.combine_values(Latest::new()).collect_seq()?;
+
+    assert_eq!(latest, vec![("key".to_string(), "new".to_string())]);
+    Ok(())
+}
+
+#[test]
+fn test_latest_preserves_order_of_keys() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            ("z".to_string(), Timestamped::new(100, "z1".to_string())),
+            ("a".to_string(), Timestamped::new(200, "a1".to_string())),
+            ("m".to_string(), Timestamped::new(150, "m1".to_string())),
+        ],
+    );
+
+    let latest = data.combine_values(Latest::new()).collect_seq_sorted()?;
+
+    // Keys should be in sorted order
+    assert_eq!(
+        latest,
+        vec![
+            ("a".to_string(), "a1".to_string()),
+            ("m".to_string(), "m1".to_string()),
+            ("z".to_string(), "z1".to_string())
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_latest_with_combine_values_lifted() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), Timestamped::new(100, 1)),
+            ("a".to_string(), Timestamped::new(200, 2)),
+            ("b".to_string(), Timestamped::new(150, 3)),
+        ],
+    );
+
+    let grouped = data.group_by_key();
+    let latest = grouped.combine_values_lifted(Latest::new());
+    let result = latest.collect_seq_sorted()?;
+
+    assert_eq!(result, vec![("a".to_string(), 2), ("b".to_string(), 3)]);
+    Ok(())
+}
+
+#[test]
+fn test_latest_timestamp_tie() -> Result<()> {
+    // When multiple values have the same timestamp, one is chosen arbitrarily
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            (
+                "key".to_string(),
+                Timestamped::new(100, "first".to_string()),
+            ),
+            (
+                "key".to_string(),
+                Timestamped::new(100, "second".to_string()),
+            ),
+            (
+                "key".to_string(),
+                Timestamped::new(100, "third".to_string()),
+            ),
+        ],
+    );
+
+    let latest = data.combine_values(Latest::new()).collect_seq()?;
+
+    // Just verify we got one of them
+    assert_eq!(latest.len(), 1);
+    assert_eq!(latest[0].0, "key");
+    // The value should be one of the three, but which one is implementation-defined
+    assert!(["first", "second", "third"].contains(&latest[0].1.as_str()));
+    Ok(())
+}

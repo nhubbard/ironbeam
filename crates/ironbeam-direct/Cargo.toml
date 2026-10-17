@@ -1,0 +1,20 @@
+[package]
+name = "ironbeam-direct"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Direct execution for the Ironbeam 5 logical graph"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[features]
+metrics = ["dep:ironbeam-metrics"]
+
+[dependencies]
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-metrics = { version = "5.0.0", path = "../ironbeam-metrics", optional = true }
+rayon = "1"
+tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"

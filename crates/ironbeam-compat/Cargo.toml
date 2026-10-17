@@ -1,0 +1,168 @@
+[package]
+name = "ironbeam-compat"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Bounded in-process data bridges and migration imports for Ironbeam 4 and 5"
+repository = "https://github.com/nhubbard/ironbeam"
+readme = "README.md"
+
+[features]
+default = []
+v4-arrow = ["ironbeam-v4/io-arrow", "dep:arrow", "dep:serde_arrow"]
+v4-avro = ["ironbeam-v4/io-avro", "dep:apache-avro"]
+v4-bzip2 = ["ironbeam-v4/compression-bzip2"]
+v4-cbor = ["ironbeam-v4/io-cbor"]
+v4-coders = ["ironbeam-v4/coders"]
+v4-csv = ["ironbeam-v4/io-csv", "dep:csv"]
+v4-checkpointing = ["ironbeam-v4/checkpointing", "dep:postcard"]
+v4-gzip = ["ironbeam-v4/compression-gzip", "dep:flate2"]
+v4-jsonl = ["ironbeam-v4/io-jsonl"]
+v4-metrics = ["ironbeam-v4/metrics"]
+v4-mega = ["v4-csv", "v4-gzip", "v4-jsonl", "v4-parallel-io", "v4-parquet", "v4-spilling", "v4-zstd"]
+v4-msgpack = ["ironbeam-v4/io-msgpack"]
+v4-mongodb = ["ironbeam-v4/io-mongodb", "dep:bson"]
+v4-parallel-io = ["ironbeam-v4/parallel-io"]
+v4-parquet = ["ironbeam-v4/io-parquet", "dep:parquet"]
+v4-protobuf = ["ironbeam-v4/io-protobuf"]
+v4-sql = ["ironbeam-v4/io-sql", "dep:sqlx", "dep:tokio"]
+v4-service-tests = ["dep:testcontainers", "dep:testcontainers-modules"]
+v4-spilling = ["ironbeam-v4/spilling"]
+v4-tfrecord = ["ironbeam-v4/io-tfrecord"]
+v4-xml = ["ironbeam-v4/io-xml"]
+v4-xz = ["ironbeam-v4/compression-xz"]
+v4-zstd = ["ironbeam-v4/compression-zstd"]
+
+[dependencies]
+ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false }
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }
+ironbeam-transforms = { version = "5.0.0", path = "../ironbeam-transforms" }
+ironbeam-transform-regex = { version = "5.0.0", path = "../ironbeam-transform-regex" }
+ironbeam-transform-approx = { version = "5.0.0", path = "../ironbeam-transform-approx" }
+anyhow = "1"
+apache-avro = { version = "0.21", optional = true }
+arrow = { version = "59", optional = true }
+bson = { version = "3", optional = true }
+csv = { version = "1", optional = true }
+flate2 = { version = "1", optional = true }
+parquet = { version = "59", optional = true }
+postcard = { version = "1", features = ["alloc"], optional = true }
+serde_arrow = { version = "0.14", features = ["arrow-59"], optional = true }
+sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
+testcontainers = { version = "0.27", features = ["blocking"], optional = true }
+testcontainers-modules = { version = "0.15", features = ["mongo", "postgres", "mysql"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+
+[dev-dependencies]
+ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false, features = ["io-jsonl", "io-tfrecord", "io-protobuf"] }
+ironbeam-io-tfrecord = { version = "5.0.0", path = "../ironbeam-io-tfrecord" }
+prost = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+
+[[example]]
+name = "v4_checkpoint_recovery_demo"
+required-features = ["v4-checkpointing"]
+
+[[example]]
+name = "v4_checkpointing_demo"
+required-features = ["v4-checkpointing"]
+
+[[test]]
+name = "v4_helper_parquet"
+required-features = ["v4-parquet"]
+
+[[test]]
+name = "v4_mega_integration"
+required-features = ["v4-mega"]
+
+[[test]]
+name = "v4_checkpoint"
+required-features = ["v4-checkpointing"]
+
+[[test]]
+name = "v4_par_write"
+required-features = ["v4-jsonl", "v4-parallel-io"]
+
+[[test]]
+name = "v4_spill"
+required-features = ["v4-spilling"]
+
+[[test]]
+name = "v4_spill_integration"
+required-features = ["v4-spilling"]
+
+[[test]]
+name = "v4_io_arrow_ipc"
+required-features = ["v4-arrow"]
+
+[[test]]
+name = "v4_metrics"
+required-features = ["v4-metrics"]
+
+[[test]]
+name = "v4_serde_coders"
+required-features = ["v4-coders"]
+
+[[test]]
+name = "v4_io_avro"
+required-features = ["v4-avro"]
+
+[[test]]
+name = "v4_io_cbor"
+required-features = ["v4-cbor"]
+
+[[test]]
+name = "v4_io_csv"
+required-features = ["v4-csv"]
+
+[[test]]
+name = "v4_io_csv_streaming"
+required-features = ["v4-csv"]
+
+[[test]]
+name = "v4_io_jsonl"
+required-features = ["v4-jsonl"]
+
+[[test]]
+name = "v4_io_jsonl_streaming"
+required-features = ["v4-jsonl"]
+
+[[test]]
+name = "v4_io_msgpack"
+required-features = ["v4-msgpack"]
+
+[[test]]
+name = "v4_io_mongodb"
+required-features = ["v4-mongodb", "v4-service-tests"]
+
+[[test]]
+name = "v4_io_parquet"
+required-features = ["v4-parquet"]
+
+[[test]]
+name = "v4_io_parquet_streaming"
+required-features = ["v4-parquet"]
+
+[[test]]
+name = "v4_io_protobuf"
+required-features = ["v4-protobuf"]
+
+[[test]]
+name = "v4_io_sql"
+required-features = ["v4-sql"]
+
+[[test]]
+name = "v4_io_sql_containers"
+required-features = ["v4-sql", "v4-service-tests"]
+
+[[test]]
+name = "v4_io_tfrecord"
+required-features = ["v4-tfrecord"]
+
+[[test]]
+name = "v4_io_xml"
+required-features = ["v4-xml"]

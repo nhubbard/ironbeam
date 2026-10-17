@@ -1,0 +1,27 @@
+[project]
+site_name = "Ironbeam 5"
+site_url = "https://nhubbard.github.io/ironbeam/"
+site_description = "Documentation for Ironbeam 5 data pipelines"
+repo_url = "https://github.com/nhubbard/ironbeam"
+repo_name = "nhubbard/ironbeam"
+edit_uri = "edit/main/docs/docs/"
+nav = [
+  { "Overview" = "index.md" },
+  { "Getting started" = "getting-started.md" },
+  { "Concepts" = ["concepts/pipelines.md", "concepts/runners.md", "concepts/elements.md", "concepts/beam-semantics.md"] },
+  { "Guides" = ["guides/packages-and-features.md", "guides/transforms.md", "guides/streaming.md", "guides/io.md", "guides/gcp.md", "guides/windowing.md", "guides/checkpoints.md", "guides/errors-and-recovery.md", "guides/schema-rows.md", "guides/sharded-keys.md", "guides/testing.md", "guides/portable.md"] },
+  { "Migration from v4" = ["migration/index.md", "migration/api.md", "migration/operations.md"] },
+  { "Reference" = ["reference/support.md", "reference/api.md", "reference/packages.md", "reference/examples.md", "reference/troubleshooting.md"] },
+]
+
+[project.theme]
+language = "en"
+features = ["content.code.copy", "navigation.footer", "navigation.indexes", "navigation.sections", "navigation.top", "search.highlight"]
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+toc.permalink = true
+pymdownx.highlight = {}
+pymdownx.superfences = {}
+pymdownx.tabbed.alternate_style = true

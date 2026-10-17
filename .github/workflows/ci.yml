@@ -4,6 +4,7 @@ on:
   push:
     branches: [ 'main' ]
   pull_request: { }
+  workflow_dispatch: { }
 
 permissions: { }
 
@@ -12,6 +13,26 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  release-configuration:
+    name: Release configuration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
+        with:
+          node-version: 'lts/*'
+      - name: Validate workspace publication configuration
+        run: |
+          python3 -m unittest discover -s tests/python -p 'test_*release*.py'
+          python3 scripts/check_v5_release_order.py --release
+          node --check scripts/semantic_release_workspace.cjs
+          npm ci
+          node --test tests/node/release_changelog.test.cjs
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
@@ -27,8 +48,13 @@ jobs:
 
       - name: Install Rust nightly
         run: |
-          rustup toolchain install nightly --component clippy --no-self-update
+          rustup toolchain install nightly --component clippy --component rustfmt --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Check workspace formatting
+        run: cargo fmt --all --check
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -50,7 +76,15 @@ jobs:
 
       - name: Run Clippy with pedantic and nursery
         run: |
-          cargo clippy -p ironbeam --all-targets --all-features -- \
+          cargo clippy --no-deps -p ironbeam --all-targets --all-features -- \
+            -W clippy::pedantic \
+            -W clippy::nursery \
+            -D warnings
+          cargo clippy --no-deps -p ironbeam-runner-contract-tests --all-targets -- \
+            -W clippy::pedantic \
+            -W clippy::nursery \
+            -D warnings
+          cargo clippy -p ironbeam-compression -p ironbeam-coder-postcard -p ironbeam-coder-row -p ironbeam-cloud-objects -p ironbeam-cloud-service-api -p ironbeam-cloud-fakes -p ironbeam-cloud-ops -p ironbeam-cloud-object-store -p ironbeam-cloud-gcp -p ironbeam-core -p ironbeam-direct -p ironbeam-metrics -p ironbeam-testing -p ironbeam-transforms -p ironbeam-transform-regex -p ironbeam-transform-approx -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
@@ -72,6 +106,8 @@ jobs:
         run: |
           rustup toolchain install nightly --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -98,14 +134,112 @@ jobs:
       # A full powerset is intractable in CI; --each-feature catches the
       # feature-coupling class of bugs in N+2 builds.
       - name: Check all feature combinations compile
-        run: cargo hack check --each-feature --no-dev-deps --keep-going
+        run: cargo hack check -p ironbeam --each-feature --no-dev-deps --keep-going
+
+      - name: Check facade build modes independently
+        run: |
+          cargo build -p ironbeam --no-default-features
+          cargo build -p ironbeam --no-default-features
+          cargo build -p ironbeam --no-default-features --features v5-io-csv
+          cargo build -p ironbeam --no-default-features --features v5-regex
+          cargo build -p ironbeam --no-default-features --features v5-approx
+          cargo build -p ironbeam --no-default-features --features v5-metrics
+          cargo build -p ironbeam --no-default-features --features v5-io-xml
+          cargo build -p ironbeam --no-default-features --features v5-io-msgpack
+          cargo build -p ironbeam --no-default-features --features v5-io-cbor
+          cargo build -p ironbeam --no-default-features --features v5-io-protobuf
+          cargo build -p ironbeam --no-default-features --features v5-io-tfrecord
+          cargo build -p ironbeam --no-default-features --features v5-dataflow
+          cargo build -p ironbeam
+          cargo build -p ironbeam
+          cargo build -p ironbeam --all-features
+          cargo build -p ironbeam-runner-contract-tests
+          cargo build -p ironbeam-core
+          cargo build -p ironbeam-direct
+          cargo build -p ironbeam-metrics
+          cargo build -p ironbeam-testing
+          cargo build -p ironbeam-transforms
+          cargo build -p ironbeam-transform-regex
+          cargo build -p ironbeam-transform-approx
+          cargo build -p ironbeam-io
+          cargo build -p ironbeam-io --no-default-features
+          cargo build -p ironbeam-io-jsonl
+          cargo build -p ironbeam-io-protobuf
+          cargo build -p ironbeam-io-tfrecord
+          cargo build -p ironbeam-io-csv
+          cargo build -p ironbeam-io-xml
+          cargo build -p ironbeam-io-msgpack
+          cargo build -p ironbeam-io-cbor
+          cargo build -p ironbeam-io-avro
+          cargo build -p ironbeam-io-parquet
+          cargo build -p ironbeam-io-arrow
+          cargo build -p ironbeam-io-sql
+          cargo build -p ironbeam-io-mongodb
+          cargo build -p ironbeam-compression
+          cargo build -p ironbeam-cloud-object-store
+          cargo build -p ironbeam-compat
+
+      - name: Test v5 file formats independently
+        run: |
+          cargo test -p ironbeam-io --no-default-features --features file
+          cargo test -p ironbeam-io --no-default-features --features cloud --test hosted_object_final
+          cargo test -p ironbeam-compression --all-features
+          cargo test -p ironbeam-cloud-object-store --all-features
+          cargo test -p ironbeam-io-jsonl --all-features
+          cargo test -p ironbeam-io-jsonl --features cloud --test cloud_streaming
+          cargo test -p ironbeam-io-protobuf --all-features
+          cargo test -p ironbeam-io-protobuf --features cloud --test cloud
+          cargo test -p ironbeam --no-default-features --features cloud,v5-io-protobuf --test v5_facade_prelude
+          cargo test -p ironbeam-io-tfrecord --all-features
+          cargo test -p ironbeam-io-tfrecord --features cloud --test cloud
+          cargo test -p ironbeam --no-default-features --features cloud,v5-io-tfrecord --test v5_facade_prelude
+          cargo test -p ironbeam-compat --test tfrecord_wire
+          cargo test -p ironbeam-io-csv --all-features
+          cargo test -p ironbeam-io-csv --features cloud --test cloud
+          cargo test -p ironbeam --no-default-features --features cloud,v5-io-csv --test v5_facade_prelude
+          cargo test -p ironbeam-io-xml --all-features
+          cargo test -p ironbeam-io-msgpack --all-features
+          cargo test -p ironbeam-io-cbor --all-features
+          cargo test -p ironbeam-transform-regex --all-features
+          cargo test -p ironbeam-transform-approx --all-features
+          cargo test -p ironbeam-metrics
+          cargo test -p ironbeam-testing --all-features
+          cargo test -p ironbeam-direct --features metrics --test custom_metrics
+          cargo test -p ironbeam-io-avro --all-features
+          cargo test -p ironbeam-io-parquet --all-features
+          cargo test -p ironbeam-io-arrow --all-features
 
       # With the I/O features off, the always-present API must fail at runtime.
       - name: Verify disabled-feature runtime stubs
-        run: cargo test --no-default-features --test feature_gating
+        run: cargo test -p ironbeam-compat --no-default-features --test v4_feature_gating
+
+      - name: Test facade default and minimal modes
+        run: |
+          cargo test -p ironbeam --lib --tests
+          cargo test -p ironbeam --no-default-features --lib --tests
+
+      - name: Compare v4 and v5 behavior against published v4
+        run: |
+          cargo test -p ironbeam-compat --tests
+          cargo test -p ironbeam-compat --features v4-parquet --test v4_helper_parquet
+          cargo test -p ironbeam-compat --features v4-csv --test v4_testing_mock_io
+          cargo test -p ironbeam-compat --features v4-gzip,v4-zstd --test v4_io_cloud_readers
+          cargo test -p ironbeam-compat --features v4-metrics,v4-checkpointing --test v4_pipeline --test v4_runner
+          cargo test -p ironbeam-compat --features v4-metrics,v4-coders --test v4_metrics --test v4_serde_coders
+          cargo test -p ironbeam-compat --features v4-checkpointing,v4-jsonl,v4-parallel-io,v4-spilling,v4-zstd --test v4_checkpoint --test v4_par_write --test v4_spill --test v4_spill_integration
+          cargo test -p ironbeam-compat --features v4-mega --test v4_mega_integration
+          cargo check -p ironbeam-compat --features v4-checkpointing --examples
+
+      - name: Check published v4 file-format references independently
+        run: bash scripts/check_v4_format_reference.sh
+
+      - name: Check published v4 SQLite reference
+        run: |
+          cargo test -p ironbeam-compat --features v4-sql --test v4_io_sql
+          cargo test -p ironbeam-compat --features v4-sql,v4-parallel-io --test v4_io_sql
 
   test:
-    name: Test Suite with Coverage
+    name: Facade Tests
     runs-on: ubuntu-latest
     environment: main
     concurrency:
@@ -122,12 +256,8 @@ jobs:
         run: |
           rustup toolchain install nightly --component llvm-tools-preview --no-self-update
           rustup default nightly
-
-      - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov
-
-      - name: Install rustfilt
-        run: cargo install rustfilt
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -147,18 +277,110 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Generate test coverage
-        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info --branch
+      # The facade contains reexports rather than instrumented implementation
+      # code. The v5-coverage matrix measures the implementation crates.
+      - name: Test portable facade and coverage gate script
+        run: |
+          python3 -m unittest discover -s tests/python -p 'test_*.py'
+          cargo test -p ironbeam --all-features
 
-      - name: Demangle coverage output
-        run: rustfilt -i lcov.info -o lcov-demangled.info
+  contract-tests:
+    name: Runner Contract Test Package
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-contract-tests-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Upload coverage to Codecov
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --component llvm-tools-preview --no-self-update
+          rustup default nightly
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Test and measure contract package independently
+        run: |
+          set -o pipefail
+          cargo test -p ironbeam-runner-contract-tests
+          cargo llvm-cov -p ironbeam-runner-contract-tests --branch --json --summary-only \
+            --output-path coverage-contract.json
+          python3 scripts/check_coverage.py ironbeam-runner-contract-tests coverage-contract.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+  v5-coverage:
+    name: V5 Package Coverage (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [ironbeam-compression, ironbeam-coder-postcard, ironbeam-coder-row, ironbeam-cloud-objects, ironbeam-cloud-service-api, ironbeam-cloud-ops, ironbeam-core, ironbeam-direct, ironbeam-metrics, ironbeam-testing, ironbeam-transforms, ironbeam-transform-regex, ironbeam-transform-approx, ironbeam-io, ironbeam-io-jsonl, ironbeam-io-protobuf, ironbeam-io-tfrecord, ironbeam-io-csv, ironbeam-io-xml, ironbeam-io-msgpack, ironbeam-io-cbor, ironbeam-io-avro, ironbeam-io-parquet, ironbeam-io-arrow, ironbeam-compat]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install protobuf compiler for Beam row coverage
+        if: matrix.package == 'ironbeam-coder-row'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --component llvm-tools-preview --no-self-update
+          rustup default nightly
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+      - name: Test and measure package independently
+        run: |
+          set -o pipefail
+          cargo test -p "${{ matrix.package }}"
+          features=()
+          if [ "${{ matrix.package }}" = "ironbeam-compression" ] || [ "${{ matrix.package }}" = "ironbeam-testing" ] || [ "${{ matrix.package }}" = "ironbeam-io-jsonl" ] || [ "${{ matrix.package }}" = "ironbeam-io-protobuf" ] || [ "${{ matrix.package }}" = "ironbeam-io-tfrecord" ] || [ "${{ matrix.package }}" = "ironbeam-io-csv" ] || [ "${{ matrix.package }}" = "ironbeam-io-xml" ] || [ "${{ matrix.package }}" = "ironbeam-io-msgpack" ] || [ "${{ matrix.package }}" = "ironbeam-io-cbor" ] || [ "${{ matrix.package }}" = "ironbeam-io-avro" ] || [ "${{ matrix.package }}" = "ironbeam-io-parquet" ] || [ "${{ matrix.package }}" = "ironbeam-io-arrow" ]; then features=(--all-features); fi
+          if [ "${{ matrix.package }}" = "ironbeam-io" ]; then
+            cargo llvm-cov -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow \
+              --all-features --branch --json --output-path coverage-v5.json
+          elif [ "${{ matrix.package }}" = "ironbeam-core" ]; then
+            cargo llvm-cov -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms \
+              --branch --json --output-path coverage-v5.json
+          else
+            cargo llvm-cov -p "${{ matrix.package }}" "${features[@]}" \
+              --branch --json --output-path coverage-v5.json
+          fi
+          python3 scripts/check_coverage.py "${{ matrix.package }}" coverage-v5.json | tee -a "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov report -p "${{ matrix.package }}" --branch --lcov --output-path "lcov-${{ matrix.package }}.info"
+      - name: Upload implementation coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
         with:
-          files: lcov-demangled.info
+          files: lcov-${{ matrix.package }}.info
+          flags: ${{ matrix.package }}
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  service-tests:
+    name: Docker Service Tests (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --no-self-update
+          rustup default nightly
+
+      - name: Test MongoDB and SQL containers
+        run: |
+          cargo test -p ironbeam-compat --features v4-mongodb,v4-service-tests,v4-parallel-io --test v4_io_mongodb -- --test-threads=1
+          cargo test -p ironbeam-compat --features v4-sql,v4-service-tests,v4-parallel-io --test v4_io_sql_containers -- --test-threads=1
 
   docs:
     name: Documentation
@@ -177,6 +399,8 @@ jobs:
         run: |
           rustup toolchain install nightly --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -196,8 +420,10 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build docs
-        run: cargo doc --workspace --all-features --no-deps
+      - name: Check public Rustdoc
+        run: |
+          RUSTDOCFLAGS='-Z unstable-options --output-format json -D rustdoc::broken_intra_doc_links' cargo doc --workspace --all-features --no-deps --locked
+          python3 scripts/check_public_rustdoc.py
 
   examples:
     name: Examples
@@ -216,6 +442,8 @@ jobs:
         run: |
           rustup toolchain install nightly --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -242,6 +470,54 @@ jobs:
         run: |
           for example in examples/*.rs; do
             example_name=$(basename "$example" .rs)
+            if [ "$example_name" = "v5_benchmark_corpus" ]; then
+              continue
+            fi
             echo "Running example: $example_name"
             cargo run --example "$example_name" --all-features || exit 1
           done
+
+  docs-site:
+    name: Documentation site
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.13'
+      - name: Install Zensical
+        run: python -m pip install 'zensical==0.0.69'
+      - name: Build documentation
+        run: zensical build --strict --clean --config-file docs/zensical.toml
+      - name: Verify Pages artifact
+        run: test -s docs/site/index.html
+      - name: Configure GitHub Pages
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  # v6
+      - name: Upload documentation site
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5
+        with:
+          path: docs/site
+
+  docs-deploy:
+    name: Deploy documentation
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: docs-site
+    runs-on: ubuntu-latest
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5
+        id: deployment

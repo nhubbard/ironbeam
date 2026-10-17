@@ -1,0 +1,43 @@
+[package]
+name = "ironbeam-dataflow"
+version = "5.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Google Cloud Dataflow backend for ironbeam"
+
+[features]
+default = []
+gcp-objects = ["dep:ironbeam-cloud-object-store", "ironbeam-cloud-object-store/gcp"]
+aws-objects = ["dep:ironbeam-cloud-object-store", "ironbeam-cloud-object-store/aws"]
+azure-objects = ["dep:ironbeam-cloud-object-store", "ironbeam-cloud-object-store/azure"]
+
+[dependencies]
+beam-proto = { workspace = true }
+ironbeam-graphx = { workspace = true }
+ironbeam-harness = { workspace = true }
+ironbeam-core = { workspace = true }
+ironbeam-cloud-objects = { workspace = true }
+ironbeam-cloud-object-store = { version = "5.0.0", path = "../ironbeam-cloud-object-store", optional = true, default-features = false }
+prost = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+bytes = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+async-trait = { workspace = true }
+gcp_auth = { workspace = true }
+
+[dev-dependencies]
+wiremock = { workspace = true }
+tempfile = { workspace = true }
+tonic = { workspace = true }
+prost-types = { workspace = true }

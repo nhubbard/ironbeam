@@ -1,0 +1,23 @@
+[package]
+name = "ironbeam-graphx"
+version = "5.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Translates ironbeam pipelines into Apache Beam portable-pipeline protobufs"
+
+[dependencies]
+beam-proto = { workspace = true }
+ironbeam-core = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }

@@ -1,0 +1,19 @@
+use anyhow::Result;
+use ironbeam_v4::from_vec;
+use ironbeam_v4::testing::*;
+
+#[test]
+fn par_equals_seq_after_sort() -> Result<()> {
+    let p = TestPipeline::new();
+    let col = from_vec(
+        &p,
+        (0..10_000)
+            .map(|i| format!("w{}", i % 257))
+            .collect::<Vec<_>>(),
+    )
+    .flat_map(|w: &String| vec![w.clone(), w.clone()]);
+    let seq = col.clone().collect_seq_sorted()?;
+    let par = col.collect_par_sorted(Some(8), None)?;
+    assert_collections_equal(&seq, &par);
+    Ok(())
+}

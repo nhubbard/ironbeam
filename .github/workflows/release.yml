@@ -17,7 +17,7 @@ jobs:
       contents: write       # create GitHub releases and push changelog commits
       issues: write         # comment on issues closed by a release
       pull-requests: write  # comment on PRs included in a release
-      id-token: write       # request OIDC token for crates.io trusted publishing
+      id-token: write       # exchange GitHub OIDC identity for a crates.io token
 
     steps:
       - name: Generate GitHub App token
@@ -33,10 +33,17 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
+      - name: Require main and validate the workspace release order
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          python3 scripts/check_v5_release_order.py --release
+
       - name: Install Rust nightly
         run: |
           rustup toolchain install nightly --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v6
