@@ -243,9 +243,10 @@ may appear again in a later pane. The global keyed fixture verifies this on
 both runners. An accumulating pane includes retained earlier values, so it
 also checks those values against new arrivals.
 
-The deterministic latest-per-key selector has the same triggered global-window
-support. Its two-key example selects the greatest event time in each pane and
-matches on both runners.
+Both latest-per-key selectors have the same triggered global-window support.
+Their two-key example selects the greatest event time in each pane and matches
+on both runners. The selector without a tie key remains runner-dependent when
+event times are equal.
 
 Vector and accumulator based global combines also use a constant key and
 `GroupByKey` on unbounded input. A two-window TestStream gives the same vector,

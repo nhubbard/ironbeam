@@ -1757,7 +1757,12 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map_err(Into::into);
     }
     if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_LATEST_GLOBAL_STREAM") {
-        return streaming_global_latest_keyed_fixture(pipeline, capture.into())
+        return streaming_global_latest_keyed_fixture(pipeline, capture.into(), true)
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_LATEST_GLOBAL_ENCOUNTER") {
+        return streaming_global_latest_keyed_fixture(pipeline, capture.into(), false)
             .map(|_| ())
             .map_err(Into::into);
     }

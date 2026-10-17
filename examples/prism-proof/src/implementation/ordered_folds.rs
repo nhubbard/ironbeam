@@ -230,9 +230,10 @@ pub fn streaming_global_ordered_keyed_fixture(
 pub fn streaming_global_latest_keyed_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
+    deterministic_ties: bool,
 ) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();
-    pipeline
+    let source = pipeline
         .test_stream_source(
             "latest-global-stream-source",
             vec![
@@ -244,8 +245,13 @@ pub fn streaming_global_latest_keyed_fixture(
                 TestStreamEvent::Elements(vec![((1, 4), 4_000_000)]),
             ],
         )?
-        .early_count_trigger_named("latest-global-trigger", 2)?
-        .latest_per_key_by_named("latest-global-keyed", |value| *value)?
+        .early_count_trigger_named("latest-global-trigger", 2)?;
+    let latest = if deterministic_ties {
+        source.latest_per_key_by_named("latest-global-keyed", |value| *value)?
+    } else {
+        source.latest_per_key_named("latest-global-keyed")?
+    };
+    latest
         .reify_timestamps_named("latest-global-time")?
         .reify_panes_named("latest-global-pane")?
         .map_named("latest-global-row", |(pane, (time, (key, value)))| {

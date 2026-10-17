@@ -95,9 +95,12 @@ The global keyed fixture reuses an order key in a later discarding pane;
 Direct and pinned Prism both accept it and retain the same rows. Public
 ordered-helper contracts now state uniqueness per emitted pane.
 
-The deterministic latest-per-key selector likewise accepts an early-triggered
-unbounded global window. Its two-key early and final pane values, indices, and
-event timestamps match Direct and pinned Prism.
+Both latest-per-key selectors accept an early-triggered unbounded global
+window. The encounter-order variant now keeps the trigger-aware GroupByKey
+fold on unbounded input; its previous bounded-fold override failed at runtime.
+Two-key early and final pane values, indices, and event timestamps match
+Direct and pinned Prism. Equal-time values still need an explicit tie key for
+portable selection.
 
 Direct also emits the expected twelve rows across six global-window branches under a
 processing-time trigger. The pinned Prism panics in

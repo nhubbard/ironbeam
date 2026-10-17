@@ -779,7 +779,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     /// Select the value with the greatest event timestamp for each key.
     ///
     /// Equal timestamps retain a runner-dependent value. Use the tie-key
-    /// variant for deterministic selection across runners.
+    /// variant for deterministic selection across runners. Unbounded global
+    /// input requires an early count or processing-time trigger.
     pub fn latest_per_key_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
         if parent.time.output_time != WindowOutputTime::EarliestInPane {
@@ -794,37 +795,41 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 "latest_per_key does not yet support allowed lateness",
             ));
         }
-        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+        if parent.boundedness == Boundedness::Unbounded
+            && parent.time.window == Window::Global
+            && parent.time.trigger.early_count().is_none()
+            && parent.time.trigger.early_processing_time().is_none()
+        {
             return Err(Error::graph(
                 key,
-                "unbounded global aggregation requires a finite window",
+                "unbounded global aggregation requires a finite window or early trigger",
             ));
         }
         let group_key = format!("{key}/group");
         let grouped = self
             .reify_keyed_timestamp_named(&format!("{key}/timestamp"))?
             .group_by_key_named(&group_key)?;
-        let fold_key = group_key.clone();
-        let fold_factory: FoldFactory = Arc::new(move || {
-            Box::new(LatestPerKeyFoldState::<K, V> {
-                key: fold_key.clone(),
-                indices: HashMap::new(),
-                groups: Vec::new(),
-            })
-        });
-        let aggregate_factory = Arc::clone(&fold_factory);
-        let aggregate_key = group_key.clone();
-        let aggregate: Aggregate = Arc::new(move |inputs| {
-            let [events]: [Vec<Envelope>; 1] = inputs.try_into().map_err(|_| {
-                Error::execution(&aggregate_key, "direct", "latest group requires one input")
-            })?;
-            let mut fold = aggregate_factory();
-            for event in events {
-                fold.add(event)?;
-            }
-            fold.finish()
-        });
-        {
+        if parent.boundedness == Boundedness::Bounded {
+            let fold_key = group_key.clone();
+            let fold_factory: FoldFactory = Arc::new(move || {
+                Box::new(LatestPerKeyFoldState::<K, V> {
+                    key: fold_key.clone(),
+                    indices: HashMap::new(),
+                    groups: Vec::new(),
+                })
+            });
+            let aggregate_factory = Arc::clone(&fold_factory);
+            let aggregate_key = group_key.clone();
+            let aggregate: Aggregate = Arc::new(move |inputs| {
+                let [events]: [Vec<Envelope>; 1] = inputs.try_into().map_err(|_| {
+                    Error::execution(&aggregate_key, "direct", "latest group requires one input")
+                })?;
+                let mut fold = aggregate_factory();
+                for event in events {
+                    fold.add(event)?;
+                }
+                fold.finish()
+            });
             let mut builder = grouped
                 .pipeline
                 .inner
