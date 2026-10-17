@@ -1668,6 +1668,15 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
         .map(|_| ())
         .map_err(Into::into);
     }
+    if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_GLOBAL_PANES") {
+        return ironbeam_prism_proof::streaming_global_combine_panes_fixture(
+            pipeline,
+            capture.into(),
+            ironbeam_prism_proof::StreamingGlobalCombineRoute::All,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
     if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_ORDERED_STREAM") {
         return streaming_ordered_keyed_fixture(pipeline, capture.into())
             .map(|_| ())

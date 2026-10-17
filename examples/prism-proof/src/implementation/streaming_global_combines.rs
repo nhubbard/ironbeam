@@ -99,3 +99,83 @@ pub fn streaming_global_combine_fixture(
         },
     )
 }
+
+/// Exercise early and on-time count and sum panes with latest-in-pane time.
+pub fn streaming_global_combine_panes_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    route: StreamingGlobalCombineRoute,
+) -> Result<Sink<String>, Error> {
+    let source = pipeline
+        .test_stream_source(
+            "streaming-global-panes-source",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 1_000_000), (2, 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+                TestStreamEvent::Elements(vec![(3, 6_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .fixed_windows("streaming-global-panes-window", 10_000_000)?
+        .latest_in_pane_output_time_named("streaming-global-panes-output-time")?
+        .early_count_trigger_named("streaming-global-panes-trigger", 2)?;
+    let count = source
+        .count_globally_named("streaming-global-panes-count")?
+        .reify_timestamps_named("streaming-global-panes-count-time")?
+        .reify_panes_named("streaming-global-panes-count-pane")?
+        .map_named(
+            "streaming-global-panes-count-label",
+            |(pane, (time, value))| {
+                format!(
+                    "count:{:?}:{}:{}:{value}",
+                    pane.timing,
+                    pane.index,
+                    time / 1_000_000
+                )
+            },
+        )?;
+    let sum = source
+        .sum_globally_named("streaming-global-panes-sum")?
+        .reify_timestamps_named("streaming-global-panes-sum-time")?
+        .reify_panes_named("streaming-global-panes-sum-pane")?
+        .map_named(
+            "streaming-global-panes-sum-label",
+            |(pane, (time, value))| {
+                format!(
+                    "sum:{:?}:{}:{}:{value}",
+                    pane.timing,
+                    pane.index,
+                    time / 1_000_000
+                )
+            },
+        )?;
+    let output = match route {
+        StreamingGlobalCombineRoute::All => {
+            count.flatten_named("streaming-global-panes-flatten", &[sum])?
+        }
+        StreamingGlobalCombineRoute::Count => count,
+        StreamingGlobalCombineRoute::Sum => sum,
+        StreamingGlobalCombineRoute::Vector => {
+            return Err(Error::graph(
+                "streaming-global-panes",
+                "vector route is not defined",
+            ));
+        }
+    };
+    let directory = path.clone();
+    output.sink_named_with_config(
+        "streaming-global-panes-sink",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::Idempotent,
+            commit: true,
+        },
+        format!("streaming-global-panes:{}", path.display()),
+        move || {
+            Ok(Box::new(IdempotentRowSink {
+                directory: directory.clone(),
+                pending: Vec::new(),
+            }))
+        },
+    )
+}

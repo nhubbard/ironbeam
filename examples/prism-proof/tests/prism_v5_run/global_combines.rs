@@ -1,5 +1,8 @@
 use super::*;
-use ironbeam_prism_proof::{streaming_global_combine_fixture, StreamingGlobalCombineRoute};
+use ironbeam_prism_proof::{
+    streaming_global_combine_fixture, streaming_global_combine_panes_fixture,
+    StreamingGlobalCombineRoute,
+};
 
 const EXPECTED: [&str; 6] = [
     "count:0:1:3",
@@ -65,4 +68,62 @@ async fn prism_runs_windowed_global_combines() {
     .await;
     assert_eq!(state, 3, "Prism global combines failed: {messages:?}");
     assert_eq!(read_rows(&path), EXPECTED);
+}
+
+const EXPECTED_PANES: [&str; 4] = [
+    "count:Early:0:3:2",
+    "count:OnTime:1:6:1",
+    "sum:Early:0:3:3",
+    "sum:OnTime:1:6:3",
+];
+
+#[test]
+fn direct_runs_early_global_combine_panes() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut rows = Vec::new();
+    for (name, route) in [
+        ("count", StreamingGlobalCombineRoute::Count),
+        ("sum", StreamingGlobalCombineRoute::Sum),
+    ] {
+        let path = directory.path().join(name);
+        let pipeline = Pipeline::default();
+        let sink = streaming_global_combine_panes_fixture(&pipeline, path.clone(), route).unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        rows.extend(read_rows(&path));
+    }
+    rows.sort();
+    assert_eq!(rows, EXPECTED_PANES);
+}
+
+#[tokio::test]
+async fn prism_runs_early_global_combine_panes() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("portable-global-panes");
+    let pipeline = Pipeline::default();
+    streaming_global_combine_panes_fixture(
+        &pipeline,
+        path.clone(),
+        StreamingGlobalCombineRoute::All,
+    )
+    .unwrap();
+    let (state, messages) = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "streaming-global-panes",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAMING_GLOBAL_PANES".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(state, 3, "Prism global panes failed: {messages:?}");
+    assert_eq!(read_rows(&path), EXPECTED_PANES);
 }
