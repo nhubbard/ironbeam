@@ -1,8 +1,8 @@
 use super::*;
 use ironbeam_prism_proof::{
-    three_source_count_boundary_fixture, two_source_count_and_time_boundary_fixture,
-    two_source_count_boundary_fixture, two_source_count_or_time_boundary_fixture,
-    two_source_count_then_time_boundary_fixture,
+    three_source_count_boundary_fixture, three_source_or_finally_fixture,
+    two_source_count_and_time_boundary_fixture, two_source_count_boundary_fixture,
+    two_source_count_or_time_boundary_fixture, two_source_count_then_time_boundary_fixture,
 };
 
 fn read_rows(path: &Path) -> Vec<String> {
@@ -70,6 +70,86 @@ fn assert_three_source_count_panes(rows: &[String]) {
     indices.sort();
     assert_eq!(indices, [0, 1, 2]);
     assert_eq!(totals, [3, 1, 2]);
+}
+
+fn assert_three_source_or_finally_panes(rows: &[String]) {
+    assert_eq!(
+        rows.len(),
+        4,
+        "expected three early panes and one on-time pane: {rows:?}"
+    );
+    let mut totals = [0_usize; 3];
+    let mut panes = Vec::new();
+    for row in rows {
+        let parts = row.split(':').collect::<Vec<_>>();
+        assert_eq!(parts.len(), 6);
+        assert_eq!(parts[0], "1");
+        let sizes = [
+            parts[1].parse::<usize>().unwrap(),
+            parts[2].parse::<usize>().unwrap(),
+            parts[3].parse::<usize>().unwrap(),
+        ];
+        for (total, size) in totals.iter_mut().zip(sizes) {
+            *total += size;
+        }
+        panes.push((
+            parts[5].parse::<usize>().unwrap(),
+            sizes.iter().sum::<usize>(),
+            parts[4],
+        ));
+    }
+    panes.sort_by_key(|pane| pane.0);
+    assert_eq!(totals, [3, 1, 2]);
+    assert_eq!(
+        panes,
+        [
+            (0, 2, "Early"),
+            (1, 2, "Early"),
+            (2, 1, "Early"),
+            (3, 1, "OnTime")
+        ]
+    );
+}
+
+#[test]
+fn direct_three_source_or_finally_fires_at_final_threshold() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("direct-three-source-or-finally");
+    let pipeline = Pipeline::default();
+    let sink = three_source_or_finally_fixture(&pipeline, path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_three_source_or_finally_panes(&read_rows(&path));
+}
+
+#[tokio::test]
+async fn prism_three_source_or_finally_fires_at_final_threshold() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("portable-three-source-or-finally");
+    let pipeline = Pipeline::default();
+    three_source_or_finally_fixture(&pipeline, path.clone()).unwrap();
+    let (state, messages) = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "three-source-or-finally",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_THREE_SOURCE_OR_FINALLY".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        state, 3,
+        "Prism three-source OrFinally failed: {messages:?}"
+    );
+    assert_three_source_or_finally_panes(&read_rows(&path));
 }
 
 #[test]

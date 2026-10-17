@@ -29,8 +29,24 @@ pub fn three_source_count_boundary_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<String>, Error> {
+    three_source_boundary_fixture(pipeline, directory, None)
+}
+
+/// Share one final-count threshold across three independent sources.
+pub fn three_source_or_finally_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    three_source_boundary_fixture(pipeline, directory, Some(5))
+}
+
+fn three_source_boundary_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    final_count: Option<u64>,
+) -> Result<Sink<String>, Error> {
     let source = |name: &str, values: Vec<((i32, i32), i64)>| {
-        pipeline
+        let source = pipeline
             .test_stream_source(
                 name,
                 vec![
@@ -38,8 +54,12 @@ pub fn three_source_count_boundary_fixture(
                     TestStreamEvent::AdvanceWatermark(10_000_000),
                 ],
             )?
-            .fixed_windows(&format!("{name}-window"), 10_000_000)?
-            .early_count_trigger_named(&format!("{name}-trigger"), 2)
+            .fixed_windows(&format!("{name}-window"), 10_000_000)?;
+        if let Some(final_count) = final_count {
+            source.count_or_finally_trigger_named(&format!("{name}-trigger"), 2, final_count)
+        } else {
+            source.early_count_trigger_named(&format!("{name}-trigger"), 2)
+        }
     };
     let first = source(
         "triple-boundary-first",
