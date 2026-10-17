@@ -1,5 +1,7 @@
 use super::*;
-use ironbeam_prism_proof::two_source_count_boundary_fixture;
+use ironbeam_prism_proof::{
+    two_source_count_boundary_fixture, two_source_count_or_time_boundary_fixture,
+};
 
 fn read_rows(path: &Path) -> Vec<String> {
     let mut rows = std::fs::read_dir(path)
@@ -71,5 +73,47 @@ async fn prism_multi_source_count_panes_fire_at_element_boundaries() {
     )
     .await;
     assert_eq!(state, 3, "Prism count boundary failed: {messages:?}");
+    assert_two_count_panes(&read_rows(&path));
+}
+
+#[test]
+fn direct_multi_source_count_or_time_panes_fire_at_element_boundaries() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("direct-count-or-time-boundary");
+    let pipeline = Pipeline::default();
+    let sink = two_source_count_or_time_boundary_fixture(&pipeline, path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_two_count_panes(&read_rows(&path));
+}
+
+#[tokio::test]
+#[ignore = "pinned Prism panics in processing-time timer evaluation for this schedule"]
+async fn prism_multi_source_count_or_time_panes_fire_at_element_boundaries() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("portable-count-or-time-boundary");
+    let pipeline = Pipeline::default();
+    two_source_count_or_time_boundary_fixture(&pipeline, path.clone()).unwrap();
+    let (state, messages) = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "two-source-count-or-time-boundary",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_TWO_SOURCE_COUNT_OR_TIME_BOUNDARY".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        state, 3,
+        "Prism count-or-time boundary failed: {messages:?}"
+    );
     assert_two_count_panes(&read_rows(&path));
 }

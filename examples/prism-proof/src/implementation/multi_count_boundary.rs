@@ -5,6 +5,22 @@ pub fn two_source_count_boundary_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<String>, Error> {
+    count_boundary_fixture(pipeline, directory, false)
+}
+
+/// Fire a count-or-processing-time pane at the count boundary within one batch.
+pub fn two_source_count_or_time_boundary_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    count_boundary_fixture(pipeline, directory, true)
+}
+
+fn count_boundary_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    count_or_time: bool,
+) -> Result<Sink<String>, Error> {
     let left = pipeline
         .test_stream_source(
             "count-boundary-left",
@@ -17,8 +33,12 @@ pub fn two_source_count_boundary_fixture(
                 TestStreamEvent::AdvanceWatermark(10_000_000),
             ],
         )?
-        .fixed_windows("count-boundary-left-window", 10_000_000)?
-        .early_count_trigger_named("count-boundary-left-trigger", 2)?;
+        .fixed_windows("count-boundary-left-window", 10_000_000)?;
+    let left = if count_or_time {
+        left.count_or_processing_time_trigger_named("count-boundary-left-trigger", 2, 5_000_000)?
+    } else {
+        left.early_count_trigger_named("count-boundary-left-trigger", 2)?
+    };
     let right = pipeline
         .test_stream_source(
             "count-boundary-right",
@@ -27,8 +47,16 @@ pub fn two_source_count_boundary_fixture(
                 TestStreamEvent::AdvanceWatermark(10_000_000),
             ],
         )?
-        .fixed_windows("count-boundary-right-window", 10_000_000)?
-        .early_count_trigger_named("count-boundary-right-trigger", 2)?;
+        .fixed_windows("count-boundary-right-window", 10_000_000)?;
+    let right = if count_or_time {
+        right.count_or_processing_time_trigger_named(
+            "count-boundary-right-trigger",
+            2,
+            5_000_000,
+        )?
+    } else {
+        right.early_count_trigger_named("count-boundary-right-trigger", 2)?
+    };
     let sink_directory = directory.clone();
     left.co_group_homogeneous_named("count-boundary-group", &[right])?
         .reify_panes_named("count-boundary-pane")?
