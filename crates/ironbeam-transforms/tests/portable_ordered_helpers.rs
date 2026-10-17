@@ -1,4 +1,6 @@
-use ironbeam_core::{ErrorKind, Pipeline};
+use ironbeam_core::{
+    Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, TestStreamEvent, TypedSink,
+};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_transforms::ElementwiseExt;
 
@@ -67,6 +69,62 @@ fn ordered_helpers_reject_duplicate_order_keys() {
         .unwrap();
     let error = DirectRunner
         .run_collect(&output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert!(error.message.contains("duplicate ordered fold key"));
+}
+
+struct DiscardRows;
+
+impl TypedSink<(u8, String)> for DiscardRows {
+    fn write(&mut self, _value: (u8, String)) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+#[test]
+fn streaming_ordered_helper_rejects_duplicate_order_keys() {
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "input",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_u8, "a".to_owned()), 1_000_000),
+                    ((1, "b".to_owned()), 2_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .first_ordered_by_named("first", |row| row.0)
+        .unwrap()
+        .sink_named_with_config(
+            "discard",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "discard-ordered-duplicates-v1".into(),
+            || Ok(Box::new(DiscardRows)),
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
         .err()
         .unwrap();
     assert_eq!(error.kind, ErrorKind::Execution);

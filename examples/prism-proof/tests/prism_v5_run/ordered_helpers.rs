@@ -1,5 +1,35 @@
 use super::*;
-use ironbeam_prism_proof::{ordered_helpers_fixture, streaming_ordered_helpers_fixture};
+use ironbeam_prism_proof::{
+    ordered_helpers_fixture, streaming_ordered_helpers_fixture, StreamingOrderedHelperRoute,
+};
+
+const STREAMING_ORDERED_ROWS: [&str; 16] = [
+    "distinct:0:1:10",
+    "distinct:0:3:20",
+    "distinct:10:4:10",
+    "distinct:10:6:30",
+    "first:0:1:10",
+    "first:10:4:10",
+    "list:0:0:1:10",
+    "list:0:1:2:10",
+    "list:0:2:3:20",
+    "list:10:0:4:10",
+    "list:10:1:5:10",
+    "list:10:2:6:30",
+    "take:0:1:10",
+    "take:0:2:10",
+    "take:10:4:10",
+    "take:10:5:10",
+];
+
+fn read_row_directory(path: &Path) -> Vec<String> {
+    let mut rows = std::fs::read_dir(path)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    rows.sort();
+    rows
+}
 
 #[tokio::test]
 async fn prism_matches_direct_explicit_order_helpers() {
@@ -51,6 +81,30 @@ async fn prism_matches_direct_explicit_order_helpers() {
     assert_eq!(read_rows(&portable_path), expected);
 }
 
+#[test]
+fn direct_runs_windowed_streaming_order_helpers() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut rows = Vec::new();
+    for (name, route) in [
+        ("list", StreamingOrderedHelperRoute::List),
+        ("take", StreamingOrderedHelperRoute::Take),
+        ("first", StreamingOrderedHelperRoute::First),
+        ("distinct", StreamingOrderedHelperRoute::Distinct),
+    ] {
+        let path = directory.path().join(name);
+        let pipeline = Pipeline::default();
+        let sink = streaming_ordered_helpers_fixture(&pipeline, path.clone(), route).unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        rows.extend(read_row_directory(&path));
+    }
+    rows.sort();
+    assert_eq!(rows, STREAMING_ORDERED_ROWS);
+}
+
 #[tokio::test]
 async fn prism_runs_windowed_streaming_order_helpers() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
@@ -60,7 +114,12 @@ async fn prism_runs_windowed_streaming_order_helpers() {
     let directory = tempfile::tempdir().unwrap();
     let portable_path = directory.path().join("portable-windowed-helpers");
     let portable = Pipeline::default();
-    streaming_ordered_helpers_fixture(&portable, portable_path.clone()).unwrap();
+    streaming_ordered_helpers_fixture(
+        &portable,
+        portable_path.clone(),
+        StreamingOrderedHelperRoute::All,
+    )
+    .unwrap();
     let (state, messages) = run_shared_fixture(
         &endpoint,
         &portable,
@@ -75,31 +134,5 @@ async fn prism_runs_windowed_streaming_order_helpers() {
         state, 3,
         "Prism streaming ordered helpers failed: {messages:?}"
     );
-    let read_rows = |path: &Path| {
-        let mut rows = std::fs::read_dir(path)
-            .unwrap()
-            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
-            .collect::<Vec<_>>();
-        rows.sort();
-        rows
-    };
-    let expected = [
-        "distinct:0:1:10",
-        "distinct:0:3:20",
-        "distinct:10:4:10",
-        "distinct:10:6:30",
-        "first:0:1:10",
-        "first:10:4:10",
-        "list:0:0:1:10",
-        "list:0:1:2:10",
-        "list:0:2:3:20",
-        "list:10:0:4:10",
-        "list:10:1:5:10",
-        "list:10:2:6:30",
-        "take:0:1:10",
-        "take:0:2:10",
-        "take:10:4:10",
-        "take:10:5:10",
-    ];
-    assert_eq!(read_rows(&portable_path), expected);
+    assert_eq!(read_row_directory(&portable_path), STREAMING_ORDERED_ROWS);
 }

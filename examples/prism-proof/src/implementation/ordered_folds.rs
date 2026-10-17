@@ -289,10 +289,21 @@ pub fn ordered_helpers_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sin
         )
 }
 
+/// Select one helper branch, or their merged output, in the streaming fixture.
+#[derive(Clone, Copy)]
+pub enum StreamingOrderedHelperRoute {
+    All,
+    List,
+    Take,
+    First,
+    Distinct,
+}
+
 /// Exercise explicit-order helpers in two closed windows of an unbounded source.
 pub fn streaming_ordered_helpers_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
+    route: StreamingOrderedHelperRoute,
 ) -> Result<Sink<String>, Error> {
     let source = pipeline
         .test_stream_source(
@@ -343,11 +354,17 @@ pub fn streaming_ordered_helpers_fixture(
             format!("distinct:{}:{rank}:{value}", window.start_ns / 1_000_000)
         })?;
     let sink_path = path.clone();
-    list.flatten_named(
-        "streaming-ordered-helpers-flatten",
-        &[take, first, distinct],
-    )?
-    .sink_named_with_config(
+    let output = match route {
+        StreamingOrderedHelperRoute::All => list.flatten_named(
+            "streaming-ordered-helpers-flatten",
+            &[take, first, distinct],
+        )?,
+        StreamingOrderedHelperRoute::List => list,
+        StreamingOrderedHelperRoute::Take => take,
+        StreamingOrderedHelperRoute::First => first,
+        StreamingOrderedHelperRoute::Distinct => distinct,
+    };
+    output.sink_named_with_config(
         "streaming-ordered-helpers-sink",
         SinkSpec {
             mode: SinkMode::Append,

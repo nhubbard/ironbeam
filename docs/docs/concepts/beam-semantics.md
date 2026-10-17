@@ -228,8 +228,11 @@ requires a total order. Direct can preserve encounter order for its local
 variant, but that local behavior is not a portable ordering guarantee.
 
 The explicit-order list, take, first, and distinct-by helpers run in two
-fixed windows of an unbounded source on local Prism. Direct's streaming route
-does not yet support unbounded `GlobalCombine`, which these helpers use.
+fixed windows of an unbounded source on Direct and local Prism. For unbounded
+input, the helpers use a constant key and `GroupByKey` so Direct can retain
+open windows in its checkpoint. Direct runs each helper branch separately;
+Prism also runs the four branches merged into one sink. Direct does not yet
+support that merged streaming route.
 
 The `to_list_ordered_by_named`, `take_ordered_by_named`,
 `first_ordered_by_named`, and `distinct_by_ordered_by_named` helpers use the

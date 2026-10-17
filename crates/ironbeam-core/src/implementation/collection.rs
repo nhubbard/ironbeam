@@ -1705,6 +1705,55 @@ impl<T: Element> PCollection<T> {
                 "unbounded global aggregation requires a finite window",
             ));
         }
+        if parent.boundedness == Boundedness::Unbounded {
+            let keyed = self
+                .reify_timestamps_named(&format!("{key}/time"))?
+                .map_named(&format!("{key}/key"), |row| (0_u8, row))?;
+            let grouped = keyed.group_by_key_named(&format!("{key}/group"))?;
+            let node_key = key.to_owned();
+            let select = Transform::Single(Arc::new(move |event| {
+                let Envelope {
+                    pane,
+                    value,
+                    window,
+                    assigned_window,
+                    ..
+                } = event;
+                let (_, values) = *value.downcast::<(u8, Vec<(i64, T)>)>().map_err(|_| {
+                    Error::execution(&node_key, "runner", "ordered global fold group type mismatch")
+                })?;
+                let mut ordered = BTreeMap::new();
+                for (timestamp_ns, value) in values {
+                    if ordered
+                        .insert(order_key(&value), (timestamp_ns, value))
+                        .is_some()
+                    {
+                        return Err(Error::execution(
+                            &node_key,
+                            "runner",
+                            "duplicate ordered fold key in key/window",
+                        ));
+                    }
+                }
+                let timestamp_ns = ordered
+                    .first_key_value()
+                    .ok_or_else(|| Error::execution(&node_key, "runner", "ordered global fold group is empty"))?
+                    .1
+                    .0;
+                let mut accumulator = fold.create();
+                for (_, (_, value)) in ordered {
+                    fold.add_input(&mut accumulator, value);
+                }
+                Ok(Some(Envelope {
+                    pane,
+                    value: Box::new(fold.finish(accumulator)),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                }))
+            }));
+            return grouped.next(key, Operation::Map, Some(select), None);
+        }
         let node_key = key.to_owned();
         let output_window = parent.time.window.clone();
         let aggregate: Aggregate = Arc::new(move |inputs| {

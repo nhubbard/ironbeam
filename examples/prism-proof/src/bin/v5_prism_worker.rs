@@ -1651,7 +1651,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map_err(Into::into);
     }
     if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_ORDERED_HELPERS") {
-        return ironbeam_prism_proof::streaming_ordered_helpers_fixture(pipeline, capture.into())
+        return ironbeam_prism_proof::streaming_ordered_helpers_fixture(
+            pipeline,
+            capture.into(),
+            ironbeam_prism_proof::StreamingOrderedHelperRoute::All,
+        )
             .map(|_| ())
             .map_err(Into::into);
     }
