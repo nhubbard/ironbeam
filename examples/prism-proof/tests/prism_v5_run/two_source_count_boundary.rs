@@ -22,9 +22,10 @@ fn assert_two_count_panes(rows: &[String]) {
     let mut left_total = 0;
     let mut right_total = 0;
     let mut indices = Vec::new();
+    let mut timestamps = Vec::new();
     for row in rows {
         let parts = row.split(':').collect::<Vec<_>>();
-        assert_eq!(parts.len(), 5);
+        assert_eq!(parts.len(), 6);
         assert_eq!(parts[0], "1");
         let left = parts[1].parse::<usize>().unwrap();
         let right = parts[2].parse::<usize>().unwrap();
@@ -33,9 +34,15 @@ fn assert_two_count_panes(rows: &[String]) {
         left_total += left;
         right_total += right;
         indices.push(parts[4].parse::<i64>().unwrap());
+        timestamps.push((
+            parts[4].parse::<i64>().unwrap(),
+            parts[5].parse::<i64>().unwrap(),
+        ));
     }
     indices.sort();
+    timestamps.sort();
     assert_eq!(indices, [0, 1]);
+    assert_eq!(timestamps, [(0, 1_000_000), (1, 3_000_000)]);
     assert_eq!((left_total, right_total), (3, 1));
 }
 
@@ -129,7 +136,7 @@ fn assert_count_then_time_boundary(rows: &[String]) {
     let mut early_size = None;
     for row in rows {
         let parts = row.split(':').collect::<Vec<_>>();
-        assert_eq!(parts.len(), 5);
+        assert_eq!(parts.len(), 6);
         assert_eq!(parts[0], "1");
         let size = parts[1].parse::<usize>().unwrap() + parts[2].parse::<usize>().unwrap();
         total += size;

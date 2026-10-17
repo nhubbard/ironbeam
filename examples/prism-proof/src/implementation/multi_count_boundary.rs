@@ -91,9 +91,10 @@ fn count_boundary_fixture(
     let sink_directory = directory.clone();
     left.co_group_homogeneous_named("count-boundary-group", &[right])?
         .reify_panes_named("count-boundary-pane")?
-        .map_named("count-boundary-row", |(pane, (key, values))| {
+        .reify_timestamps_named("count-boundary-time")?
+        .map_named("count-boundary-row", |(time, (pane, (key, values)))| {
             format!(
-                "{key}:{}:{}:{:?}:{}",
+                "{key}:{}:{}:{:?}:{}:{time}",
                 values[0].len(),
                 values[1].len(),
                 pane.timing,
