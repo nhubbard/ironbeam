@@ -69,7 +69,7 @@ pub trait ElementwiseExt<T: Element> {
     /// Each nonempty window produces one vector. A bounded, empty global
     /// window produces an empty vector. Duplicate order keys in a window
     /// fail the job. The output timestamp comes from the smallest order key.
-    /// Unbounded input requires a finite window.
+    /// Unbounded input requires a finite window or an early trigger.
     fn to_list_ordered_by_named<Q: Ord + Send + 'static>(
         &self,
         key: &str,
@@ -80,7 +80,8 @@ pub trait ElementwiseExt<T: Element> {
     /// Emit at most `limit` values per window, in ascending order of `order_key`.
     ///
     /// Order keys must be unique across the whole window, including values
-    /// beyond `limit`. Unbounded input requires a finite window.
+    /// beyond `limit`. Unbounded input requires a finite window or an early
+    /// trigger.
     fn take_ordered_by_named<Q: Ord + Send + 'static>(
         &self,
         key: &str,
@@ -92,7 +93,7 @@ pub trait ElementwiseExt<T: Element> {
     /// Emit the value with the smallest `order_key` in each nonempty window.
     ///
     /// Duplicate order keys fail the job. Unbounded input requires a finite
-    /// window.
+    /// window or an early trigger.
     fn first_ordered_by_named<Q: Ord + Send + 'static>(
         &self,
         key: &str,
@@ -125,7 +126,7 @@ pub trait ElementwiseExt<T: Element> {
     ///
     /// Selection is independent within each window. Order keys must be unique
     /// across the whole window, including discarded values. Unbounded input
-    /// requires a finite window.
+    /// requires a finite window or an early trigger.
     fn distinct_by_ordered_by_named<K: Eq + Hash + Send + 'static, Q: Ord + Send + 'static>(
         &self,
         key: &str,

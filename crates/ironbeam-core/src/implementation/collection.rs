@@ -1555,7 +1555,8 @@ impl<T: Element> PCollection<T> {
     /// An empty bounded global collection invokes `f` with an empty vector.
     /// For large inputs, prefer a mergeable combiner to avoid materializing
     /// every value. Input order is not preserved across a portable shuffle.
-    /// An unbounded global collection requires a finite window.
+    /// An unbounded global collection requires a finite window or an early
+    /// count or processing-time trigger.
     /// In that case, the runner groups and retains the window's values before
     /// calling `f`; large windows need a corresponding state budget.
     pub fn combine_globally_named<U: Element>(
@@ -1564,10 +1565,14 @@ impl<T: Element> PCollection<T> {
         f: impl Fn(Vec<T>) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
         let parent = self.parent()?;
-        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+        if parent.boundedness == Boundedness::Unbounded
+            && parent.time.window == Window::Global
+            && parent.time.trigger.early_count().is_none()
+            && parent.time.trigger.early_processing_time().is_none()
+        {
             return Err(Error::graph(
                 key,
-                "unbounded global aggregation requires a finite window",
+                "unbounded global aggregation requires a finite window or early trigger",
             ));
         }
         if parent.boundedness == Boundedness::Unbounded {
@@ -1658,7 +1663,7 @@ impl<T: Element> PCollection<T> {
     /// Combine each window with a mergeable accumulator.
     ///
     /// The accumulator can be merged across partitions. Unbounded global
-    /// input requires a finite window before this transform. The streaming
+    /// input requires a finite window or an early trigger. The streaming
     /// route groups and retains each window's values until a pane fires.
     pub fn combine_globally_lifted_named<C, A, O>(
         &self,
@@ -1671,10 +1676,14 @@ impl<T: Element> PCollection<T> {
         O: Element,
     {
         let parent = self.parent()?;
-        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+        if parent.boundedness == Boundedness::Unbounded
+            && parent.time.window == Window::Global
+            && parent.time.trigger.early_count().is_none()
+            && parent.time.trigger.early_processing_time().is_none()
+        {
             return Err(Error::graph(
                 key,
-                "unbounded global aggregation requires a finite window",
+                "unbounded global aggregation requires a finite window or early trigger",
             ));
         }
         if parent.boundedness == Boundedness::Unbounded {
@@ -1777,7 +1786,8 @@ impl<T: Element> PCollection<T> {
         self.next_fold(key, Operation::FoldOrderedGlobal, factory, None)
     }
     /// Fold each window in an explicit order on Direct and portable runners.
-    /// Order keys must be unique within a window. An empty global input emits
+    /// Order keys must be unique within a window. An unbounded global input
+    /// requires an early trigger. A bounded empty global input emits
     /// `fold.finish(fold.create())` at timestamp zero. A nonempty result uses
     /// the event timestamp of the value with the smallest order key.
     pub fn fold_globally_ordered_by_named<Q, C, A, O>(
@@ -1793,10 +1803,14 @@ impl<T: Element> PCollection<T> {
         O: Element,
     {
         let parent = self.parent()?;
-        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+        if parent.boundedness == Boundedness::Unbounded
+            && parent.time.window == Window::Global
+            && parent.time.trigger.early_count().is_none()
+            && parent.time.trigger.early_processing_time().is_none()
+        {
             return Err(Error::graph(
                 key,
-                "unbounded global aggregation requires a finite window",
+                "unbounded global aggregation requires a finite window or early trigger",
             ));
         }
         if parent.boundedness == Boundedness::Unbounded {
