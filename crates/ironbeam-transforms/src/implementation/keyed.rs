@@ -35,6 +35,19 @@ impl<K: Element, V: Element> KeyedExt<K, V> for PCollection<(K, V)> {
         K: Eq + Hash + Clone,
         V: Eq + Hash + Clone,
     {
+        if self.boundedness()? == Boundedness::Unbounded {
+            return self.group_by_key_named(group_key)?.flat_map_named(
+                key,
+                |(group, values)| {
+                    let mut seen = HashSet::new();
+                    values
+                        .into_iter()
+                        .filter(|value| seen.insert(value.clone()))
+                        .map(|value| (group.clone(), value))
+                        .collect()
+                },
+            );
+        }
         self.fold_values_ordered_named(group_key, Distinct)?
             .flat_map_named(key, |(group, values)| {
                 values

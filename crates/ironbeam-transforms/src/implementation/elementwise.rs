@@ -1,4 +1,5 @@
 use ironbeam_core::{Boundedness, Element, Error, PCollection};
+use std::collections::HashSet;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -375,7 +376,10 @@ pub trait KeyedExt<K: Element, V: Element> {
     ) -> Result<PCollection<(K, u64)>, Error>
     where
         K: Eq + Hash + Clone;
-    /// Keep one occurrence of each value per key.
+    /// Keep one occurrence of each value per key and emitted window pane.
+    ///
+    /// Unbounded input requires a closing window or a trigger. A value can
+    /// appear again in a later pane when the trigger discards prior contents.
     fn distinct_per_key_named(
         &self,
         group_key: &str,

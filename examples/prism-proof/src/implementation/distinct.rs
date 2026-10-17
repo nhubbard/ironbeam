@@ -1,6 +1,6 @@
 use super::*;
 use ironbeam_core::PaneTiming;
-use ironbeam_transforms::ElementwiseExt;
+use ironbeam_transforms::{ElementwiseExt, KeyedExt};
 
 /// One value per window, including the earliest event timestamp.
 pub fn distinct_window_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
@@ -210,6 +210,48 @@ pub fn streaming_global_count_per_element_fixture(
                 commit: true,
             },
             format!("global-count-stream:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
+/// Keep one copy of each keyed value in each discarding global pane.
+pub fn streaming_global_distinct_per_key_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "global-distinct-stream",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("k".to_owned(), "a".to_owned()), 1_000_000),
+                    (("k".to_owned(), "a".to_owned()), 2_000_000),
+                    (("k".to_owned(), "b".to_owned()), 3_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![(("k".to_owned(), "a".to_owned()), 11_000_000)]),
+            ],
+        )?
+        .early_count_trigger_named("global-distinct-trigger", 2)?
+        .distinct_per_key_named("global-distinct-group", "global-distinct")?
+        .reify_panes_named("global-distinct-pane")?
+        .map_named("global-distinct-row", |(pane, (group, value))| {
+            format!("{group}:{value}:{:?}:{}", pane.timing, pane.index)
+        })?
+        .sink_named_with_config(
+            "global-distinct-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("global-distinct-stream:{}", directory.display()),
             move || {
                 Ok(Box::new(IdempotentRowSink {
                     directory: sink_directory.clone(),
