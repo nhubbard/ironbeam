@@ -68,7 +68,8 @@ pub trait ElementwiseExt<T: Element> {
     ///
     /// Each nonempty window produces one vector. A bounded, empty global
     /// window produces an empty vector. Duplicate order keys in a window
-    /// fail the job. Unbounded input requires a finite window.
+    /// fail the job. The output timestamp comes from the smallest order key.
+    /// Unbounded input requires a finite window.
     fn to_list_ordered_by_named<Q: Ord + Send + 'static>(
         &self,
         key: &str,

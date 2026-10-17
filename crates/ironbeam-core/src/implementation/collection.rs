@@ -1554,7 +1554,8 @@ impl<T: Element> PCollection<T> {
     ///
     /// An empty bounded global collection invokes `f` with an empty vector.
     /// For large inputs, prefer a mergeable combiner to avoid materializing
-    /// every value. An unbounded global collection requires a finite window.
+    /// every value. Input order is not preserved across a portable shuffle.
+    /// An unbounded global collection requires a finite window.
     /// In that case, the runner groups and retains the window's values before
     /// calling `f`; large windows need a corresponding state budget.
     pub fn combine_globally_named<U: Element>(
@@ -1777,7 +1778,8 @@ impl<T: Element> PCollection<T> {
     }
     /// Fold each window in an explicit order on Direct and portable runners.
     /// Order keys must be unique within a window. An empty global input emits
-    /// `fold.finish(fold.create())` at timestamp zero.
+    /// `fold.finish(fold.create())` at timestamp zero. A nonempty result uses
+    /// the event timestamp of the value with the smallest order key.
     pub fn fold_globally_ordered_by_named<Q, C, A, O>(
         &self,
         key: &str,
